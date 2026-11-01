@@ -59,11 +59,7 @@ impl DataField {
         type_name: &'static str,
         description: &'static str,
     ) -> Self {
-        Self {
-            name,
-            type_name,
-            description,
-        }
+        Self { name, type_name, description }
     }
 }
 
@@ -90,10 +86,7 @@ impl DataProviderSchema {
     /// `description` is `&'static str`; see [`DataField`] for the rationale.
     #[must_use]
     pub const fn new(description: &'static str, fields: Vec<DataField>) -> Self {
-        Self {
-            description,
-            fields,
-        }
+        Self { description, fields }
     }
 }
 
@@ -343,20 +336,15 @@ impl DataRegistry {
     /// Returns schemas for all providers that have non-empty descriptions.
     #[must_use]
     pub fn schemas(&self) -> Vec<(&str, DataProviderSchema)> {
-        let mut result: Vec<_> = self
-            .providers
-            .iter()
-            .map(|(name, p)| (name.as_str(), p.schema()))
-            .collect();
+        let mut result: Vec<_> =
+            self.providers.iter().map(|(name, p)| (name.as_str(), p.schema())).collect();
         result.sort_by_key(|(name, _)| *name);
         result
     }
 
     /// Returns about-card field declarations from the named provider.
     pub fn about_fields(&self, provider_name: &str) -> Vec<AboutFieldDef> {
-        self.get(provider_name)
-            .map(DataProvider::about_fields)
-            .unwrap_or_default()
+        self.get(provider_name).map(DataProvider::about_fields).unwrap_or_default()
     }
 
     /// Dispatch to the provider registered under `name`.
@@ -401,20 +389,14 @@ impl DataRegistry {
         name: &str,
         ctx: &mut Context,
     ) -> Result<serde_json::Value, DataProviderError> {
-        let provider = self
-            .providers
-            .get(name)
-            .ok_or_else(|| DataProviderError::not_found(name))?;
+        let provider =
+            self.providers.get(name).ok_or_else(|| DataProviderError::not_found(name))?;
         ctx.enter_provider(name)?;
         let owns_deadline = ctx.begin_deadline(name);
         // Teardown lives in the DispatchGuard's Drop,
         // not in fall-through code below — a panicking provider unwinds
         // through this frame, and statements after the call would never run.
-        let dispatch = DispatchGuard {
-            ctx,
-            name,
-            owns_deadline,
-        };
+        let dispatch = DispatchGuard { ctx, name, owns_deadline };
         let result = provider.provide(&mut *dispatch.ctx);
         // Read the overrun before the guard drops: the deadline is gone
         // afterwards.

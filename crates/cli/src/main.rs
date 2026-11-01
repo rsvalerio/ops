@@ -125,9 +125,7 @@ fn extract_exit_code_override(err: &anyhow::Error) -> Option<u8> {
     if let Some(o) = err.downcast_ref::<ExitCodeOverride>() {
         return Some(o.0);
     }
-    err.chain()
-        .find_map(|cause| cause.downcast_ref::<ExitCodeOverride>())
-        .map(|o| o.0)
+    err.chain().find_map(|cause| cause.downcast_ref::<ExitCodeOverride>()).map(|o| o.0)
 }
 
 fn exit_code_for_error(err: &anyhow::Error) -> ExitCode {
@@ -301,10 +299,9 @@ fn dispatch(
             // surfaced as SIGINT_EXIT (130), not a hard error.
             return import_makefile_cmd::run_import_makefile(&cwd, file);
         }
-        Some(CoreSubcommand::RunBeforeCommit {
-            changed_only,
-            action,
-        }) => return run_before_commit(early_config, action, changed_only, cli.dry_run),
+        Some(CoreSubcommand::RunBeforeCommit { changed_only, action }) => {
+            return run_before_commit(early_config, action, changed_only, cli.dry_run)
+        }
         Some(CoreSubcommand::RunBeforePush { action }) => {
             return run_before_push(early_config, action, cli.dry_run);
         }
@@ -323,10 +320,7 @@ fn dispatch(
         Some(CoreSubcommand::EndOfFileFixer { tracked, check }) => {
             return run_end_of_file_fixer(tracked, check);
         }
-        Some(CoreSubcommand::CheckJson {
-            tracked,
-            allow_json5,
-        }) => {
+        Some(CoreSubcommand::CheckJson { tracked, allow_json5 }) => {
             return run_check_json(tracked, allow_json5);
         }
         Some(CoreSubcommand::CheckYaml { tracked }) => {
@@ -392,13 +386,7 @@ fn run_check(
     dry_run: bool,
 ) -> anyhow::Result<ExitCode> {
     match sub {
-        CoreSubcommand::Sec {
-            skip,
-            force,
-            no_default_skips,
-            no_dev_deps,
-            repo,
-        } => {
+        CoreSubcommand::Sec { skip, force, no_default_skips, no_dev_deps, repo } => {
             let overrides = sec_cmd::SecOverrides {
                 skip: skip.iter().map(|s| s.to_scan()).collect(),
                 force: force.iter().map(|s| s.to_scan()).collect(),
@@ -540,9 +528,8 @@ mod exit_code_tests {
 
     #[test]
     fn override_works_through_nested_context() {
-        let err = anyhow::anyhow!("io")
-            .context(ExitCodeOverride(141))
-            .context("while writing output");
+        let err =
+            anyhow::anyhow!("io").context(ExitCodeOverride(141)).context("while writing output");
         assert_eq!(extract_exit_code_override(&err), Some(141));
     }
 }
@@ -584,20 +571,14 @@ mod log_level_tests {
     fn empty_string_writes_nothing() {
         let mut buf: Vec<u8> = Vec::new();
         let _ = parse_log_level(Some(""), &mut buf);
-        assert!(
-            buf.is_empty(),
-            "no warning for empty OPS_LOG_LEVEL, got: {buf:?}"
-        );
+        assert!(buf.is_empty(), "no warning for empty OPS_LOG_LEVEL, got: {buf:?}");
     }
 
     #[test]
     fn whitespace_only_writes_nothing() {
         let mut buf: Vec<u8> = Vec::new();
         let _ = parse_log_level(Some("   "), &mut buf);
-        assert!(
-            buf.is_empty(),
-            "no warning for whitespace-only OPS_LOG_LEVEL, got: {buf:?}"
-        );
+        assert!(buf.is_empty(), "no warning for whitespace-only OPS_LOG_LEVEL, got: {buf:?}");
     }
 
     #[test]
@@ -606,10 +587,7 @@ mod log_level_tests {
             let mut buf: Vec<u8> = Vec::new();
             let directive = parse_log_level(v, &mut buf);
             let s = format!("{directive}");
-            assert!(
-                s.contains("info"),
-                "{v:?} must yield INFO default, got: {s}"
-            );
+            assert!(s.contains("info"), "{v:?} must yield INFO default, got: {s}");
         }
     }
 
@@ -618,25 +596,16 @@ mod log_level_tests {
         struct FailingWriter;
         impl std::io::Write for FailingWriter {
             fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "broken",
-                ))
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken"))
             }
             fn flush(&mut self) -> std::io::Result<()> {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "broken",
-                ))
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken"))
             }
         }
         let directive = parse_log_level(Some("!!bad!!"), &mut FailingWriter);
         // The returned directive should still be the INFO fallback despite
         // the writeln failure — the swallow is documented and intentional.
         let s = format!("{directive}");
-        assert!(
-            s.contains("info"),
-            "expected INFO fallback directive, got: {s}"
-        );
+        assert!(s.contains("info"), "expected INFO fallback directive, got: {s}");
     }
 }

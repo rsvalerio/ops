@@ -66,9 +66,7 @@ const LONG_COMMAND_IDS: [&str; 12] = [
 ];
 
 fn main() -> Result<()> {
-    let out_dir = std::env::args_os()
-        .nth(1)
-        .map_or_else(default_out_dir, PathBuf::from);
+    let out_dir = std::env::args_os().nth(1).map_or_else(default_out_dir, PathBuf::from);
     for (path, contents) in render_all(&out_dir)? {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
@@ -100,10 +98,7 @@ fn render_all(out_dir: &Path) -> Result<Vec<(PathBuf, String)>> {
         check_tokens(&name, &cards, &tokens, &bundle_css)?;
         let components = project.join("components");
         for card in &cards {
-            files.push((
-                components.join(card.component).join("preview.html"),
-                card.html(),
-            ));
+            files.push((components.join(card.component).join("preview.html"), card.html()));
         }
         files.push((components.join("bundle.css"), bundle_css.clone()));
     }
@@ -127,15 +122,7 @@ struct Line(Vec<Cell>);
 
 impl Line {
     fn plain(text: &str) -> Self {
-        Self(
-            strip_ansi(text)
-                .chars()
-                .map(|ch| Cell {
-                    ch,
-                    ..Cell::default()
-                })
-                .collect(),
-        )
+        Self(strip_ansi(text).chars().map(|ch| Cell { ch, ..Cell::default() }).collect())
     }
 
     const fn len(&self) -> usize {
@@ -143,10 +130,7 @@ impl Line {
     }
 
     fn columns(&self) -> usize {
-        self.0
-            .iter()
-            .map(|c| c.ch.width().unwrap_or(0))
-            .fold(0, usize::saturating_add)
+        self.0.iter().map(|c| c.ch.width().unwrap_or(0)).fold(0, usize::saturating_add)
     }
 
     fn text(&self) -> String {
@@ -213,19 +197,12 @@ fn cell_html(ch: char) -> String {
     if ch.is_ascii() {
         return escape(&ch.to_string());
     }
-    let class = if ch.width() == Some(2) {
-        "ops-c2"
-    } else {
-        "ops-c"
-    };
+    let class = if ch.width() == Some(2) { "ops-c2" } else { "ops-c" };
     format!(r#"<span class="{class}">{ch}</span>"#)
 }
 
 fn escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 /// CSS classes for a colour spec: one `sgr-<code>` per SGR code the theme's
@@ -270,11 +247,7 @@ struct Card {
 
 impl Specimens {
     fn new(name: &str, config: ThemeConfig) -> Self {
-        Self {
-            name: name.to_string(),
-            theme: ConfigurableTheme::new(config.clone()),
-            config,
-        }
+        Self { name: name.to_string(), theme: ConfigurableTheme::new(config.clone()), config }
     }
 
     const fn boxed(&self) -> bool {
@@ -333,27 +306,16 @@ impl Specimens {
         running: bool,
     ) -> (usize, usize, usize, usize) {
         let parts = self.theme.icon_prefix_parts(icon, running);
-        let pad = if running {
-            0
-        } else {
-            chars(self.theme.left_pad_str())
-        };
+        let pad = if running { 0 } else { chars(self.theme.left_pad_str()) };
         let label_start = pad
             .saturating_add(chars(parts.indent))
             .saturating_add(chars(parts.icon))
             .saturating_add(chars(&parts.pad))
             .saturating_add(1);
         let text: Vec<char> = line.0.iter().map(|c| c.ch).collect();
-        let content_end = text
-            .iter()
-            .rposition(|c| *c != ' ')
-            .map_or(0, |i| i.saturating_add(1));
+        let content_end = text.iter().rposition(|c| *c != ' ').map_or(0, |i| i.saturating_add(1));
         let (glyphs_end, sep_end, trailing_start) = if trailing.is_empty() {
-            (
-                content_end,
-                content_end.saturating_add(1),
-                content_end.saturating_add(1),
-            )
+            (content_end, content_end.saturating_add(1), content_end.saturating_add(1))
         } else {
             let trailing_start = content_end.saturating_sub(chars(trailing));
             let glyphs_end = trailing_start.saturating_sub(1);
@@ -394,17 +356,11 @@ impl Specimens {
         let budget = COLUMNS.saturating_sub(self.theme.step_column_reserve());
         let step = StepLine::new(status, label, elapsed);
         let inner = strip_ansi(&self.theme.render(&step, budget));
-        let trailing = elapsed
-            .map(|s| self.theme.format_elapsed(s))
-            .unwrap_or_default();
+        let trailing = elapsed.map(|s| self.theme.format_elapsed(s)).unwrap_or_default();
         let icon = self.theme.status_icon(status).to_string();
         let duration = classes(&self.config.duration_color);
         if self.boxed() {
-            let cell = if status == StepStatus::Pending {
-                "░"
-            } else {
-                "█"
-            };
+            let cell = if status == StepStatus::Pending { "░" } else { "█" };
             let mut line = Line::plain(&self.theme.wrap_step_line(&inner, cell, COLUMNS));
             let offset = chars(self.theme.left_pad_str()).saturating_add(chars("│ ░  "));
             let mut inner_line = Line::plain(&inner);
@@ -429,16 +385,9 @@ impl Specimens {
         let padded = format!("{}{template}", self.theme.left_pad_str());
         let style = ProgressStyle::with_template(&padded)?
             .tick_chars(self.theme.tick_chars())
-            .with_key(
-                "elapsed",
-                |state: &ProgressState, w: &mut dyn std::fmt::Write| {
-                    let _ = write!(
-                        w,
-                        "{}",
-                        format_running_elapsed(state.elapsed().as_secs_f64())
-                    );
-                },
-            );
+            .with_key("elapsed", |state: &ProgressState, w: &mut dyn std::fmt::Write| {
+                let _ = write!(w, "{}", format_running_elapsed(state.elapsed().as_secs_f64()));
+            });
         let term = RecordingTerm::default();
         let bar = ProgressBar::with_draw_target(
             None,
@@ -446,9 +395,7 @@ impl Specimens {
         )
         .with_elapsed(elapsed);
         bar.set_style(style);
-        let msg = self
-            .theme
-            .render(&StepLine::new(StepStatus::Running, label, None), COLUMNS);
+        let msg = self.theme.render(&StepLine::new(StepStatus::Running, label, None), COLUMNS);
         bar.set_message(msg.clone());
         bar.tick();
         let drawn = term.last_line().ok_or("indicatif drew no running row")?;
@@ -513,11 +460,7 @@ impl Specimens {
             (sep_start, sep_end, classes(&self.config.separator_color)),
         ];
         for (start, end, own) in parts {
-            let paint = if own.is_empty() {
-                current.clone()
-            } else {
-                own.clone()
-            };
+            let paint = if own.is_empty() { current.clone() } else { own.clone() };
             line.paint(at.saturating_add(start), end.saturating_sub(start), &paint);
             if !own.is_empty() {
                 current = String::new();
@@ -534,16 +477,9 @@ impl Specimens {
         let header = classes(&self.config.header_color);
         if self.boxed() {
             let mut line = Line::plain(
-                &self
-                    .theme
-                    .box_top_border(snapshot(&ids, Outcome::Started))
-                    .unwrap_or_default(),
+                &self.theme.box_top_border(snapshot(&ids, Outcome::Started)).unwrap_or_default(),
             );
-            let title = format!(
-                " {}Running: {} ",
-                self.theme.plan_header_prefix(),
-                ids.join(", ")
-            );
+            let title = format!(" {}Running: {} ", self.theme.plan_header_prefix(), ids.join(", "));
             let start = chars(self.theme.left_pad_str()).saturating_add(chars("╭─"));
             line.paint(start, chars(&title), &header);
             return vec![line];
@@ -582,11 +518,8 @@ impl Specimens {
         if self.boxed() {
             // The success specimen is a two-step plan, like the flat `Done 2/2`.
             let steps = if success { 2 } else { COMMAND_IDS.len() };
-            let ids: Vec<String> = COMMAND_IDS
-                .iter()
-                .take(steps)
-                .map(ToString::to_string)
-                .collect();
+            let ids: Vec<String> =
+                COMMAND_IDS.iter().take(steps).map(ToString::to_string).collect();
             let snap = if success {
                 snapshot(&ids, Outcome::Passed)
             } else {
@@ -594,36 +527,24 @@ impl Specimens {
             };
             let mut line = Line::plain(&self.theme.box_bottom_border(snap).unwrap_or_default());
             let start = chars(self.theme.left_pad_str()).saturating_add(chars("╰─"));
-            let end = line
-                .find(" ─", start)
-                .map_or(line.len(), |i| i.saturating_add(1));
+            let end = line.find(" ─", start).map_or(line.len(), |i| i.saturating_add(1));
             line.paint(start, end.saturating_sub(start), &summary);
             return line;
         }
         let body = if success {
             format!("Done 2/2 in {}", format_duration(0.54))
         } else {
-            format!(
-                "2 succeeded, 0 skipped, 1 failed of 3 in {}",
-                format_duration(0.55)
-            )
+            format!("2 succeeded, 0 skipped, 1 failed of 3 in {}", format_duration(0.55))
         };
         let mut line = Line::plain(&self.theme.render_summary_text(&body));
-        line.paint(
-            line.len().saturating_sub(chars(&body)),
-            chars(&body),
-            &summary,
-        );
+        line.paint(line.len().saturating_sub(chars(&body)), chars(&body), &summary);
         line
     }
 
     fn error_lines(&self) -> Vec<Line> {
         let detail = ErrorDetail::new(
             "exit status: 1",
-            vec![
-                "assertion failed: left == right".to_string(),
-                "  left: 3, right: 4".to_string(),
-            ],
+            vec!["assertion failed: left == right".to_string(), "  left: 3, right: 4".to_string()],
         );
         let chars_cfg = &self.config.error_block;
         let glyphs = classes(&chars_cfg.color);
@@ -651,36 +572,16 @@ impl Specimens {
     // ----- cards
 
     fn box_frame(&self) -> Card {
-        let ids: Vec<String> = COMMAND_IDS
-            .iter()
-            .take(2)
-            .map(ToString::to_string)
-            .collect();
+        let ids: Vec<String> = COMMAND_IDS.iter().take(2).map(ToString::to_string).collect();
         let mut top = Line::plain(
-            &self
-                .theme
-                .box_top_border(snapshot(&ids, Outcome::Started))
-                .unwrap_or_default(),
+            &self.theme.box_top_border(snapshot(&ids, Outcome::Started)).unwrap_or_default(),
         );
-        let title = format!(
-            " {}Running: {} ",
-            self.theme.plan_header_prefix(),
-            ids.join(", ")
-        );
-        top.paint(
-            chars("╭─"),
-            chars(&title),
-            &classes(&self.config.header_color),
-        );
+        let title = format!(" {}Running: {} ", self.theme.plan_header_prefix(), ids.join(", "));
+        top.paint(chars("╭─"), chars(&title), &classes(&self.config.header_color));
         let mut bottom = Line::plain(
-            &self
-                .theme
-                .box_bottom_border(snapshot(&ids, Outcome::Started))
-                .unwrap_or_default(),
+            &self.theme.box_bottom_border(snapshot(&ids, Outcome::Started)).unwrap_or_default(),
         );
-        let end = bottom
-            .find(" ─", 2)
-            .map_or(bottom.len(), |i| i.saturating_add(1));
+        let end = bottom.find(" ─", 2).map_or(bottom.len(), |i| i.saturating_add(1));
         bottom.paint(
             chars("╰─"),
             end.saturating_sub(chars("╰─")),
@@ -748,11 +649,7 @@ impl Specimens {
                         "cargo clippy --all-targets -- -D warnings",
                         Duration::from_millis(3_120),
                     )?,
-                    self.step(
-                        StepStatus::Succeeded,
-                        "cargo build --all-targets",
-                        Some(0.35),
-                    ),
+                    self.step(StepStatus::Succeeded, "cargo build --all-targets", Some(0.35)),
                 ],
             )],
             caption: Some("the left column fills as the plan advances".into()),
@@ -774,11 +671,7 @@ impl Specimens {
                         "cargo clippy --all-targets -- -D warnings",
                         Duration::from_millis(3_120),
                     )?,
-                    self.step(
-                        StepStatus::Succeeded,
-                        "cargo build --all-targets",
-                        Some(0.35),
-                    ),
+                    self.step(StepStatus::Succeeded, "cargo build --all-targets", Some(0.35)),
                     self.step(StepStatus::Failed, "cargo test --workspace", Some(4.12)),
                     self.step(StepStatus::Skipped, "cargo doc --no-deps", None),
                 ],
@@ -889,8 +782,7 @@ impl Specimens {
                         )
                     };
                     let end = if self.boxed() {
-                        line.find(" ─", start)
-                            .map_or(line.len(), |e| e.saturating_add(1))
+                        line.find(" ─", start).map_or(line.len(), |e| e.saturating_add(1))
                     } else {
                         line.len()
                     };
@@ -938,11 +830,7 @@ impl Specimens {
 
     fn run_transcript(&self) -> Card {
         let mut lines = self.header();
-        lines.push(self.step(
-            StepStatus::Succeeded,
-            "cargo build --all-targets",
-            Some(0.31),
-        ));
+        lines.push(self.step(StepStatus::Succeeded, "cargo build --all-targets", Some(0.31)));
         lines.push(self.step(
             StepStatus::Succeeded,
             "cargo clippy --all-targets -- -D warnings",
@@ -972,10 +860,7 @@ impl Specimens {
 impl Card {
     fn html(&self) -> String {
         let mut out = String::new();
-        let subtitle = self
-            .subtitle
-            .map(|s| format!(r#" subtitle="{s}""#))
-            .unwrap_or_default();
+        let subtitle = self.subtitle.map(|s| format!(r#" subtitle="{s}""#)).unwrap_or_default();
         let _ = writeln!(
             out,
             r#"<!-- @dsCard group="{}" height={}{subtitle} -->"#,
@@ -1052,11 +937,7 @@ const fn snapshot(ids: &[String], outcome: Outcome) -> BoxSnapshot<'_> {
 
 enum Token {
     Literal(String),
-    Placeholder {
-        name: String,
-        width: usize,
-        style: String,
-    },
+    Placeholder { name: String, width: usize, style: String },
 }
 
 /// Split an indicatif template into literal text and `{name[:spec]}`
@@ -1074,10 +955,7 @@ fn parse_template(template: &str) -> Vec<Token> {
         };
         let (name, spec) = inner.split_once(':').unwrap_or((inner, ""));
         let (align, style) = spec.split_once('.').unwrap_or((spec, ""));
-        let width = align
-            .trim_start_matches(['<', '>', '^'])
-            .parse()
-            .unwrap_or(0);
+        let width = align.trim_start_matches(['<', '>', '^']).parse().unwrap_or(0);
         tokens.push(Token::Placeholder {
             name: name.to_string(),
             width,
@@ -1103,13 +981,7 @@ impl RecordingTerm {
     }
 
     fn last_line(&self) -> Option<String> {
-        self.0
-            .lock()
-            .ok()?
-            .iter()
-            .rev()
-            .map(|s| strip_ansi(s))
-            .find(|s| !s.trim().is_empty())
+        self.0.lock().ok()?.iter().rev().map(|s| strip_ansi(s)).find(|s| !s.trim().is_empty())
     }
 }
 
@@ -1182,10 +1054,7 @@ fn check_tokens(name: &str, cards: &[Card], tokens: &str, bundle_css: &str) -> R
 
 /// The colour token `bundle.css` reads for a set of `sgr-*` classes.
 fn token_for(set: &str) -> Option<String> {
-    let codes: Vec<&str> = set
-        .split(' ')
-        .filter_map(|c| c.strip_prefix("sgr-"))
-        .collect();
+    let codes: Vec<&str> = set.split(' ').filter_map(|c| c.strip_prefix("sgr-")).collect();
     let dim = codes.contains(&"2");
     let colour = codes.iter().find_map(|code| {
         Some(match *code {
@@ -1252,11 +1121,7 @@ mod tests {
         for (path, expected) in files {
             let committed = fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("{} is missing ({e}); {RUN_HINT}", path.display()));
-            assert!(
-                committed == expected,
-                "{} is stale; {RUN_HINT}",
-                path.display()
-            );
+            assert!(committed == expected, "{} is stale; {RUN_HINT}", path.display());
         }
     }
 
@@ -1268,9 +1133,7 @@ mod tests {
         for name in config.themes.keys() {
             let specimens = builtin(name);
             for secs in [0, 3_610, 4_210, 359_940] {
-                let line = specimens
-                    .running("cargo build", Duration::from_secs(secs))
-                    .unwrap();
+                let line = specimens.running("cargo build", Duration::from_secs(secs)).unwrap();
                 assert_eq!(
                     line.columns(),
                     usize::from(COLUMNS),
@@ -1326,14 +1189,8 @@ mod tests {
     #[test]
     fn token_for_maps_colour_and_dim_codes_to_tokens() {
         assert_eq!(token_for("sgr-36").as_deref(), Some("ansi-cyan"));
-        assert_eq!(
-            token_for("sgr-33 sgr-2").as_deref(),
-            Some("ansi-yellow-dim")
-        );
-        assert_eq!(
-            token_for("sgr-1 sgr-97").as_deref(),
-            Some("ansi-bright-white")
-        );
+        assert_eq!(token_for("sgr-33 sgr-2").as_deref(), Some("ansi-yellow-dim"));
+        assert_eq!(token_for("sgr-1 sgr-97").as_deref(), Some("ansi-bright-white"));
         assert_eq!(token_for("sgr-2").as_deref(), Some("term-dim"));
         assert_eq!(token_for("sgr-1"), None);
     }
@@ -1343,10 +1200,7 @@ mod tests {
         let card = painted("sgr-35");
         let css = ".sgr-35 { color: var(--ansi-magenta); }";
         let err = check_tokens("t", &[card], r#"{"name": "ansi-cyan"}"#, css).unwrap_err();
-        assert!(
-            err.to_string().contains("defines no `ansi-magenta`"),
-            "{err}"
-        );
+        assert!(err.to_string().contains("defines no `ansi-magenta`"), "{err}");
     }
 
     #[test]
@@ -1369,9 +1223,7 @@ mod tests {
     #[test]
     fn bundle_css_has_a_rule_for_every_colour_and_dim_pair() {
         let css = fs::read_to_string(default_out_dir().join("bundle.css")).unwrap();
-        let codes = [
-            30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97,
-        ];
+        let codes = [30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97];
         for code in codes {
             for set in [format!("sgr-{code}"), format!("sgr-{code} sgr-2")] {
                 let token = token_for(&set).unwrap();

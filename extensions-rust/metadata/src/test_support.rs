@@ -70,11 +70,7 @@ pub struct IngestMetadata {
 
 /// Start a `test-crate 0.1.0` document rooted at `/test`.
 pub fn ingest_metadata() -> IngestMetadata {
-    IngestMetadata {
-        root: "/test".to_owned(),
-        source: json!(REGISTRY),
-        deps: Vec::new(),
-    }
+    IngestMetadata { root: "/test".to_owned(), source: json!(REGISTRY), deps: Vec::new() }
 }
 
 impl IngestMetadata {
@@ -143,8 +139,7 @@ impl IngestMetadata {
 /// same way `MetadataIngestor::collect` stages it in production, and returns
 /// the entry path so callers can assert on cleanup.
 pub fn write_metadata_json(dir: &IngestDir, value: &Value) -> PathBuf {
-    dir.write_atomic("metadata.json", &serde_json::to_vec_pretty(value).unwrap())
-        .unwrap();
+    dir.write_atomic("metadata.json", &serde_json::to_vec_pretty(value).unwrap()).unwrap();
     dir.entry_path("metadata.json")
 }
 

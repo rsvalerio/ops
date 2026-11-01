@@ -47,10 +47,7 @@ impl DataProvider for GradleIdentityProvider {
             let build = parse_gradle_build(root);
 
             let (name, module_count) = match settings {
-                Some(GradleSettings {
-                    root_project_name,
-                    includes,
-                }) => {
+                Some(GradleSettings { root_project_name, includes }) => {
                     let count = (!includes.is_empty()).then_some(includes.len());
                     (root_project_name, count)
                 }
@@ -139,10 +136,7 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
         }
     }
 
-    Some(GradleSettings {
-        root_project_name,
-        includes: deduped,
-    })
+    Some(GradleSettings { root_project_name, includes: deduped })
 }
 
 /// Canonical form of a Gradle project path, used as the include dedup key.
@@ -152,10 +146,7 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
 /// the same subproject, and `/`- or `\`-separated spellings of the same path
 /// (`"apps/web"` for `"apps:web"`) collapse onto the `:` form.
 fn normalise_include(entry: &str) -> String {
-    entry
-        .trim()
-        .trim_start_matches(':')
-        .replace(['\\', '/'], ":")
+    entry.trim().trim_start_matches(':').replace(['\\', '/'], ":")
 }
 
 /// Parse `gradle.properties` for the project `version`.
@@ -346,9 +337,7 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     includes
         .into_iter()
         .map(|include| {
-            let path = include
-                .trim_start_matches(':')
-                .replace(':', std::path::MAIN_SEPARATOR_STR);
+            let path = include.trim_start_matches(':').replace(':', std::path::MAIN_SEPARATOR_STR);
             ProjectUnit::new(format_unit_name(&path), path)
         })
         .collect()

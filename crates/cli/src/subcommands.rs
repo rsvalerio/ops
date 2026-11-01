@@ -56,29 +56,18 @@ pub fn run_about(
             ops_about::units::run_about_units_json(&registry)
         }
         Some(AboutAction::Coverage) => ops_about::coverage::run_about_coverage(&registry),
-        Some(AboutAction::Dependencies {
-            json,
-            duplicates: true,
-            include_dev,
-            target,
-        }) => ops_about::deps::run_about_duplicates(
-            &registry,
-            ops_about::deps::DuplicatesOptions {
-                json,
-                include_dev,
-                targets: &target,
-            },
-        ),
-        Some(AboutAction::Dependencies {
-            json: false,
-            duplicates: false,
-            ..
-        }) => ops_about::deps::run_about_deps(&registry),
-        Some(AboutAction::Dependencies {
-            json: true,
-            duplicates: false,
-            ..
-        }) => ops_about::deps::run_about_deps_json(&registry),
+        Some(AboutAction::Dependencies { json, duplicates: true, include_dev, target }) => {
+            ops_about::deps::run_about_duplicates(
+                &registry,
+                ops_about::deps::DuplicatesOptions { json, include_dev, targets: &target },
+            )
+        }
+        Some(AboutAction::Dependencies { json: false, duplicates: false, .. }) => {
+            ops_about::deps::run_about_deps(&registry)
+        }
+        Some(AboutAction::Dependencies { json: true, duplicates: false, .. }) => {
+            ops_about::deps::run_about_deps_json(&registry)
+        }
         // Intercepted above with `Backlog`: machine state needs no data
         // providers. Allowed at the call site per docs/clippy.md for the
         // same reason as the `Backlog` arm below.
@@ -262,9 +251,7 @@ fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCo
     }
     let prompt_label = format!("Run `ops {hook_name} install` now?");
     let Some(answer) = crate::prompt::classify_prompt_result(
-        inquire::Confirm::new(&prompt_label)
-            .with_default(true)
-            .prompt(),
+        inquire::Confirm::new(&prompt_label).with_default(true).prompt(),
         &format!("`ops {hook_name} install` confirm"),
     )?
     else {
@@ -441,12 +428,7 @@ pub fn run_before_commit(
     } else {
         HookAction::Run { changed_only }
     };
-    run_hook_action(
-        std::sync::Arc::clone(config),
-        &pre_hook_cmd::COMMIT_OPS,
-        hook_action,
-        dry_run,
-    )
+    run_hook_action(std::sync::Arc::clone(config), &pre_hook_cmd::COMMIT_OPS, hook_action, dry_run)
 }
 
 /// `run-before-push` carries no `changed_only` because
@@ -461,16 +443,9 @@ pub fn run_before_push(
     let hook_action = if matches!(action, Some(RunBeforePushAction::Install)) {
         HookAction::Install
     } else {
-        HookAction::Run {
-            changed_only: false,
-        }
+        HookAction::Run { changed_only: false }
     };
-    run_hook_action(
-        std::sync::Arc::clone(config),
-        &pre_hook_cmd::PUSH_OPS,
-        hook_action,
-        dry_run,
-    )
+    run_hook_action(std::sync::Arc::clone(config), &pre_hook_cmd::PUSH_OPS, hook_action, dry_run)
 }
 
 /// Run a text-fixer and translate its [`ops_text_fixers::FixerReport`] into a process exit
@@ -503,23 +478,13 @@ where
 /// Run `ops trailing-whitespace`: strip trailing whitespace via
 /// `ops_text_fixers` (check-only with `--check`).
 pub fn run_trailing_whitespace(tracked: bool, check: bool) -> anyhow::Result<ExitCode> {
-    run_text_fixer(
-        "trailing-whitespace",
-        tracked,
-        check,
-        ops_text_fixers::run_trailing_whitespace,
-    )
+    run_text_fixer("trailing-whitespace", tracked, check, ops_text_fixers::run_trailing_whitespace)
 }
 
 /// Run `ops end-of-file-fixer`: end files with exactly one newline via
 /// `ops_text_fixers` (check-only with `--check`).
 pub fn run_end_of_file_fixer(tracked: bool, check: bool) -> anyhow::Result<ExitCode> {
-    run_text_fixer(
-        "end-of-file-fixer",
-        tracked,
-        check,
-        ops_text_fixers::run_end_of_file_fixer,
-    )
+    run_text_fixer("end-of-file-fixer", tracked, check, ops_text_fixers::run_end_of_file_fixer)
 }
 
 /// Run a config-checker and translate its [`ops_config_checkers::CheckerReport`] into a process
@@ -581,10 +546,9 @@ mod tests {
     /// convert cancellation into a clean 130 exit without that decoration.
     #[test]
     fn hook_install_confirm_cancel_is_ok_none() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let out = crate::prompt::classify_prompt_result(
                 Err::<bool, _>(err),
                 "`ops run-before-commit install` confirm",
@@ -613,14 +577,8 @@ mod tests {
 
     #[test]
     fn hook_install_confirm_answer_passes_through() {
-        assert_eq!(
-            crate::prompt::classify_prompt_result(Ok(true), "x").expect("ok"),
-            Some(true)
-        );
-        assert_eq!(
-            crate::prompt::classify_prompt_result(Ok(false), "x").expect("ok"),
-            Some(false)
-        );
+        assert_eq!(crate::prompt::classify_prompt_result(Ok(true), "x").expect("ok"), Some(true));
+        assert_eq!(crate::prompt::classify_prompt_result(Ok(false), "x").expect("ok"), Some(false));
     }
 
     /// `OPS_NONINTERACTIVE=0` is the user typing "off",
@@ -681,10 +639,7 @@ mod tests {
             assert_eq!(refresh, expected_refresh, "--refresh must survive parsing");
             assert_eq!(check, expected_check, "--check must survive parsing");
             let opts = deps_options(refresh, check);
-            assert_eq!(
-                opts.refresh, expected_refresh,
-                "the parsed flag must reach DepsOptions"
-            );
+            assert_eq!(opts.refresh, expected_refresh, "the parsed flag must reach DepsOptions");
             assert_eq!(opts.check, expected_check, "--check must reach DepsOptions");
         }
     }
@@ -753,11 +708,7 @@ program = "true"
         // would short-circuit before the run_external_command path.
         let _skip_guard = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_COMMIT");
 
-        let res = run_hook_dispatch(
-            std::sync::Arc::new(config),
-            &pre_hook_cmd::COMMIT_OPS,
-            false,
-        );
+        let res = run_hook_dispatch(std::sync::Arc::new(config), &pre_hook_cmd::COMMIT_OPS, false);
         // `true` exits 0, but propagate any spawn error so a CI environment
         // without `/usr/bin/true` surfaces a clear failure instead of a
         // confusing load-count mismatch.
@@ -809,10 +760,7 @@ program = "true"
         let _skip_guard = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_PUSH");
         let success = format!("{:?}", ExitCode::SUCCESS);
 
-        for stream in [
-            format!("(delete) {ZERO} refs/heads/old {OID}\n"),
-            String::new(),
-        ] {
+        for stream in [format!("(delete) {ZERO} refs/heads/old {OID}\n"), String::new()] {
             let _refs_guard = EnvVarGuard::set(ops_run_before_push::REF_UPDATES_ENV_VAR, &stream);
             let config = ops_core::config::load_config_or_default("test-push-gate");
             let code =
@@ -902,10 +850,7 @@ commands = ["touch-marker"]
         run_before_push(&config, Some(RunBeforePushAction::Install), true)
             .expect("dry-run install must not error");
 
-        assert!(
-            !dir.path().join(".git/hooks").exists(),
-            "no hook may be written"
-        );
+        assert!(!dir.path().join(".git/hooks").exists(), "no hook may be written");
         assert_eq!(
             std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read .ops.toml"),
             "",
@@ -946,14 +891,8 @@ program = "false"
     fn run_before_commit_and_push_help_share_structure() {
         use clap::CommandFactory;
         let cmd = crate::args::Cli::command();
-        let commit = cmd
-            .find_subcommand("run-before-commit")
-            .expect("commit subcmd")
-            .clone();
-        let push = cmd
-            .find_subcommand("run-before-push")
-            .expect("push subcmd")
-            .clone();
+        let commit = cmd.find_subcommand("run-before-commit").expect("commit subcmd").clone();
+        let push = cmd.find_subcommand("run-before-push").expect("push subcmd").clone();
         // Neither variant should carry a `Setup` help heading on its own
         // flag block — categorisation is centralised in `help::builtin_category`.
         assert_eq!(commit.get_next_help_heading(), None);
@@ -975,10 +914,7 @@ program = "false"
             CALLED.store(true, Ordering::SeqCst);
             Ok(())
         }
-        let fake = HookOps {
-            install_fn: fake_install,
-            ..pre_hook_cmd::COMMIT_OPS
-        };
+        let fake = HookOps { install_fn: fake_install, ..pre_hook_cmd::COMMIT_OPS };
         // Exercise just the dispatch surface: the install_fn must be the
         // sole reference to the install entry point. This compiles iff
         // `HookOps::install_fn` is the seam — a stringly-typed match would

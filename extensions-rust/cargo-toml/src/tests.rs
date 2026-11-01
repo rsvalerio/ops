@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// TEST-18 / TASK-1802: helper for the two tests that make DAC permission
+/// Helper for the two tests that make DAC permission
 /// bits the mechanism under test.
 ///
 /// Both problems those tests had are handled here:
@@ -37,18 +37,13 @@ impl PermGuard {
     ) -> Option<Self> {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let restore_mode = std::fs::metadata(path)
-            .expect("stat target before chmod")
-            .permissions()
-            .mode();
+        let restore_mode =
+            std::fs::metadata(path).expect("stat target before chmod").permissions().mode();
         // Not `.ok()`: the test's correctness depends on this having taken
         // effect, so a failure must surface rather than be swallowed.
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
             .expect("chmod 0o000 must succeed");
-        let guard = Self {
-            path: path.to_path_buf(),
-            restore_mode,
-        };
+        let guard = Self { path: path.to_path_buf(), restore_mode };
 
         if probe(path).is_ok() {
             // Dropping `guard` restores the mode.
@@ -71,7 +66,7 @@ impl Drop for PermGuard {
     }
 }
 
-/// TEST-18 / TASK-1802: uniform message for the skip path, so a green run on
+/// Uniform message for the skip path, so a green run on
 /// a root/CI container is self-explaining rather than silently degraded.
 #[cfg(unix)]
 pub fn skip_no_dac_enforcement(test: &str) {

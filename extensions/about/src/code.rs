@@ -128,7 +128,7 @@ mod tests {
         assert!(output.contains("100.0%"));
     }
 
-    /// Regression for ERR-4: a poisoned `Sqlite` mutex must produce graceful
+    /// Regression: a poisoned `Sqlite` mutex must produce graceful
     /// `None` (not a panic) and exercise the warn-and-continue path. We
     /// verify behavior; tracing assertion would require pulling in
     /// `tracing-subscriber` as a dev-dep, which we deliberately avoid for a
@@ -186,14 +186,8 @@ mod tests {
             LanguageStat::new("TOML", 1500, 30, 15.0, 30.0),
         ];
         let output = format_language_stats_section(Some(&stats)).join("\n");
-        assert!(
-            output.contains("60.0%"),
-            "stored loc_pct expected: {output}"
-        );
-        assert!(
-            output.contains("15.0%"),
-            "stored loc_pct expected: {output}"
-        );
+        assert!(output.contains("60.0%"), "stored loc_pct expected: {output}");
+        assert!(output.contains("15.0%"), "stored loc_pct expected: {output}");
         assert!(output.contains("30.0%"), "files_pct expected: {output}");
         assert!(
             !output.contains("80.0%"),

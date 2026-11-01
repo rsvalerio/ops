@@ -1,4 +1,4 @@
-//! CONC-9 / TASK-1919: process-group ownership for captured spawns.
+//! Process-group ownership for captured spawns.
 //!
 //! `kill_on_drop(true)` — the runner's original and only cancellation
 //! mechanism — sends `SIGKILL` to the **direct child pid**. Every step this
@@ -20,7 +20,7 @@
 //! runner's own process group: the tty delivers `SIGINT` to the foreground
 //! process group, so moving an interactive child out of it would stop
 //! Ctrl-C from reaching it. Captured children have no tty interaction at all
-//! (their stdin is `/dev/null`, ASYNC-6 / TASK-1918), so nothing is lost by
+//! (their stdin is `/dev/null`), so nothing is lost by
 //! giving them their own group.
 //!
 //! # Non-unix
@@ -30,12 +30,12 @@
 //! [`super::build::build_command_with`]) remains the cancellation mechanism,
 //! with its documented limitation of reaching only the direct child.
 //!
-//! # Miri coverage (UNSAFE-10 / TASK-2094)
+//! # Miri coverage
 //!
 //! The `killpg` calls in this module cannot run under Miri: they are
 //! direct foreign calls into libc, for which Miri provides no shims, and
 //! the signals they deliver only mean something against a real process
-//! table. The substitute evidence required by UNSAFE-10 is the per-block
+//! table. The substitute evidence is the per-block
 //! `// SAFETY:` prose (the pid-reservation argument for the pre-grace
 //! signal; the probe-then-kill narrowing for the post-grace escalation)
 //! plus the cancellation tests that run this code against real child
@@ -94,10 +94,7 @@ impl ChildGroup {
     #[cfg(unix)]
     pub fn new(child: &tokio::process::Child) -> Self {
         let pgid = child.id().and_then(|id| libc::pid_t::try_from(id).ok());
-        Self {
-            armed: pgid.is_some(),
-            pgid,
-        }
+        Self { armed: pgid.is_some(), pgid }
     }
 
     /// Non-unix: nothing to own; `kill_on_drop` is the fallback.

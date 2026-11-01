@@ -60,8 +60,7 @@ pub fn run_check_yaml(
 }
 
 fn matches_ext(ext: Option<&OsStr>, allowed: &[&str]) -> bool {
-    ext.and_then(OsStr::to_str)
-        .is_some_and(|e| allowed.iter().any(|a| a.eq_ignore_ascii_case(e)))
+    ext.and_then(OsStr::to_str).is_some_and(|e| allowed.iter().any(|a| a.eq_ignore_ascii_case(e)))
 }
 
 /// What happened to one candidate file.
@@ -124,11 +123,7 @@ where
                 (FailureKind::Parse, message)
             }
         };
-        let failure = FailedFile {
-            path: display,
-            kind,
-            message,
-        };
+        let failure = FailedFile { path: display, kind, message };
         record_failure(&mut report, writer, label, failure)?;
     }
 

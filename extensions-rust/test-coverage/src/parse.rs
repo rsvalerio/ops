@@ -105,10 +105,7 @@ impl<'a> DriftTracker<'a> {
         section_key: &'a str,
         warned: &'a mut std::collections::HashSet<(String, String)>,
     ) -> Self {
-        Self {
-            section_key,
-            warned,
-        }
+        Self { section_key, warned }
     }
 }
 
@@ -159,13 +156,7 @@ fn read_field<T: Default>(
 }
 
 fn read_i64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTracker<'_>) -> i64 {
-    read_field(
-        section,
-        field,
-        serde_json::Value::as_i64,
-        "an integer",
-        drift,
-    )
+    read_field(section, field, serde_json::Value::as_i64, "an integer", drift)
 }
 
 fn read_f64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTracker<'_>) -> f64 {
@@ -251,12 +242,7 @@ fn build_records(file_arrays: Vec<&[serde_json::Value]>) -> (Vec<CoverageRow>, u
             skipped_count = skipped_count.saturating_add(1);
             continue;
         };
-        dedup_push(
-            &mut records,
-            &mut filename_to_idx,
-            record,
-            &mut duplicate_count,
-        );
+        dedup_push(&mut records, &mut filename_to_idx, record, &mut duplicate_count);
     }
     (records, skipped_count, duplicate_count)
 }
@@ -334,9 +320,7 @@ pub fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
 /// to the cargo error path.
 pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
     raw.get("data").and_then(|d| d.as_array()).is_some_and(|a| {
-        !a.is_empty()
-            && a.iter()
-                .all(|e| e.get("files").and_then(|f| f.as_array()).is_some())
+        !a.is_empty() && a.iter().all(|e| e.get("files").and_then(|f| f.as_array()).is_some())
     })
 }
 
@@ -394,9 +378,7 @@ fn recover_partial_report(
             None
         }
     };
-    let valid_parsed = parsed
-        .as_ref()
-        .filter(|raw| has_parseable_coverage_data(raw))?;
+    let valid_parsed = parsed.as_ref().filter(|raw| has_parseable_coverage_data(raw))?;
     let tail = format_error_tail(&output.stderr, crate::STDERR_TAIL_LINES);
     let marker = format_cargo_exit(output.status);
     tracing::warn!(
@@ -446,11 +428,8 @@ where
         .suffix(".json")
         .tempfile()
         .context("creating temp file for llvm-cov JSON report")?;
-    let report_path = report
-        .path()
-        .to_str()
-        .context("llvm-cov temp report path is not valid UTF-8")?
-        .to_string();
+    let report_path =
+        report.path().to_str().context("llvm-cov temp report path is not valid UTF-8")?.to_string();
     let output = run(working_dir, &report_path)?;
     if !output.status.success() {
         if let Some(partial) = recover_partial_report(report.path(), &output) {

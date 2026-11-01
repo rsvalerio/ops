@@ -115,10 +115,7 @@ pub fn interpret_machete_output(
 /// file) to stderr, skips it, and still exits `0`. Scoring that run as clean
 /// would pass every dependency of the broken manifest unchecked.
 fn check_manifest_errors(stderr: &str) -> anyhow::Result<()> {
-    if let Some(line) = stderr
-        .lines()
-        .find(|l| l.trim_start().starts_with(MANIFEST_ERROR_MARKER))
-    {
+    if let Some(line) = stderr.lines().find(|l| l.trim_start().starts_with(MANIFEST_ERROR_MARKER)) {
         anyhow::bail!(
             "cargo machete could not analyse a manifest, so its result is incomplete: {:?}",
             truncate_for_log(line.trim())

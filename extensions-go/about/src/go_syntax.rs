@@ -174,10 +174,7 @@ mod tests {
     #[test]
     fn strip_line_comment_only_fires_on_whitespace_or_sol() {
         assert_eq!(strip_line_comment("// just a comment"), "");
-        assert_eq!(
-            strip_line_comment("module example.com/m // trailing"),
-            "module example.com/m ",
-        );
+        assert_eq!(strip_line_comment("module example.com/m // trailing"), "module example.com/m ",);
         assert_eq!(
             strip_line_comment("module example.com/foo//bar"),
             "module example.com/foo//bar",
@@ -234,20 +231,11 @@ mod tests {
     /// a verb on a whitespace boundary.
     #[test]
     fn strip_verb_splits_on_arbitrary_whitespace() {
-        assert_eq!(
-            strip_verb("module example.com/m", "module"),
-            Some("example.com/m")
-        );
-        assert_eq!(
-            strip_verb("module\texample.com/m", "module"),
-            Some("example.com/m")
-        );
+        assert_eq!(strip_verb("module example.com/m", "module"), Some("example.com/m"));
+        assert_eq!(strip_verb("module\texample.com/m", "module"), Some("example.com/m"));
         assert_eq!(strip_verb("go\t1.22", "go"), Some("1.22"));
         assert_eq!(strip_verb("use\t./api", "use"), Some("./api"));
-        assert_eq!(
-            strip_verb("module   example.com/ws  ", "module"),
-            Some("example.com/ws")
-        );
+        assert_eq!(strip_verb("module   example.com/ws  ", "module"), Some("example.com/ws"));
         // No whitespace boundary: not this verb.
         assert_eq!(strip_verb("gopls x", "go"), None);
         assert_eq!(strip_verb("module(", "module"), None);

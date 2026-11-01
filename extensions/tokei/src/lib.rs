@@ -78,11 +78,7 @@ impl DataProvider for TokeiProvider {
         DataProviderSchema::new(
             "Code statistics from tokei (lines of code, comments, blanks per file)",
             vec![
-                DataField::new(
-                    "language",
-                    "str",
-                    "Language name (e.g., Rust, Python, JavaScript)",
-                ),
+                DataField::new("language", "str", "Language name (e.g., Rust, Python, JavaScript)"),
                 DataField::new("file", "str", "File path relative to workspace root"),
                 DataField::new("code", "int", "Lines of code"),
                 DataField::new("comments", "int", "Comment lines"),
@@ -136,15 +132,8 @@ fn provide_from_db(db: &Sqlite, ctx: &Context) -> Result<serde_json::Value, anyh
 /// key would introduce a second, tokei-only exclusion dialect that reaches no
 /// further than the existing one; revisit only for a project that cannot be
 /// expressed that way.
-pub(crate) const TOKEI_DEFAULT_EXCLUDED: &[&str] = &[
-    "target",
-    ".git",
-    "node_modules",
-    ".venv",
-    "venv",
-    "dist",
-    "build",
-];
+pub(crate) const TOKEI_DEFAULT_EXCLUDED: &[&str] =
+    &["target", ".git", "node_modules", ".venv", "venv", "dist", "build"];
 
 /// Bounds on a single scan.
 ///
@@ -181,11 +170,7 @@ impl ScanLimits {
     /// Defaults sized for a source tree: no hand-written source file
     /// approaches 4 MiB, 50k files covers a large monorepo, and 32 levels is
     /// well past any real source layout.
-    pub const DEFAULT: Self = Self {
-        file_bytes: 4 * 1024 * 1024,
-        files: 50_000,
-        depth: 32,
-    };
+    pub const DEFAULT: Self = Self { file_bytes: 4 * 1024 * 1024, files: 50_000, depth: 32 };
 }
 
 /// The outcome of one scan, including what it refused to look at.
@@ -386,10 +371,7 @@ fn collect_candidates(
         };
         if candidates.len() >= limits.files {
             skips.truncated = true;
-            tracing::warn!(
-                cap = limits.files,
-                "tokei: file cap reached; statistics are truncated"
-            );
+            tracing::warn!(cap = limits.files, "tokei: file cap reached; statistics are truncated");
             break;
         }
         candidates.push(path);
@@ -468,10 +450,7 @@ fn is_pruned_dir(entry: &DirEntry) -> bool {
     if entry.depth() != 1 || !entry.file_type().is_some_and(|ft| ft.is_dir()) {
         return false;
     }
-    entry
-        .file_name()
-        .to_str()
-        .is_some_and(|name| TOKEI_DEFAULT_EXCLUDED.contains(&name))
+    entry.file_name().to_str().is_some_and(|name| TOKEI_DEFAULT_EXCLUDED.contains(&name))
 }
 
 /// Collect per-file statistics under `working_dir` as a JSON array.
@@ -533,10 +512,7 @@ pub(crate) fn flatten_tokei_records(
 /// with language as tiebreak, matching the `row_key` policy in
 /// `extensions-rust/loc`.
 fn row_key(record: &serde_json::Value) -> (&str, &str) {
-    (
-        record["file"].as_str().unwrap_or_default(),
-        record["language"].as_str().unwrap_or_default(),
-    )
+    (record["file"].as_str().unwrap_or_default(), record["language"].as_str().unwrap_or_default())
 }
 
 fn report_to_json(

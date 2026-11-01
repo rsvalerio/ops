@@ -45,7 +45,7 @@ version = "0.1.0"
     assert!(result.is_err(), "missing name should fail to parse");
 }
 
-/// ERR-6 / TASK-1793: an omitted `version` key is *absent*, not `""`.
+/// an omitted `version` key is *absent*, not `""`.
 ///
 /// This test previously pinned the empty-string sentinel
 /// (`package_version() == Some("")`), which is truthy in every
@@ -66,7 +66,7 @@ name = "test"
     assert_eq!(pkg.version, crate::InheritableField::Absent);
 }
 
-/// ERR-6 / TASK-1793: the companion — a declared-but-empty version is a
+/// The companion — a declared-but-empty version is a
 /// value, and must stay distinguishable from the absent case above.
 #[test]
 fn parse_with_empty_version_is_not_absent() {
@@ -87,7 +87,7 @@ version = ""
     );
 }
 
-/// ERR-6 / TASK-1793: the same distinction holds for every other
+/// The same distinction holds for every other
 /// `#[serde(default)]` `InheritableString` field on `[package]`.
 #[test]
 fn parse_absent_inheritable_string_fields_are_all_absent() {
@@ -106,10 +106,7 @@ fn parse_absent_inheritable_string_fields_are_all_absent() {
         assert!(field.is_absent(), "{label} should be Absent when omitted");
         assert_eq!(field.as_str(), None, "{label}.as_str() should be None");
     }
-    assert!(
-        a.authors.is_absent(),
-        "authors should be Absent when omitted"
-    );
+    assert!(a.authors.is_absent(), "authors should be Absent when omitted");
 
     let declared = CargoToml::parse(
         r#"
@@ -150,10 +147,7 @@ name = ""
 version = "0.1.0"
 "#;
     let manifest = CargoToml::parse(toml);
-    assert!(
-        manifest.is_ok(),
-        "empty name should parse (validation is Cargo's job)"
-    );
+    assert!(manifest.is_ok(), "empty name should parse (validation is Cargo's job)");
     let m = manifest.unwrap();
     assert_eq!(m.package_name(), Some(""));
 }
@@ -236,7 +230,7 @@ serde = { version = "1.0", default_features = false }
     assert!(!serde.uses_default_features());
 }
 
-/// ERR-1 regression (TASK-0554): real-world Cargo manifests use the
+/// Regression: real-world Cargo manifests use the
 /// kebab-case `default-features` key. Without a serde alias, the field
 /// silently defaults back to `true`, masking the user's intent.
 #[test]
@@ -267,10 +261,7 @@ my-git = { git = "https://github.com/example/repo", branch = "dev", tag = "v1.0"
     let manifest = CargoToml::parse(toml).expect("should parse");
     let dep = &manifest.dependencies["my-git"];
     let detail = dep.detail().expect("should be detailed");
-    assert_eq!(
-        detail.git.as_deref(),
-        Some("https://github.com/example/repo")
-    );
+    assert_eq!(detail.git.as_deref(), Some("https://github.com/example/repo"));
     assert_eq!(detail.branch.as_deref(), Some("dev"));
     assert_eq!(detail.tag.as_deref(), Some("v1.0"));
     assert_eq!(detail.rev.as_deref(), Some("abc123"));
@@ -346,10 +337,7 @@ version = "0.1.0"
 publish = true
 "#;
     let manifest = CargoToml::parse(toml).expect("should parse");
-    assert_eq!(
-        manifest.package.unwrap().publish.is_publishable(),
-        Some(true)
-    );
+    assert_eq!(manifest.package.unwrap().publish.is_publishable(), Some(true));
 }
 
 #[test]

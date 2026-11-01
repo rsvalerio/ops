@@ -69,7 +69,7 @@ pub fn query_project_loc(db: &Sqlite) -> anyhow::Result<i64> {
 /// Query per-language breakdown from `tokei_files`: LOC, file count, and
 /// percentages of both. Ordered by LOC descending.
 ///
-/// READ-5 / TASK-0362: languages whose `loc_pct` rounds below 0.1% are
+/// Languages whose `loc_pct` rounds below 0.1% are
 /// omitted, *including* the case where every language is sub-threshold.
 /// The empty return is the signal callers rely on to distinguish
 /// "no tokei data" from "every language tiny", matching the documented
@@ -82,9 +82,7 @@ pub fn query_project_loc(db: &Sqlite) -> anyhow::Result<i64> {
 pub fn query_project_languages(db: &Sqlite) -> anyhow::Result<Vec<LanguageStat>> {
     use anyhow::Context;
 
-    let conn = db
-        .lock()
-        .context("acquiring db lock for query_project_languages")?;
+    let conn = db.lock().context("acquiring db lock for query_project_languages")?;
 
     if !table_exists(&conn, "tokei_files")? {
         return Ok(vec![]);
@@ -187,9 +185,7 @@ pub struct RustLocStat {
 pub fn query_rust_loc_summary(db: &Sqlite) -> anyhow::Result<Vec<RustLocStat>> {
     use anyhow::Context;
 
-    let conn = db
-        .lock()
-        .context("acquiring db lock for query_rust_loc_summary")?;
+    let conn = db.lock().context("acquiring db lock for query_rust_loc_summary")?;
 
     if !table_exists(&conn, "rust_loc_summary")? {
         return Ok(vec![]);
@@ -216,9 +212,8 @@ pub fn query_rust_loc_summary(db: &Sqlite) -> anyhow::Result<Vec<RustLocStat>> {
         })
         .context("querying rust loc summary")?;
 
-    let stats = rows
-        .map(|row| row.context("reading rust loc row"))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let stats =
+        rows.map(|row| row.context("reading rust loc row")).collect::<anyhow::Result<Vec<_>>>()?;
     // CONC-1: release the connection guard before returning the result vec.
     // `stmt` borrows `conn`, so it has to go first.
     drop(stmt);

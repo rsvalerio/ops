@@ -13,8 +13,7 @@
 //!
 //! Program resolution, display and scheduling defaults come from
 //! [`ExecCommandSpec::ops_subcommand`], shared with the extension
-//! registrations of the same command ids so the two cannot diverge
-//! (SEC-13 / TASK-2122).
+//! registrations of the same command ids so the two cannot diverge.
 
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
@@ -34,7 +33,7 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// `doc-ids` included) only read and are marked [`read_only`]. `msrv`,
 /// `semver` and `feature-matrix` compile into `target/`, so they keep the
 /// exclusive default like any build step. `sec` also
-/// never writes the worktree, but it stays exclusive (TASK-2263): Trivy
+/// never writes the worktree, but it stays exclusive: Trivy
 /// reads the *whole* tree, build outputs included, and aborts the scan when
 /// a file vanishes mid-walk — which is exactly what a concurrent build or
 /// test step does to `target/`. Overlapping `sec` with those steps is a
@@ -52,10 +51,7 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     for fixer in ["end-of-file-fixer", "trailing-whitespace"] {
         let mut check = ExecCommandSpec::ops_subcommand_check(fixer);
         check.category = Some("Code Quality".to_string());
-        map.insert(
-            CommandId::from(format!("{fixer}-check")),
-            CommandSpec::Exec(check),
-        );
+        map.insert(CommandId::from(format!("{fixer}-check")), CommandSpec::Exec(check));
     }
     map.insert(
         CommandId::from("check-json"),
@@ -65,18 +61,12 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         CommandId::from("check-yaml"),
         CommandSpec::Exec(read_only(builtin_exec("check-yaml", &[]))),
     );
-    map.insert(
-        CommandId::from("sec"),
-        CommandSpec::Exec(builtin_exec("sec", &[])),
-    );
+    map.insert(CommandId::from("sec"), CommandSpec::Exec(builtin_exec("sec", &[])));
     map.insert(
         CommandId::from("lint-actions"),
         CommandSpec::Exec(read_only(builtin_exec("lint-actions", &[]))),
     );
-    map.insert(
-        CommandId::from("msrv"),
-        CommandSpec::Exec(builtin_exec("msrv", &[])),
-    );
+    map.insert(CommandId::from("msrv"), CommandSpec::Exec(builtin_exec("msrv", &[])));
     for reader in ["foundation", "doc-ids"] {
         map.insert(
             CommandId::from(reader),
@@ -84,10 +74,7 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         );
     }
     for compiling in ["semver", "feature-matrix"] {
-        map.insert(
-            CommandId::from(compiling),
-            CommandSpec::Exec(builtin_exec(compiling, &[])),
-        );
+        map.insert(CommandId::from(compiling), CommandSpec::Exec(builtin_exec(compiling, &[])));
     }
     map
 }
@@ -101,7 +88,7 @@ fn builtin_exec(subcommand: &'static str, aliases: &[&'static str]) -> ExecComma
 
 /// Let a builtin that never writes to the worktree overlap other steps.
 ///
-/// `sec` is deliberately excluded (TASK-2263): although it never *writes*,
+/// `sec` is deliberately excluded: although it never *writes*,
 /// its Trivy scan reads the entire tree — build outputs included — and
 /// aborts with `fs scan error … no such file or directory` when a
 /// concurrent build or test step deletes a file mid-walk. A scan that races
@@ -119,13 +106,9 @@ mod tests {
     #[test]
     fn registers_text_fixers_with_aliases() {
         let map = builtin_commands();
-        let eof = map
-            .get("end-of-file-fixer")
-            .expect("end-of-file-fixer registered");
+        let eof = map.get("end-of-file-fixer").expect("end-of-file-fixer registered");
         assert!(eof.aliases().iter().any(|a| a == "eof"));
-        let tw = map
-            .get("trailing-whitespace")
-            .expect("trailing-whitespace registered");
+        let tw = map.get("trailing-whitespace").expect("trailing-whitespace registered");
         assert!(tw.aliases().iter().any(|a| a == "tw"));
     }
 
@@ -146,14 +129,8 @@ mod tests {
     #[test]
     fn registers_config_checkers() {
         let map = builtin_commands();
-        assert!(
-            map.get("check-json").is_some(),
-            "check-json must be registered as a builtin"
-        );
-        assert!(
-            map.get("check-yaml").is_some(),
-            "check-yaml must be registered as a builtin"
-        );
+        assert!(map.get("check-json").is_some(), "check-json must be registered as a builtin");
+        assert!(map.get("check-yaml").is_some(), "check-yaml must be registered as a builtin");
     }
 
     #[test]
@@ -214,7 +191,7 @@ mod tests {
         }
     }
 
-    /// TASK-2263 AC #3: pin `sec` as exclusive on its own, so a future
+    /// Pin `sec` as exclusive on its own, so a future
     /// refactor that reintroduces the `read_only` wrapper for it fails here
     /// rather than resurrecting the Trivy-vs-build race in a parallel plan.
     #[test]

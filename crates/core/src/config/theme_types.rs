@@ -179,10 +179,7 @@ pub struct ThemeConfig {
     /// capacity-overflow panic / OOM-abort primitive. The bound is enforced
     /// during deserialization so an out-of-range value can never be stored,
     /// and again in [`Self::validate`] for programmatically-built configs.
-    #[serde(
-        default = "default_left_pad",
-        deserialize_with = "deserialize_left_pad"
-    )]
+    #[serde(default = "default_left_pad", deserialize_with = "deserialize_left_pad")]
     pub left_pad: usize,
     /// Optional prefix printed before "Running:" in plain plan headers (e.g. "🚀 ").
     #[serde(default)]

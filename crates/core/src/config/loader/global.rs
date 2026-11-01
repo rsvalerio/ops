@@ -69,9 +69,7 @@ fn global_config_path() -> Option<PathBuf> {
     {
         // A poisoned read still sees a valid cached value; see
         // `write_global_config_path`.
-        let r = GLOBAL_CONFIG_PATH
-            .read()
-            .unwrap_or_else(PoisonError::into_inner);
+        let r = GLOBAL_CONFIG_PATH.read().unwrap_or_else(PoisonError::into_inner);
         if let Some(cached) = r.as_ref() {
             return cached.clone();
         }
@@ -252,10 +250,7 @@ mod tests {
         assert!(GLOBAL_CONFIG_PATH.is_poisoned());
 
         assert_eq!(global_config_path(), expected);
-        assert!(
-            !GLOBAL_CONFIG_PATH.is_poisoned(),
-            "the write path must clear the poison flag"
-        );
+        assert!(!GLOBAL_CONFIG_PATH.is_poisoned(), "the write path must clear the poison flag");
         assert_eq!(global_config_path(), expected, "the cached hit agrees");
 
         reset_global_config_path_cache(GlobalConfigPathResetToken::new());
@@ -300,7 +295,7 @@ mod tests {
         reset_global_config_path_cache(GlobalConfigPathResetToken::new());
     }
 
-    /// PATTERN-1 / TASK-1090: when both `<dir>/ops/config.toml` and the
+    /// When both `<dir>/ops/config.toml` and the
     /// legacy bare-extension `<dir>/ops/config` exist, `config.toml` MUST
     /// win. A stray bare-extension file (e.g. an extracted backup) must not
     /// silently shadow the documented filename.
@@ -333,17 +328,14 @@ args = ["toml"]
 
         let mut config = Config::default();
         load_global_config_at(&mut config, &base).unwrap();
-        assert!(
-            config.commands.contains_key("from_toml"),
-            "config.toml must be loaded"
-        );
+        assert!(config.commands.contains_key("from_toml"), "config.toml must be loaded");
         assert!(
             !config.commands.contains_key("from_bare"),
             "bare-extension config must be shadowed by config.toml"
         );
     }
 
-    /// PATTERN-1 / TASK-1090: the bare-extension legacy fallback still
+    /// The bare-extension legacy fallback still
     /// loads when `config.toml` is absent. Removing this would silently
     /// break operators relying on the legacy layout.
     #[test]

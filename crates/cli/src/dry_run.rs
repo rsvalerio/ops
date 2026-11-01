@@ -48,10 +48,9 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         #[cfg(feature = "stack-rust")]
         CoreSubcommand::Deps { .. } => Some("deps"),
         // `--tool-versions` runs every listed tool's `--version`.
-        CoreSubcommand::Explain(ExplainArgs {
-            tool_versions: true,
-            ..
-        }) => Some("explain --tool-versions"),
+        CoreSubcommand::Explain(ExplainArgs { tool_versions: true, .. }) => {
+            Some("explain --tool-versions")
+        }
         // Without `--file`/stdin the plan JSON comes from running terraform.
         #[cfg(feature = "stack-terraform")]
         CoreSubcommand::Plans(_) => Some("plans"),
@@ -155,10 +154,7 @@ mod tests {
             .map(|c| c.get_name().to_owned())
             .filter(|name| !sampled.contains(name.as_str()))
             .collect();
-        assert!(
-            missing.is_empty(),
-            "classify --dry-run for builtins {missing:?} in dry_run.rs"
-        );
+        assert!(missing.is_empty(), "classify --dry-run for builtins {missing:?} in dry_run.rs");
     }
 
     #[test]
@@ -172,10 +168,7 @@ mod tests {
             assert_eq!(res.is_err(), refused, "{argv:?}: {res:?}");
             if let Err(e) = res {
                 let msg = e.to_string();
-                assert!(
-                    msg.contains("--dry-run is not supported for `ops "),
-                    "{msg}"
-                );
+                assert!(msg.contains("--dry-run is not supported for `ops "), "{msg}");
             }
             refuse_unpreviewable(&sub, false).expect("never refused without --dry-run");
         }

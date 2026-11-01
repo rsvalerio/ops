@@ -21,9 +21,7 @@ fn metadata_provider_name() {
 fn metadata_provider_returns_valid_json() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut ctx = Context::test_context(manifest_dir);
-    let value = MetadataProvider
-        .provide(&mut ctx)
-        .expect("cargo metadata should succeed");
+    let value = MetadataProvider.provide(&mut ctx).expect("cargo metadata should succeed");
     assert!(value.is_object());
     assert!(value.get("packages").is_some());
     assert!(value.get("workspace_root").is_some());
@@ -39,9 +37,8 @@ fn metadata_provider_returns_valid_json() {
 fn metadata_provider_fails_in_non_cargo_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut ctx = Context::test_context(dir.path().to_path_buf());
-    let err = MetadataProvider
-        .provide(&mut ctx)
-        .expect_err("a directory with no Cargo.toml must fail");
+    let err =
+        MetadataProvider.provide(&mut ctx).expect_err("a directory with no Cargo.toml must fail");
     let chain = format!("{err:#}");
     assert!(
         matches!(&err, DataProviderError::ComputationFailed(_)),
@@ -63,9 +60,7 @@ fn metadata_provider_fails_in_non_cargo_dir() {
 /// segment is satisfied by any one element.
 fn path_resolves(value: &serde_json::Value, path: &str) -> bool {
     let (head, rest) = path.split_once('.').unwrap_or((path, ""));
-    let (key, is_array) = head
-        .strip_suffix("[]")
-        .map_or((head, false), |key| (key, true));
+    let (key, is_array) = head.strip_suffix("[]").map_or((head, false), |key| (key, true));
     let Some(child) = value.get(key) else {
         return false;
     };
@@ -73,9 +68,9 @@ fn path_resolves(value: &serde_json::Value, path: &str) -> bool {
         (false, true) => true,
         (false, false) => path_resolves(child, rest),
         (true, true) => child.is_array(),
-        (true, false) => child
-            .as_array()
-            .is_some_and(|items| items.iter().any(|item| path_resolves(item, rest))),
+        (true, false) => {
+            child.as_array().is_some_and(|items| items.iter().any(|item| path_resolves(item, rest)))
+        }
     }
 }
 
@@ -95,9 +90,7 @@ fn path_resolves_rejects_keys_the_document_lacks() {
 fn every_schema_field_is_a_key_of_the_provided_document() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut ctx = Context::test_context(manifest_dir);
-    let document = MetadataProvider
-        .provide(&mut ctx)
-        .expect("cargo metadata should succeed");
+    let document = MetadataProvider.provide(&mut ctx).expect("cargo metadata should succeed");
     let schema = MetadataProvider.schema();
     let absent: Vec<&str> = schema
         .fields
@@ -105,10 +98,7 @@ fn every_schema_field_is_a_key_of_the_provided_document() {
         .map(|f| f.name)
         .filter(|name| !path_resolves(&document, name))
         .collect();
-    assert!(
-        absent.is_empty(),
-        "schema fields absent from the cargo metadata document: {absent:?}"
-    );
+    assert!(absent.is_empty(), "schema fields absent from the cargo metadata document: {absent:?}");
     let names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
     for expected in [
         "workspace_root",
@@ -128,11 +118,8 @@ fn every_schema_field_is_a_key_of_the_provided_document() {
 fn check_metadata_output_success() {
     use std::process::Output;
     // ExitStatus::default() is success (code 0) on unix.
-    let output = Output {
-        status: std::process::ExitStatus::default(),
-        stdout: vec![],
-        stderr: vec![],
-    };
+    let output =
+        Output { status: std::process::ExitStatus::default(), stdout: vec![], stderr: vec![] };
     assert!(check_metadata_output(&output).is_ok());
 }
 
@@ -153,14 +140,8 @@ fn check_metadata_output_failure_includes_exit_code() {
     };
     let err = check_metadata_output(&output).expect_err("non-zero must fail");
     let msg = err.to_string();
-    assert!(
-        msg.contains("status 101"),
-        "exit code 101 must appear in error: {msg}"
-    );
-    assert!(
-        msg.contains("panicked"),
-        "stderr tail must remain in error: {msg}"
-    );
+    assert!(msg.contains("status 101"), "exit code 101 must appear in error: {msg}");
+    assert!(msg.contains("panicked"), "stderr tail must remain in error: {msg}");
 }
 
 /// A None exit (signal kill, e.g. OOM)
@@ -195,8 +176,5 @@ fn run_cargo_metadata_arg_list_includes_locked() {
         Some(&"metadata"),
         "cargo must be invoked with the metadata subcommand first"
     );
-    assert!(
-        args.contains(&"--locked"),
-        "cargo metadata must run with --locked"
-    );
+    assert!(args.contains(&"--locked"), "cargo metadata must run with --locked");
 }

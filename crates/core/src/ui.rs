@@ -93,7 +93,7 @@ fn emit(level: &str, message: &str) {
     emit_to(level, message, &mut std::io::stderr().lock());
 }
 
-/// Writer-generic core of [`emit`]: renders `message` through the SEC-21 line-
+/// Writer-generic core of [`emit`]: renders `message` through the line-
 /// split + sanitise pipeline into `w`. Production callers pass a locked stderr
 /// handle; tests pass a `Vec<u8>` so they can assert on the exact bytes the
 /// production pipeline produces.
@@ -141,7 +141,7 @@ mod tests {
 
     /// Render a message through the same pipeline `emit` uses, but into a
     /// `Vec<u8>` so we can assert on the exact output without touching stderr.
-    /// Routes through production `emit_to` (DUP-1 TASK-1031) so SEC-21
+    /// Routes through production `emit_to` so regressions
     /// regressions catch drift in the real pipeline, not a parallel copy.
     fn render(level: &str, message: &str) -> String {
         let mut out: Vec<u8> = Vec::new();
@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(render("error", "boom"), "ops: error: boom\n");
     }
 
-    /// SEC-21 AC#3: an injected newline must not produce a second physical
+    /// an injected newline must not produce a second physical
     /// line beginning with `ops:`.
     #[test]
     fn injected_newline_does_not_forge_top_level_line() {
@@ -169,7 +169,7 @@ mod tests {
         assert!(second.starts_with("ops: error:   "));
     }
 
-    /// SEC-21 / TASK-1843 AC#4: `U+009B` is CSI — the single-character form
+    /// `U+009B` is CSI — the single-character form
     /// of `ESC [` — and `U+009D` is OSC. Escaping ESC while passing these
     /// through left the shorter spelling of the same primitive open.
     #[test]
@@ -180,7 +180,7 @@ mod tests {
         assert!(!out.contains('\u{9b}'), "CSI must not survive: {out:?}");
     }
 
-    /// SEC-21 / TASK-1843 AC#4: bidi overrides and isolates reorder rendered
+    /// Bidi overrides and isolates reorder rendered
     /// text without changing the bytes, so a dry-run preview could display a
     /// command line that is not the one that will run.
     #[test]
@@ -194,7 +194,7 @@ mod tests {
         );
     }
 
-    /// DUP-2 / TASK-2250: the escaped set is the whole shared policy, so the
+    /// The escaped set is the whole shared policy, so the
     /// `Zp` separator `U+2029` and the deprecated `Cf` block `U+206A..=
     /// U+206F` — which the old hand-picked bidi list passed through — are
     /// now escaped like every other rejected codepoint.
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(out, "\u{7e}\u{a0}\u{2065}\u{205f}caf\u{e9} 名前");
     }
 
-    /// SEC-21 AC#1: ANSI ESC and other control bytes are escaped, not passed
+    /// ANSI ESC and other control bytes are escaped, not passed
     /// through to a TTY.
     #[test]
     fn ansi_and_control_bytes_are_escaped() {
@@ -227,7 +227,7 @@ mod tests {
         assert!(out.contains("\\x0c"));
     }
 
-    /// SEC-21 AC#2: legitimate multi-line anyhow chains stay readable as
+    /// Legitimate multi-line anyhow chains stay readable as
     /// indented continuation lines under the prefix.
     #[test]
     fn multiline_chain_renders_as_indented_continuations() {
@@ -243,14 +243,14 @@ mod tests {
         assert!(out.contains("a\tb"));
     }
 
-    /// ERR-7 (TASK-1370): the program-root error printer in
+    /// The program-root error printer in
     /// `crates/cli/src/main.rs` renders an `anyhow::Error` chain via
     /// `format!("{e:#}")` and passes the assembled string to
     /// [`error`]. Pin that the assembly-then-sanitise order escapes ESC
     /// bytes that originated *inside* an interpolated value of a nested
     /// cause — the chain-joiner `: ` produced by anyhow's alternate
     /// Display must not exempt inner-cause Display strings from the
-    /// SEC-21 sweep.
+    /// sanitise sweep.
     #[test]
     fn anyhow_chain_alternate_display_routed_through_emit_sanitises_inner_cause() {
         let hostile_path = "evil\u{1b}[2J\u{1b}[31m.txt";
@@ -258,18 +258,9 @@ mod tests {
         let err = inner.context("init failed");
         let assembled = format!("{err:#}");
         let out = render("error", &assembled);
-        assert!(
-            !out.contains('\u{1b}'),
-            "ESC must be escaped end-to-end: {out:?}"
-        );
-        assert!(
-            out.contains("\\x1b"),
-            "ESC must be rendered as \\x1b: {out:?}"
-        );
-        assert!(
-            out.contains("init failed"),
-            "outer context preserved: {out:?}"
-        );
+        assert!(!out.contains('\u{1b}'), "ESC must be escaped end-to-end: {out:?}");
+        assert!(out.contains("\\x1b"), "ESC must be rendered as \\x1b: {out:?}");
+        assert!(out.contains("init failed"), "outer context preserved: {out:?}");
         assert!(out.contains("loading"), "inner message preserved: {out:?}");
     }
 }

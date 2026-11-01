@@ -11,7 +11,7 @@ use std::time::Duration;
 /// The SQLite in-memory connection string, stored as `Sqlite::path()` for
 /// handles opened via [`Sqlite::open_in_memory`].
 ///
-/// READ-5 / TASK-1867: it is **not** a filesystem path. Code that derives a
+/// it is **not** a filesystem path. Code that derives a
 /// path from `Sqlite::path()` must reject it rather than treat it as one.
 pub const IN_MEMORY_PATH: &str = ":memory:";
 
@@ -23,7 +23,7 @@ pub const IN_MEMORY_PATH: &str = ":memory:";
 /// SQLite's default is to fail *immediately* with `SQLITE_BUSY`.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// ARCH-9 / TASK-1155: process-wide monotonic counter that mints a fresh
+/// Process-wide monotonic counter that mints a fresh
 /// `Sqlite::id` per instance. Stable for the lifetime of the instance, and
 /// guaranteed distinct from every earlier-minted id, so callers keying
 /// caches on the id avoid the pointer-address ABA hazard a key derived
@@ -45,7 +45,7 @@ fn mint_db_id() -> u64 {
 pub struct Sqlite {
     conn: Mutex<rusqlite::Connection>,
     db_path: PathBuf,
-    /// ARCH-9 / TASK-1155: stable per-instance identity used by callers
+    /// Stable per-instance identity used by callers
     /// that key process-local caches by `Sqlite` identity. A key derived
     /// from the instance's address (`std::ptr::from_ref(db) as usize`)
     /// is vulnerable to pointer-address ABA — a dropped-and-replaced
@@ -56,12 +56,12 @@ pub struct Sqlite {
     id: u64,
     /// Per-table ingest locks scoped to this `Sqlite` instance.
     ///
-    /// CONC-7 (TASK-0779): keying by table name and storing the map in
+    /// Keying by table name and storing the map in
     /// the connection bounds growth to the database schema and releases
     /// every entry when the instance is dropped, instead of leaking
     /// `(db_path, table)` tuples in a process-global `OnceLock` for the
     /// lifetime of the binary.
-    /// PERF-3 / TASK-1007: keyed by `&'static str` so `ingest_mutex_for`
+    /// Keyed by `&'static str` so `ingest_mutex_for`
     /// looks up an existing entry without paying the per-call
     /// `String::to_owned` allocation that `HashMap<String, _>::entry`
     /// charges on every probe. All call sites already pass static
@@ -102,7 +102,7 @@ impl Sqlite {
 
     /// Open a database at the given path in read-only mode.
     ///
-    /// READ-5 (TASK-0525): unlike [`Self::open`], this does **not**
+    /// Unlike [`Self::open`], this does **not**
     /// `create_dir_all` the parent directory. A read-only opener that
     /// creates writable directories on disk would contradict the access
     /// mode the caller requested — an unresolvable path is the caller's
@@ -135,7 +135,7 @@ impl Sqlite {
 
     /// Open an in-memory database (for tests).
     ///
-    /// READ-5 / TASK-1867: `db_path` is set to the `IN_MEMORY_PATH`
+    /// `db_path` is set to the `IN_MEMORY_PATH`
     /// sentinel, which is a SQLite connection string rather than a
     /// filesystem path. Anything deriving a path from `path()` must reject
     /// it — see `data_dir_for_db`.
@@ -154,7 +154,7 @@ impl Sqlite {
         })
     }
 
-    /// ARCH-9 / TASK-1155: stable per-instance identity for keying
+    /// Stable per-instance identity for keying
     /// process-local caches by `Sqlite` identity. Distinct instances always
     /// receive distinct ids regardless of allocation reuse, eliminating
     /// the pointer-address ABA hazard.
@@ -177,14 +177,12 @@ impl Sqlite {
         // Intentionally no logging here: callers know the query/operation
         // context and are responsible for either propagating or logging
         // (READ-8). A library primitive should not double-log.
-        self.conn
-            .lock()
-            .map_err(|e| DbError::MutexPoisoned(e.to_string()))
+        self.conn.lock().map_err(|e| DbError::MutexPoisoned(e.to_string()))
     }
 
     /// Return the per-table ingest mutex, creating it on first use.
     ///
-    /// ERR-5 (TASK-0780): the registry mutex recovers from poisoning via
+    /// The registry mutex recovers from poisoning via
     /// `into_inner` so a panic inside one ingestor's `collect`/`load` does
     /// not permanently brick every other ingest. The connection lock at
     /// `Self::lock` continues to surface poisoning as
@@ -216,10 +214,7 @@ impl Sqlite {
 
     #[cfg(test)]
     pub(crate) fn ingest_lock_count(&self) -> usize {
-        self.ingest_locks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
+        self.ingest_locks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
     }
 
     /// Resolve the DB path from config and workspace root.
@@ -318,7 +313,7 @@ mod tests {
             assert!(db_path.exists(), "db file should exist");
         }
 
-        /// ERR-13: a failure creating the database's directory names it.
+        /// a failure creating the database's directory names it.
         #[test]
         fn sqlite_open_names_the_directory_it_could_not_create() {
             let dir = tempfile::tempdir().expect("tempdir");
@@ -352,7 +347,7 @@ mod tests {
             assert!(result.is_err(), "readonly open of nonexistent should fail");
         }
 
-        /// READ-5 (TASK-0525): pin the asymmetry — `open_readonly` does not
+        /// Pin the asymmetry — `open_readonly` does not
         /// create parent directories, and the resulting error is a rusqlite
         /// error rather than the parent-mkdir IO error `open` produces.
         #[test]
@@ -368,7 +363,7 @@ mod tests {
             );
         }
 
-        /// VER-4 / TASK-2597: after recovering a poisoned registry mutex,
+        /// After recovering a poisoned registry mutex,
         /// the poison flag is cleared, so the recovery warn fires once —
         /// not again on every subsequent acquire.
         #[test]
@@ -387,10 +382,7 @@ mod tests {
                 let _second = db.ingest_mutex_for("poison_once_table");
                 let _third = db.ingest_mutex_for("poison_once_other_table");
             });
-            assert_eq!(
-                warns, 1,
-                "recovery warn must fire on the first acquire only, got {warns}"
-            );
+            assert_eq!(warns, 1, "recovery warn must fire on the first acquire only, got {warns}");
         }
     }
 }

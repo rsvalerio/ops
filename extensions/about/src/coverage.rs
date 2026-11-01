@@ -76,12 +76,7 @@ pub fn run_about_coverage_with(
     let mut ctx = crate::providers::subpage_context("coverage")?;
 
     // Warm the providers stacks may rely on for coverage + unit metadata.
-    warm_providers(
-        &mut ctx,
-        data_registry,
-        &["sqlite", "coverage", "cargo_toml"],
-        "coverage",
-    );
+    warm_providers(&mut ctx, data_registry, &["sqlite", "coverage", "cargo_toml"], "coverage");
 
     let coverage: ProjectCoverage =
         load_or_default(&mut ctx, data_registry, PROJECT_COVERAGE_PROVIDER)?;
@@ -105,18 +100,10 @@ pub fn format_coverage_section(coverage: &ProjectCoverage, is_tty: bool) -> Opti
 
     let mut lines = vec![String::new()];
 
-    let active_units: Vec<&_> = coverage
-        .units
-        .iter()
-        .filter(|u| u.stats.lines_count > 0)
-        .collect();
+    let active_units: Vec<&_> = coverage.units.iter().filter(|u| u.stats.lines_count > 0).collect();
 
     if !active_units.is_empty() {
-        lines.extend(
-            format_coverage_table(&active_units)
-                .lines()
-                .map(|l| format!("    {l}")),
-        );
+        lines.extend(format_coverage_table(&active_units).lines().map(|l| format!("    {l}")));
         lines.push(String::new());
     }
 
@@ -170,10 +157,7 @@ mod tests {
         let registry = DataRegistry::new();
         let mut out: Vec<u8> = Vec::new();
         run_about_coverage_with(&registry, &mut out, false).expect("runner must succeed");
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "No coverage data available.\n"
-        );
+        assert_eq!(String::from_utf8(out).unwrap(), "No coverage data available.\n");
     }
 
     #[test]
@@ -215,11 +199,7 @@ mod tests {
     fn format_coverage_section_with_units() {
         let cov = ProjectCoverage::new(
             CoverageStats::new(85.0, 850, 1000),
-            vec![UnitCoverage::new(
-                "core",
-                "crates/core",
-                CoverageStats::new(85.0, 850, 1000),
-            )],
+            vec![UnitCoverage::new("core", "crates/core", CoverageStats::new(85.0, 850, 1000))],
         );
         let lines = format_coverage_section(&cov, false).expect("non-zero coverage returns Some");
         // Structural contract, not substring: one blank, N table lines, one blank, total.
@@ -229,17 +209,11 @@ mod tests {
         let total = lines.last().unwrap();
         assert_eq!(
             total,
-            &format!(
-                "    {} total: 85.0% lines (850 / 1,000)",
-                coverage_icon(85.0)
-            ),
+            &format!("    {} total: 85.0% lines (850 / 1,000)", coverage_icon(85.0)),
             "total line format changed: {total}"
         );
         // The blank separator sits immediately before the total.
-        assert!(
-            lines[lines.len() - 2].is_empty(),
-            "blank before total: {lines:?}"
-        );
+        assert!(lines[lines.len() - 2].is_empty(), "blank before total: {lines:?}");
         // Exactly one table block between the leading blank and the pre-total blank.
         let table_block: Vec<&String> = lines[1..lines.len() - 2].iter().collect();
         assert!(
@@ -266,16 +240,10 @@ mod tests {
         // exactly once in the table block, empty unit is filtered out, and
         // the total line matches the pinned format.
         let total = lines.last().expect("has total line");
-        assert_eq!(
-            total,
-            &format!("    {} total: 80.0% lines (80 / 100)", coverage_icon(80.0))
-        );
+        assert_eq!(total, &format!("    {} total: 80.0% lines (80 / 100)", coverage_icon(80.0)));
         let table_block = &lines[1..lines.len() - 2];
         let active_hits = table_block.iter().filter(|l| l.contains("active")).count();
-        assert_eq!(
-            active_hits, 1,
-            "active appears once in table: {table_block:?}"
-        );
+        assert_eq!(active_hits, 1, "active appears once in table: {table_block:?}");
         assert!(
             !table_block.iter().any(|l| l.contains("empty")),
             "empty unit filtered out: {table_block:?}"

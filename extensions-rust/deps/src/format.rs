@@ -99,12 +99,8 @@ impl SeverityClass {
 }
 
 /// Worst-to-least order used by the result-slot count rollup.
-const SUMMARY_CLASSES: [SeverityClass; 4] = [
-    SeverityClass::Error,
-    SeverityClass::Warning,
-    SeverityClass::Info,
-    SeverityClass::Unknown,
-];
+const SUMMARY_CLASSES: [SeverityClass; 4] =
+    [SeverityClass::Error, SeverityClass::Warning, SeverityClass::Info, SeverityClass::Unknown];
 
 /// Severity rank for picking the most severe [`ReportStatus`] in a section.
 const fn status_rank(status: ReportStatus) -> u8 {
@@ -132,10 +128,8 @@ fn rollup(classes: &[SeverityClass]) -> (ReportStatus, String) {
         // same as an unknown class. One increment per element of the in-memory
         // `classes` slice, whose length is bounded by `isize::MAX`, so
         // `saturating_add` equals `+= 1` exactly.
-        if let Some(slot) = SUMMARY_CLASSES
-            .iter()
-            .position(|x| x == c)
-            .and_then(|idx| counts.get_mut(idx))
+        if let Some(slot) =
+            SUMMARY_CLASSES.iter().position(|x| x == c).and_then(|idx| counts.get_mut(idx))
         {
             *slot = slot.saturating_add(1);
         }
@@ -207,12 +201,8 @@ fn push_check_rows(out: &mut Report, report: &DepsReport) {
     // Unused `[licenses]` allowances share the license row: they are
     // license-config findings, and only the gate (`has_issues`) treats them
     // differently.
-    let licenses: Vec<&LicenseEntry> = report
-        .deny
-        .licenses
-        .iter()
-        .chain(&report.deny.unused_license_allowances)
-        .collect();
+    let licenses: Vec<&LicenseEntry> =
+        report.deny.licenses.iter().chain(&report.deny.unused_license_allowances).collect();
     out.push(severity_row(
         "License Issues",
         &licenses,
@@ -253,15 +243,8 @@ fn upgrade_row(title: &str, entries: &[UpgradeEntry], kind: UpgradeKind) -> Repo
         return ReportRow::new(ReportStatus::Ok, title, "None");
     }
 
-    let result = format!(
-        "{} {}",
-        entries.len(),
-        if entries.len() == 1 {
-            "upgrade"
-        } else {
-            "upgrades"
-        }
-    );
+    let result =
+        format!("{} {}", entries.len(), if entries.len() == 1 { "upgrade" } else { "upgrades" });
 
     let name_width = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
     let old_width = entries.iter().map(|e| e.old_req.len()).max().unwrap_or(0);
@@ -275,10 +258,9 @@ fn upgrade_row(title: &str, entries: &[UpgradeEntry], kind: UpgradeKind) -> Repo
     let mut details = Vec::with_capacity(entries.len().saturating_add(1));
     for e in entries {
         let suffix = match kind {
-            UpgradeKind::Breaking => format!(
-                "  (latest {})",
-                dim(&format!("{:<w$}", e.latest, w = latest_width))
-            ),
+            UpgradeKind::Breaking => {
+                format!("  (latest {})", dim(&format!("{:<w$}", e.latest, w = latest_width)))
+            }
             UpgradeKind::Compatible => String::new(),
         };
         let mut line = String::new();
@@ -299,11 +281,7 @@ fn upgrade_row(title: &str, entries: &[UpgradeEntry], kind: UpgradeKind) -> Repo
         UpgradeKind::Breaking => "Run `cargo upgrade --incompatible` to apply breaking upgrades.",
         UpgradeKind::Compatible => "Run `cargo upgrade` to apply compatible upgrades.",
     };
-    details.push(format!(
-        "{DETAIL_INDENT}{} {}",
-        dim("\u{1f4a1}"),
-        dim(advice)
-    ));
+    details.push(format!("{DETAIL_INDENT}{} {}", dim("\u{1f4a1}"), dim(advice)));
 
     ReportRow::new(ReportStatus::Info, title, result).with_details(details)
 }
@@ -371,16 +349,8 @@ where
     // `&extract` also implements `Fn`, so the shared scaffold can keep its
     // by-value parameter while this wrapper's details closure still uses it.
     severity_section_row(title, entries, &extract, |entries, classes| {
-        let pkg_w = entries
-            .iter()
-            .map(|e| extract(e).package.len())
-            .max()
-            .unwrap_or(0);
-        let id_w = entries
-            .iter()
-            .filter_map(|e| extract(e).id.map(str::len))
-            .max()
-            .unwrap_or(0);
+        let pkg_w = entries.iter().map(|e| extract(e).package.len()).max().unwrap_or(0);
+        let id_w = entries.iter().filter_map(|e| extract(e).id.map(str::len)).max().unwrap_or(0);
 
         // A live slice length is at most `isize::MAX`, so `saturating_add`
         // here equals `+ 2` exactly.
@@ -416,12 +386,7 @@ fn bans_row(bans: &[BanEntry]) -> ReportRow {
             message: &b.message,
             severity: &b.severity,
         },
-        |_, _| {
-            vec![format!(
-                "{DETAIL_INDENT}{}",
-                dim("(transitive, usually harmless)")
-            )]
-        },
+        |_, _| vec![format!("{DETAIL_INDENT}{}", dim("(transitive, usually harmless)"))],
     )
 }
 
@@ -449,18 +414,10 @@ fn unused_row(unused: &UnusedDepsResult) -> ReportRow {
     let result = format!(
         "{} {}",
         entries.len(),
-        if entries.len() == 1 {
-            "dependency"
-        } else {
-            "dependencies"
-        }
+        if entries.len() == 1 { "dependency" } else { "dependencies" }
     );
     let pkg_w = entries.iter().map(|e| e.package.len()).max().unwrap_or(0);
-    let dep_w = entries
-        .iter()
-        .map(|e| e.dependency.len())
-        .max()
-        .unwrap_or(0);
+    let dep_w = entries.iter().map(|e| e.dependency.len()).max().unwrap_or(0);
     let icon = SeverityClass::Warning.style(SeverityClass::Warning.icon());
 
     // A live slice length is at most `isize::MAX`, so `saturating_add` here

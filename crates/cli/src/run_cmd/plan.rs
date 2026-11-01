@@ -61,10 +61,7 @@ pub fn plans_for_names(
     let mut plans = Vec::with_capacity(names.len());
     for name in names {
         let plan = runner.expand_to_plan(name).map_err(anyhow::Error::from)?;
-        plans.push(NamePlan {
-            name: (*name).to_string(),
-            plan,
-        });
+        plans.push(NamePlan { name: (*name).to_string(), plan });
     }
     Ok(plans)
 }
@@ -91,10 +88,7 @@ pub fn build_display_map(
     runner: &ops_runner::command::CommandRunner,
     leaf_ids: &[ops_core::config::CommandId],
 ) -> std::collections::HashMap<String, String> {
-    leaf_ids
-        .iter()
-        .map(|id| (id.to_string(), display_cmd_for(runner, id)))
-        .collect()
+    leaf_ids.iter().map(|id| (id.to_string(), display_cmd_for(runner, id))).collect()
 }
 
 /// Log step results at debug level.

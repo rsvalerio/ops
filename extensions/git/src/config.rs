@@ -294,10 +294,8 @@ pub(crate) fn redact_userinfo(value: &str) -> String {
             None => (after, None),
         };
         let host = authority.rsplit('@').next().unwrap_or(authority);
-        return rest.map_or_else(
-            || format!("{scheme}://{host}"),
-            |r| format!("{scheme}://{host}/{r}"),
-        );
+        return rest
+            .map_or_else(|| format!("{scheme}://{host}"), |r| format!("{scheme}://{host}/{r}"));
     }
     // scp-style: strip a `user[:password]@` prefix that appears before the
     // first `/`. Past the first `/` the `@` belongs to a path component, not
@@ -329,9 +327,7 @@ fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
     }
     // Unquoted form: drop trailing inline comments (`#`, `;`) so the
     // returned value matches `git config --get remote.origin.url`.
-    let uncommented = value
-        .split_once(['#', ';'])
-        .map_or(value, |(before, _comment)| before);
+    let uncommented = value.split_once(['#', ';']).map_or(value, |(before, _comment)| before);
     Some(std::borrow::Cow::Borrowed(uncommented.trim()))
 }
 
@@ -386,10 +382,7 @@ fn is_origin_header(line: &str) -> bool {
             // (an attacker-shaped subsection escape, an unbalanced quote)
             // drops the whole section. Log the failure category at debug so
             // a `RUST_LOG=ops_git=debug` rerun explains the missing remote.
-            if line
-                .trim_start_matches('[')
-                .starts_with(|c: char| c.eq_ignore_ascii_case(&'r'))
-            {
+            if line.trim_start_matches('[').starts_with(|c: char| c.eq_ignore_ascii_case(&'r')) {
                 // Debug-format the raw header line. Unlike a `url = …` value
                 // it never passes through `RedactedUrl::redact`, so a section
                 // header carrying ANSI escapes or an interior `\r` would
@@ -481,9 +474,7 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
         Some((s, r)) => (s, r.trim()),
         None => return Ok((inner, None)),
     };
-    let body = rest
-        .strip_prefix('"')
-        .ok_or(SectionHeaderError::UnbalancedQuotes)?;
+    let body = rest.strip_prefix('"').ok_or(SectionHeaderError::UnbalancedQuotes)?;
     // The closing `"` must terminate the body: trailing content after it
     // (e.g. `[remote "origin"trailing]`) is a malformed header, and so is a
     // body that never closes.
@@ -547,10 +538,7 @@ pub fn read_head_branch(git_dir: &Path) -> Option<String> {
     }
     // A ref that resolves to a traversal shape (`refs/heads/../../../etc`)
     // must not reach operator-facing surfaces.
-    if branch
-        .split('/')
-        .any(|seg| !seg.is_empty() && seg.bytes().all(|b| b == b'.'))
-    {
+    if branch.split('/').any(|seg| !seg.is_empty() && seg.bytes().all(|b| b == b'.')) {
         tracing::warn!(
             path = ?head_path.display(),
             ".git/HEAD ref contains a dot-only path segment; reporting branch as None"
@@ -637,9 +625,7 @@ mod tests {
     #[test]
     fn scp_style_credentials_are_redacted() {
         let cfg = "[remote \"origin\"]\n\turl = user:tok@host:weird/garbage\n";
-        let url = read_origin_url_from(cfg)
-            .map(RedactedUrl::into_string)
-            .expect("origin url");
+        let url = read_origin_url_from(cfg).map(RedactedUrl::into_string).expect("origin url");
         assert!(!url.contains("user:tok"), "leaked credentials: {url}");
         assert!(!url.contains('@'), "retained userinfo: {url}");
         assert_eq!(url, "host:weird/garbage");
@@ -732,22 +718,14 @@ mod tests {
         // `[remote origin]` (no quotes) is malformed per git-config(1) and git
         // itself ignores it; we must not silently honour what git would not.
         let cfg = "[remote origin]\n\turl = https://github.com/bare/repo.git\n";
-        assert!(
-            read_origin_url_from(cfg)
-                .map(RedactedUrl::into_string)
-                .is_none()
-        );
+        assert!(read_origin_url_from(cfg).map(RedactedUrl::into_string).is_none());
     }
 
     #[test]
     fn escaped_subsection_is_not_treated_as_origin() {
         // `[remote "or\"igin"]` decodes to subsection `or"igin`, not `origin`.
         let cfg = "[remote \"or\\\"igin\"]\n\turl = https://github.com/escaped/repo.git\n";
-        assert!(
-            read_origin_url_from(cfg)
-                .map(RedactedUrl::into_string)
-                .is_none()
-        );
+        assert!(read_origin_url_from(cfg).map(RedactedUrl::into_string).is_none());
     }
 
     #[test]
@@ -755,11 +733,7 @@ mod tests {
         // Subsection names are case-sensitive and exact; `" origin "` is not
         // the same subsection as `"origin"`.
         let cfg = "[remote \" origin \"]\n\turl = https://github.com/spaced/repo.git\n";
-        assert!(
-            read_origin_url_from(cfg)
-                .map(RedactedUrl::into_string)
-                .is_none()
-        );
+        assert!(read_origin_url_from(cfg).map(RedactedUrl::into_string).is_none());
     }
 
     /// When last-wins picks up a trailing `url = ...` line that gets dropped
@@ -841,11 +815,7 @@ mod tests {
 [remote \"upstream\"]
 \turl = https://example.com/other/repo.git
 ";
-        assert!(
-            read_origin_url_from(cfg)
-                .map(RedactedUrl::into_string)
-                .is_none()
-        );
+        assert!(read_origin_url_from(cfg).map(RedactedUrl::into_string).is_none());
     }
 
     #[test]
@@ -939,9 +909,7 @@ mod tests {
         // bytes are arbitrary `; comment` padding; the cap check fires
         // before the parser ever sees them.
         let header = "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n";
-        let pad_size = cap_bytes_as_usize()
-            .saturating_sub(header.len())
-            .saturating_add(64);
+        let pad_size = cap_bytes_as_usize().saturating_sub(header.len()).saturating_add(64);
         let mut body = String::with_capacity(header.len() + pad_size);
         body.push_str(header);
         // Use a comment line so well-formed parsing would still match
@@ -967,9 +935,7 @@ mod tests {
         assert!(RedactedUrl::redact("https://host/repo\u{7f}fake").is_none());
         // A clean URL still round-trips.
         assert_eq!(
-            RedactedUrl::redact("https://host/repo.git")
-                .map(RedactedUrl::into_string)
-                .as_deref(),
+            RedactedUrl::redact("https://host/repo.git").map(RedactedUrl::into_string).as_deref(),
             Some("https://host/repo.git")
         );
     }
@@ -998,17 +964,12 @@ mod tests {
             "https://host/\u{2028}fake",
             "https://host/\u{2029}fake",
         ] {
-            assert!(
-                RedactedUrl::redact(raw).is_none(),
-                "expected rejection for {raw:?}"
-            );
+            assert!(RedactedUrl::redact(raw).is_none(), "expected rejection for {raw:?}");
         }
         // A URL containing only unrelated multibyte text (e.g. a Punycode-
         // encoded host or a UTF-8 path segment) still round-trips.
         assert_eq!(
-            RedactedUrl::redact("https://例子.test/repo")
-                .map(RedactedUrl::into_string)
-                .as_deref(),
+            RedactedUrl::redact("https://例子.test/repo").map(RedactedUrl::into_string).as_deref(),
             Some("https://例子.test/repo")
         );
     }
@@ -1025,9 +986,7 @@ mod tests {
     #[test]
     fn embedded_credentials_are_redacted() {
         let cfg = "[remote \"origin\"]\n\turl = https://user:token@github.com/o/r.git\n";
-        let url = read_origin_url_from(cfg)
-            .map(RedactedUrl::into_string)
-            .expect("origin url");
+        let url = read_origin_url_from(cfg).map(RedactedUrl::into_string).expect("origin url");
         assert!(!url.contains("user:token"), "leaked credentials: {url}");
         assert!(!url.contains('@'), "retained userinfo: {url}");
         assert_eq!(url, "https://github.com/o/r.git");
@@ -1128,11 +1087,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
-        std::fs::write(
-            git_dir.join("HEAD"),
-            "0123456789abcdef0123456789abcdef01234567\n",
-        )
-        .unwrap();
+        std::fs::write(git_dir.join("HEAD"), "0123456789abcdef0123456789abcdef01234567\n").unwrap();
         assert!(read_head_branch(&git_dir).is_none());
     }
 
@@ -1146,11 +1101,8 @@ mod tests {
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         let config = git_dir.join("config");
-        std::fs::write(
-            &config,
-            "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n",
-        )
-        .unwrap();
+        std::fs::write(&config, "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n")
+            .unwrap();
         let mut perms = std::fs::metadata(&config).unwrap().permissions();
         perms.set_mode(0o000);
         std::fs::set_permissions(&config, perms).unwrap();
@@ -1239,9 +1191,7 @@ mod tests {
     fn no_tracing_call_display_formats_a_path_or_config_line() {
         for name in ["config.rs", "provider.rs", "remote.rs", "lib.rs"] {
             let src = std::fs::read_to_string(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("src")
-                    .join(name),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(name),
             )
             .expect("read source");
             for (n, line) in src.lines().enumerate() {
@@ -1307,10 +1257,7 @@ mod tests {
         let (_d, git_dir) = write_head("ref: refs/heads/feature/foo\n");
         assert_eq!(read_head_branch(&git_dir), Some("feature/foo".to_string()));
         let (_d2, git_dir2) = write_head("ref: refs/heads/release-1.2.3\n");
-        assert_eq!(
-            read_head_branch(&git_dir2),
-            Some("release-1.2.3".to_string())
-        );
+        assert_eq!(read_head_branch(&git_dir2), Some("release-1.2.3".to_string()));
     }
 
     /// A HEAD one byte over the cap must return `None` rather than
@@ -1380,13 +1327,8 @@ mod tests {
     /// comment marker inside quotes still resolves.
     #[test]
     fn quoted_origin_subsection_with_trailing_comment() {
-        assert_eq!(
-            strip_header_comment("[remote \"origin\"] ; note"),
-            "[remote \"origin\"]"
-        );
-        assert!(is_origin_header(strip_header_comment(
-            "[remote \"origin\"] ; note"
-        )));
+        assert_eq!(strip_header_comment("[remote \"origin\"] ; note"), "[remote \"origin\"]");
+        assert!(is_origin_header(strip_header_comment("[remote \"origin\"] ; note")));
     }
 
     /// The header-line key form stays unsupported

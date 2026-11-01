@@ -75,12 +75,7 @@ pub struct TimeoutError {
 
 impl std::fmt::Display for TimeoutError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} timed out after {}s",
-            self.label,
-            self.timeout.as_secs()
-        )
+        write!(f, "{} timed out after {}s", self.label, self.timeout.as_secs())
     }
 }
 
@@ -105,11 +100,7 @@ pub struct SpawnError {
 
 impl std::fmt::Display for SpawnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}: failed to spawn {}: {}",
-            self.label, self.program, self.source
-        )
+        write!(f, "{}: failed to spawn {}: {}", self.label, self.program, self.source)
     }
 }
 
@@ -223,22 +214,20 @@ fn run_with_timeout_inner(
     label: &str,
     cap: usize,
 ) -> Result<Output, RunError> {
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .map_err(|e| {
-            // Name the failing operation and program in
-            // the rendered error so a missing binary surfaces as
-            // "cargo metadata: failed to spawn cargo: …" instead of a bare
-            // OS error string.
-            RunError::Spawn(SpawnError {
-                label: label.to_string(),
-                program: cmd.get_program().to_string_lossy().into_owned(),
-                source: e,
-            })
-        })?;
+    let mut child =
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).spawn().map_err(
+            |e| {
+                // Name the failing operation and program in
+                // the rendered error so a missing binary surfaces as
+                // "cargo metadata: failed to spawn cargo: …" instead of a bare
+                // OS error string.
+                RunError::Spawn(SpawnError {
+                    label: label.to_string(),
+                    program: cmd.get_program().to_string_lossy().into_owned(),
+                    source: e,
+                })
+            },
+        )?;
 
     // Drain threads return both the bytes read so far
     // and any IO error encountered. We surface drain failures via
@@ -274,20 +263,13 @@ fn run_with_timeout_inner(
         // the Timeout — the Timeout error itself still wins (the child
         // outran the deadline) but the drain situation stays visible.
         drain_after_timeout(stdout_handle, stderr_handle, label);
-        return Err(RunError::Timeout(TimeoutError {
-            label: label.to_string(),
-            timeout,
-        }));
+        return Err(RunError::Timeout(TimeoutError { label: label.to_string(), timeout }));
     };
 
     let stdout = collect_drain(stdout_handle, label, "stdout")?;
     let stderr = collect_drain(stderr_handle, label, "stderr")?;
 
-    Ok(Output {
-        status,
-        stdout,
-        stderr,
-    })
+    Ok(Output { status, stdout, stderr })
 }
 
 /// Run `cargo <args...>` in `working_dir` under [`run_with_timeout`].
@@ -347,9 +329,7 @@ pub fn run_cargo_bounded(
     label: &str,
 ) -> Result<Output, RunError> {
     run_with_timeout(
-        Command::new(resolve_cargo_bin())
-            .args(args)
-            .current_dir(working_dir),
+        Command::new(resolve_cargo_bin()).args(args).current_dir(working_dir),
         timeout,
         label,
     )
@@ -377,7 +357,7 @@ pub fn resolve_rustup_bin() -> std::ffi::OsString {
 mod tests {
     use super::*;
 
-    /// PORT-5 (TASK-0697): cargo subcommands inherit `$CARGO` from the
+    /// PORT-5: cargo subcommands inherit `$CARGO` from the
     /// parent cargo process; `run_cargo` must honour it instead of relying
     /// on a fresh `$PATH` lookup that may resolve to a different toolchain.
     mod cargo_bin {
@@ -392,10 +372,7 @@ mod tests {
             unsafe { std::env::set_var(CARGO_ENV, "/opt/toolchain/bin/cargo") };
             let resolved = resolve_cargo_bin();
             unsafe { std::env::remove_var(CARGO_ENV) };
-            assert_eq!(
-                resolved,
-                std::ffi::OsString::from("/opt/toolchain/bin/cargo")
-            );
+            assert_eq!(resolved, std::ffi::OsString::from("/opt/toolchain/bin/cargo"));
         }
 
         #[test]
@@ -414,10 +391,7 @@ mod tests {
             unsafe { std::env::set_var(RUSTUP_ENV, "/opt/toolchain/bin/rustup") };
             let resolved = resolve_rustup_bin();
             unsafe { std::env::remove_var(RUSTUP_ENV) };
-            assert_eq!(
-                resolved,
-                std::ffi::OsString::from("/opt/toolchain/bin/rustup")
-            );
+            assert_eq!(resolved, std::ffi::OsString::from("/opt/toolchain/bin/rustup"));
         }
 
         #[test]
@@ -441,7 +415,7 @@ mod tests {
         assert_eq!(out.stdout, b"hello");
     }
 
-    /// ERR-4 / TASK-0925: a spawn failure (binary not on PATH) used to
+    /// a spawn failure (binary not on PATH) used to
     /// surface as a bare `RunError::Io` carrying only `No such file or
     /// directory (os error 2)`. The error must now be a `RunError::Spawn`
     /// whose Display includes the caller-supplied label and the program
@@ -478,7 +452,7 @@ mod tests {
         }
     }
 
-    /// SEC-33 / TASK-1050: a child that emits `> cap` bytes must be
+    /// a child that emits `> cap` bytes must be
     /// truncated to `<= cap` so a runaway cargo subprocess cannot grow the
     /// in-memory capture buffer without bound. The pre-fix behaviour
     /// called `read_to_end` and would have buffered the full output.
@@ -530,7 +504,7 @@ mod tests {
         }
     }
 
-    /// ASYNC-6: killing the timed-out child does not close the pipe ends a
+    /// Killing the timed-out child does not close the pipe ends a
     /// *grandchild* inherited, so the post-kill drain must be bounded. The
     /// backgrounded `sleep` here outlives the shell we kill and keeps
     /// stdout/stderr open; before the drain grace, the call blocked for the
@@ -547,10 +521,7 @@ mod tests {
         .expect_err("slow command should time out");
         let elapsed = started.elapsed();
 
-        assert!(
-            matches!(err, RunError::Timeout(_)),
-            "expected timeout, got {err:?}"
-        );
+        assert!(matches!(err, RunError::Timeout(_)), "expected timeout, got {err:?}");
         assert!(
             elapsed < Duration::from_secs(3),
             "must not wait out the surviving grandchild; elapsed = {elapsed:?}"

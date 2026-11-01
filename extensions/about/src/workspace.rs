@@ -188,11 +188,7 @@ enum RootCanonical {
 
 impl<'a> Resolver<'a> {
     const fn new(root: &'a Path, marker: &'a str) -> Self {
-        Self {
-            root,
-            marker,
-            root_canonical: RootCanonical::Unattempted,
-        }
+        Self { root, marker, root_canonical: RootCanonical::Unattempted }
     }
 
     /// Enumerate `<root>/<prefix>` and collect a
@@ -259,9 +255,7 @@ impl<'a> Resolver<'a> {
             }
         };
         // Fail closed: without a canonical root, containment cannot be shown.
-        let contained = self
-            .canonical_root()
-            .is_some_and(|root| canonical.starts_with(root));
+        let contained = self.canonical_root().is_some_and(|root| canonical.starts_with(root));
         if !contained {
             tracing::warn!(
                 path = ?manifest.display(),
@@ -384,10 +378,7 @@ fn glob_child_dir(
 fn recover_relative_path(path: &Path, root: &Path, root_canon: Option<&Path>) -> String {
     let canonical_rel = root_canon.and_then(|root_canon| {
         std::fs::canonicalize(path).ok().and_then(|p_canon| {
-            p_canon
-                .strip_prefix(root_canon)
-                .ok()
-                .map(|r| r.to_string_lossy().to_string())
+            p_canon.strip_prefix(root_canon).ok().map(|r| r.to_string_lossy().to_string())
         })
     });
     canonical_rel.map_or_else(
@@ -480,10 +471,7 @@ where
         Ok(meta) => PackageMetadata {
             name: meta.name,
             version: meta.version,
-            description: meta
-                .description
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty()),
+            description: meta.description.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         },
         Err(e) => {
             tracing::warn!(
@@ -510,14 +498,8 @@ mod tests {
     #[test]
     fn expands_simple_glob_with_marker() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("packages/a/package.json"),
-            r#"{"name":"a"}"#,
-        );
-        write(
-            &dir.path().join("packages/b/package.json"),
-            r#"{"name":"b"}"#,
-        );
+        write(&dir.path().join("packages/a/package.json"), r#"{"name":"a"}"#);
+        write(&dir.path().join("packages/b/package.json"), r#"{"name":"b"}"#);
         write(&dir.path().join("packages/no-pkg/README.md"), "");
 
         let resolved =
@@ -534,14 +516,8 @@ mod tests {
     #[test]
     fn rejects_partial_segment_glob_instead_of_matching_every_sibling() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("packages/foo-internal/package.json"),
-            r#"{"name":"foo-internal"}"#,
-        );
-        write(
-            &dir.path().join("packages/other/package.json"),
-            r#"{"name":"other"}"#,
-        );
+        write(&dir.path().join("packages/foo-internal/package.json"), r#"{"name":"foo-internal"}"#);
+        write(&dir.path().join("packages/other/package.json"), r#"{"name":"other"}"#);
 
         let resolved = resolve_member_globs(
             &["packages/*-internal".to_string()],
@@ -554,10 +530,7 @@ mod tests {
             !names.contains(&"packages/other"),
             "non-matching sibling must not leak in: {names:?}"
         );
-        assert!(
-            names.is_empty(),
-            "unsupported glob shape must resolve to nothing: {names:?}"
-        );
+        assert!(names.is_empty(), "unsupported glob shape must resolve to nothing: {names:?}");
     }
 
     /// The trailing-`*`-inside-a-segment shape (`packages/foo*`) is rejected
@@ -566,22 +539,12 @@ mod tests {
     #[test]
     fn rejects_prefix_glob_inside_a_segment() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("packages/foobar/package.json"),
-            r#"{"name":"foobar"}"#,
-        );
+        write(&dir.path().join("packages/foobar/package.json"), r#"{"name":"foobar"}"#);
 
-        write(
-            &dir.path().join("packages/foo/nested/package.json"),
-            r#"{"name":"nested"}"#,
-        );
+        write(&dir.path().join("packages/foo/nested/package.json"), r#"{"name":"nested"}"#);
 
-        let resolved = resolve_member_globs(
-            &["packages/foo*".to_string()],
-            &[],
-            dir.path(),
-            "package.json",
-        );
+        let resolved =
+            resolve_member_globs(&["packages/foo*".to_string()], &[], dir.path(), "package.json");
         let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
         assert!(
             !names.contains(&"packages/foo/nested"),
@@ -593,17 +556,10 @@ mod tests {
     #[test]
     fn passthrough_non_glob_member_with_manifest() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("services/api/pyproject.toml"),
-            "[project]\nname=\"api\"\n",
-        );
+        write(&dir.path().join("services/api/pyproject.toml"), "[project]\nname=\"api\"\n");
 
-        let resolved = resolve_member_globs(
-            &["services/api".to_string()],
-            &[],
-            dir.path(),
-            "pyproject.toml",
-        );
+        let resolved =
+            resolve_member_globs(&["services/api".to_string()], &[], dir.path(), "pyproject.toml");
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].0, "services/api");
     }
@@ -612,10 +568,7 @@ mod tests {
     fn excludes_filter_resolved_members() {
         let dir = tempfile::tempdir().unwrap();
         for name in ["keep", "internal-tools"] {
-            write(
-                &dir.path().join(format!("packages/{name}/package.json")),
-                r#"{"name":"x"}"#,
-            );
+            write(&dir.path().join(format!("packages/{name}/package.json")), r#"{"name":"x"}"#);
         }
 
         let resolved = resolve_member_globs(
@@ -671,22 +624,15 @@ mod tests {
         perms.set_mode(0o000);
         std::fs::set_permissions(&manifest, perms).unwrap();
 
-        let resolved = resolve_member_globs(
-            &["services/api".to_string()],
-            &[],
-            dir.path(),
-            "pyproject.toml",
-        );
+        let resolved =
+            resolve_member_globs(&["services/api".to_string()], &[], dir.path(), "pyproject.toml");
 
         // Restore so tempdir cleanup works.
         let mut restore = std::fs::metadata(&manifest).unwrap().permissions();
         restore.set_mode(0o644);
         std::fs::set_permissions(&manifest, restore).unwrap();
 
-        assert!(
-            resolved.is_empty(),
-            "unreadable manifest must be skipped (not falsely included)"
-        );
+        assert!(resolved.is_empty(), "unreadable manifest must be skipped (not falsely included)");
     }
 
     /// When the workspace root is reached through a symlink, the root
@@ -703,10 +649,7 @@ mod tests {
         let real_root = dir.path().join("real");
         std::fs::create_dir(&real_root).unwrap();
         for i in 0..200 {
-            write(
-                &real_root.join(format!("packages/m{i:03}/package.json")),
-                r#"{"name":"x"}"#,
-            );
+            write(&real_root.join(format!("packages/m{i:03}/package.json")), r#"{"name":"x"}"#);
         }
         let link_root = dir.path().join("link");
         std::os::unix::fs::symlink(&real_root, &link_root).unwrap();
@@ -722,11 +665,7 @@ mod tests {
         );
         // 200 members must all resolve; the recovery path's cached
         // canonicalize must not lose entries.
-        assert_eq!(
-            resolved.len(),
-            200,
-            "all 200 symlinked-root entries should resolve"
-        );
+        assert_eq!(resolved.len(), 200, "all 200 symlinked-root entries should resolve");
     }
 
     /// `prefix*suffix` excludes match a single
@@ -735,10 +674,7 @@ mod tests {
     fn prefix_star_suffix_exclude_matches_single_segment() {
         let dir = tempfile::tempdir().unwrap();
         for name in ["internal-x-tool", "internal-y-tool", "keep"] {
-            write(
-                &dir.path().join(format!("packages/{name}/package.json")),
-                r#"{"name":"x"}"#,
-            );
+            write(&dir.path().join(format!("packages/{name}/package.json")), r#"{"name":"x"}"#);
         }
 
         let resolved = resolve_member_globs(
@@ -778,10 +714,7 @@ mod tests {
     fn multi_star_exclude_drops_candidate_in_resolve() {
         let dir = tempfile::tempdir().unwrap();
         for name in ["keep", "x-internal-y"] {
-            write(
-                &dir.path().join(format!("packages/{name}/package.json")),
-                r#"{"name":"x"}"#,
-            );
+            write(&dir.path().join(format!("packages/{name}/package.json")), r#"{"name":"x"}"#);
         }
 
         let resolved = resolve_member_globs(
@@ -812,10 +745,7 @@ mod tests {
         // traversal would otherwise reach.
         let root = dir.path().join("root");
         std::fs::create_dir_all(&root).unwrap();
-        write(
-            &dir.path().join("sibling/package.json"),
-            r#"{"name":"escape"}"#,
-        );
+        write(&dir.path().join("sibling/package.json"), r#"{"name":"escape"}"#);
         // Valid in-root member must still load.
         write(&root.join("packages/foo/package.json"), r#"{"name":"foo"}"#);
 
@@ -854,10 +784,7 @@ mod tests {
         write(&root.join("packages/foo/package.json"), r#"{"name":"foo"}"#);
 
         let resolved = resolve_member_globs(
-            &[
-                outside.to_string_lossy().into_owned(),
-                "packages/foo".to_string(),
-            ],
+            &[outside.to_string_lossy().into_owned(), "packages/foo".to_string()],
             &[],
             &root,
             "package.json",
@@ -902,14 +829,8 @@ mod tests {
 
         // `..` anywhere in the value walks out of the root.
         assert_eq!(member_escape(".."), Some(MemberEscape::ParentTraversal));
-        assert_eq!(
-            member_escape("../sibling"),
-            Some(MemberEscape::ParentTraversal)
-        );
-        assert_eq!(
-            member_escape("packages/../../etc"),
-            Some(MemberEscape::ParentTraversal)
-        );
+        assert_eq!(member_escape("../sibling"), Some(MemberEscape::ParentTraversal));
+        assert_eq!(member_escape("packages/../../etc"), Some(MemberEscape::ParentTraversal));
 
         // Absolute: `Path::join` would discard the root outright.
         assert_eq!(member_escape("/etc"), Some(MemberEscape::Absolute));
@@ -921,35 +842,17 @@ mod tests {
     /// supported and unsupported shape is pinned without a tempdir.
     #[test]
     fn classify_member_pattern_covers_every_shape() {
-        assert_eq!(
-            classify_member_pattern("packages/foo"),
-            MemberPattern::Literal("packages/foo")
-        );
-        assert_eq!(
-            classify_member_pattern("packages/*"),
-            MemberPattern::SegmentGlob("packages/")
-        );
+        assert_eq!(classify_member_pattern("packages/foo"), MemberPattern::Literal("packages/foo"));
+        assert_eq!(classify_member_pattern("packages/*"), MemberPattern::SegmentGlob("packages/"));
         // A bare `*` enumerates the root itself.
         assert_eq!(classify_member_pattern("*"), MemberPattern::SegmentGlob(""));
 
         // Partial-segment globs would silently drop the text around the `*`.
-        assert_eq!(
-            classify_member_pattern("packages/foo*"),
-            MemberPattern::Unsupported
-        );
-        assert_eq!(
-            classify_member_pattern("packages/*-internal"),
-            MemberPattern::Unsupported
-        );
+        assert_eq!(classify_member_pattern("packages/foo*"), MemberPattern::Unsupported);
+        assert_eq!(classify_member_pattern("packages/*-internal"), MemberPattern::Unsupported);
         // Multi-segment and recursive shapes.
-        assert_eq!(
-            classify_member_pattern("packages/*/sub"),
-            MemberPattern::Unsupported
-        );
-        assert_eq!(
-            classify_member_pattern("**/foo"),
-            MemberPattern::Unsupported
-        );
+        assert_eq!(classify_member_pattern("packages/*/sub"), MemberPattern::Unsupported);
+        assert_eq!(classify_member_pattern("**/foo"), MemberPattern::Unsupported);
         assert_eq!(classify_member_pattern("**"), MemberPattern::Unsupported);
     }
 
@@ -1011,20 +914,13 @@ mod tests {
         let real_root = dir.path().join("real");
         let symlink_root = dir.path().join("link");
         std::fs::create_dir_all(&real_root).unwrap();
-        write(
-            &real_root.join("packages/a/package.json"),
-            r#"{"name":"a"}"#,
-        );
+        write(&real_root.join("packages/a/package.json"), r#"{"name":"a"}"#);
         std::os::unix::fs::symlink(&real_root, &symlink_root).unwrap();
 
         // Pass the symlinked root directly, emulating the macOS `/var` ->
         // `/private/var` mismatch.
-        let resolved = resolve_member_globs(
-            &["packages/*".to_string()],
-            &[],
-            &symlink_root,
-            "package.json",
-        );
+        let resolved =
+            resolve_member_globs(&["packages/*".to_string()], &[], &symlink_root, "package.json");
 
         // Either path: a successful strip_prefix (no mismatch) or a
         // recovered relative path via the fallback. What must NOT happen
@@ -1052,10 +948,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("root");
         let outside = dir.path().join("outside");
-        write(
-            &root.join("packages/real/package.json"),
-            r#"{"name":"real"}"#,
-        );
+        write(&root.join("packages/real/package.json"), r#"{"name":"real"}"#);
         write(&outside.join("package.json"), r#"{"name":"escape"}"#);
         (dir, root, outside)
     }
@@ -1078,9 +971,7 @@ mod tests {
             "a member symlinked out of the root must be skipped"
         );
         assert!(
-            resolved
-                .iter()
-                .all(|(_, manifest)| !manifest.contains("escape")),
+            resolved.iter().all(|(_, manifest)| !manifest.contains("escape")),
             "the outside manifest must not be read: {resolved:?}"
         );
     }

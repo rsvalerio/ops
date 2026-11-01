@@ -36,10 +36,8 @@ impl std::error::Error for PromptCancelled {}
 
 /// Build the error a command returns when the user cancels at a prompt.
 pub fn cancelled(prompt_source: &str) -> anyhow::Error {
-    anyhow::Error::new(PromptCancelled {
-        prompt_source: prompt_source.to_string(),
-    })
-    .context(ExitCodeOverride(SIGINT_EXIT))
+    anyhow::Error::new(PromptCancelled { prompt_source: prompt_source.to_string() })
+        .context(ExitCodeOverride(SIGINT_EXIT))
 }
 
 /// Find a [`PromptCancelled`] anywhere in an error chain.
@@ -51,8 +49,7 @@ pub fn cancellation_of(err: &anyhow::Error) -> Option<&PromptCancelled> {
     if let Some(c) = err.downcast_ref::<PromptCancelled>() {
         return Some(c);
     }
-    err.chain()
-        .find_map(<dyn std::error::Error>::downcast_ref::<PromptCancelled>)
+    err.chain().find_map(<dyn std::error::Error>::downcast_ref::<PromptCancelled>)
 }
 
 /// Classify an `inquire` prompt result, generic over the prompt's answer type
@@ -99,10 +96,9 @@ mod tests {
 
     #[test]
     fn classify_maps_both_cancel_variants_to_none() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let res: Result<String, _> = Err(err);
             assert_eq!(classify_prompt_result(res, "text").unwrap(), None);
         }
@@ -112,19 +108,15 @@ mod tests {
     fn classify_propagates_other_variants_with_the_prompt_source_named() {
         let res: Result<Vec<String>, _> = Err(inquire::InquireError::NotTTY);
         let err = classify_prompt_result(res, "theme select").unwrap_err();
-        assert!(
-            format!("{err:#}").contains("theme select prompt failed"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("theme select prompt failed"), "got: {err:#}");
         assert!(cancellation_of(&err).is_none());
     }
 
     #[test]
     fn require_answer_turns_a_cancel_into_the_shared_sigint_error() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let res: Result<u8, _> = Err(err);
             let err = require_answer(res, "new-command").unwrap_err();
             assert_eq!(crate::extract_exit_code_override(&err), Some(SIGINT_EXIT));

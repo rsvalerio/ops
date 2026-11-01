@@ -335,14 +335,8 @@ members = ["libs/blank"]
             logs.contains("failed to project pyproject.toml into workspace shape"),
             "the degradation warn must fire: {logs}"
         );
-        assert!(
-            logs.contains("pyproject.toml"),
-            "the warn must name the manifest: {logs}"
-        );
-        assert!(
-            logs.contains("recovery=\"no-units\""),
-            "the warn must state its recovery: {logs}"
-        );
+        assert!(logs.contains("pyproject.toml"), "the warn must name the manifest: {logs}");
+        assert!(logs.contains("recovery=\"no-units\""), "the warn must state its recovery: {logs}");
     }
 
     /// A *member* whose own manifest is unparseable still appears as a unit,

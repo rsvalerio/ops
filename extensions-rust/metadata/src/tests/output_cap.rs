@@ -34,18 +34,12 @@ fn capped_cargo_metadata_stdout_is_refused_with_the_cap_named() {
     let err = check_metadata_not_capped(&output)
         .expect_err("a capped stdout must be refused, not parsed");
     let msg = err.to_string();
-    assert!(
-        msg.contains(&cap.to_string()),
-        "error must name the cap value; got: {msg}"
-    );
+    assert!(msg.contains(&cap.to_string()), "error must name the cap value; got: {msg}");
     assert!(
         msg.contains(ops_core::subprocess::OUTPUT_CAP_ENV),
         "error must name the env var; got: {msg}"
     );
-    assert!(
-        msg.contains("truncated"),
-        "error must say the document may be truncated; got: {msg}"
-    );
+    assert!(msg.contains("truncated"), "error must say the document may be truncated; got: {msg}");
 
     // One byte under the cap is a complete document and must pass.
     let mut under = output;

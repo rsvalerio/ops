@@ -218,11 +218,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-commit");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
-        let status = std::process::Command::new("/bin/sh")
-            .arg("-n")
-            .arg(&script)
-            .status()
-            .unwrap();
+        let status = std::process::Command::new("/bin/sh").arg("-n").arg(&script).status().unwrap();
         assert!(status.success(), "HOOK_SCRIPT must parse under `sh -n`");
     }
 
@@ -251,18 +247,12 @@ mod tests {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(1), "stderr was: {stderr}");
         assert!(stderr.contains("ops"), "must name ops, got: {stderr}");
-        assert!(
-            stderr.contains(".git/hooks/pre-commit"),
-            "must name the hook path, got: {stderr}"
-        );
+        assert!(stderr.contains(".git/hooks/pre-commit"), "must name the hook path, got: {stderr}");
         assert!(
             stderr.contains("ops run-before-commit install"),
             "must name the reinstall command, got: {stderr}"
         );
-        assert!(
-            stderr.contains(SKIP_ENV_VAR),
-            "must name the bypass, got: {stderr}"
-        );
+        assert!(stderr.contains(SKIP_ENV_VAR), "must name the bypass, got: {stderr}");
     }
 
     /// The missing-ops diagnostic names [`SKIP_ENV_VAR`] as the escape hatch,
@@ -329,11 +319,8 @@ mod tests {
             let git_dir = dir.path().join(".git");
             std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
             std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-            std::fs::write(
-                git_dir.join("hooks/pre-commit"),
-                format!("#!/bin/sh\nexec {marker}\n"),
-            )
-            .unwrap();
+            std::fs::write(git_dir.join("hooks/pre-commit"), format!("#!/bin/sh\nexec {marker}\n"))
+                .unwrap();
 
             let mut buf = Vec::new();
             let path = install_hook(&git_dir, &mut buf).expect("install_hook");
@@ -353,11 +340,7 @@ mod tests {
                 HOOK_SCRIPT,
                 "the hook carrying {marker:?} must be replaced with HOOK_SCRIPT"
             );
-            assert!(
-                String::from_utf8(buf)
-                    .unwrap()
-                    .contains("Updating outdated")
-            );
+            assert!(String::from_utf8(buf).unwrap().contains("Updating outdated"));
         }
     }
 
@@ -399,11 +382,7 @@ mod tests {
         }
         assert_eq!(
             HOOK_CONFIG.legacy_markers,
-            &[
-                "ops run-before-commit",
-                "ops before-commit",
-                "ops pre-commit"
-            ],
+            &["ops run-before-commit", "ops before-commit", "ops pre-commit"],
             "the marker list itself is the upgrade contract; changes must be deliberate"
         );
     }
@@ -656,9 +635,7 @@ mod tests {
         .unwrap_err();
 
         match err {
-            HasStagedFilesError::NonZeroExit {
-                exit_code, stderr, ..
-            } => {
+            HasStagedFilesError::NonZeroExit { exit_code, stderr, .. } => {
                 assert_eq!(exit_code, Some(128));
                 assert!(
                     stderr.contains("fatal: bad object HEAD"),
@@ -697,10 +674,7 @@ mod tests {
             )
         });
 
-        assert!(
-            matches!(result, Ok(true)),
-            "expected Ok(true), got {result:?}"
-        );
+        assert!(matches!(result, Ok(true)), "expected Ok(true), got {result:?}");
     }
 
     // -- has_staged_files: the production preflight --
@@ -748,10 +722,8 @@ mod tests {
         );
 
         std::fs::write("a.txt", "hi").unwrap();
-        let status = std::process::Command::new("git")
-            .args(["add", "a.txt"])
-            .status()
-            .expect("git add");
+        let status =
+            std::process::Command::new("git").args(["add", "a.txt"]).status().expect("git add");
         assert!(status.success());
 
         assert!(
@@ -807,10 +779,7 @@ mod tests {
             "the typed probe error must survive into the anyhow chain: {err:#}"
         );
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("diff --cached"),
-            "the chain must name the probe, got: {msg}"
-        );
+        assert!(msg.contains("diff --cached"), "the chain must name the probe, got: {msg}");
     }
 
     // -- Extension metadata --
@@ -866,10 +835,7 @@ mod tests {
     #[serial_test::serial]
     fn git_timeout_from_env_clamps_to_ceiling() {
         let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "999999999");
-        assert_eq!(
-            git_timeout_from_env(),
-            Some(Duration::from_secs(MAX_GIT_TIMEOUT_SECS))
-        );
+        assert_eq!(git_timeout_from_env(), Some(Duration::from_secs(MAX_GIT_TIMEOUT_SECS)));
     }
 
     /// Capture the WARN emission so a future refactor that drops the
@@ -887,14 +853,8 @@ mod tests {
             });
             assert!(logs.contains("WARN"), "expected WARN level, got: {logs}");
             assert!(logs.contains(TIMEOUT_ENV_VAR), "missing env field: {logs}");
-            assert!(
-                logs.contains("requested_secs"),
-                "missing requested_secs field: {logs}"
-            );
-            assert!(
-                logs.contains("ceiling_secs"),
-                "missing ceiling_secs field: {logs}"
-            );
+            assert!(logs.contains("requested_secs"), "missing requested_secs field: {logs}");
+            assert!(logs.contains("ceiling_secs"), "missing ceiling_secs field: {logs}");
             assert_eq!(
                 logs.matches("clamping to upper bound").count(),
                 1,

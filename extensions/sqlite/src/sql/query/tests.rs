@@ -134,7 +134,7 @@ fn query_crate_loc_empty_table() {
     assert_eq!(result["crates/my-cli"], 0);
 }
 
-/// SEC-12: member paths are bound parameters, so a directory name holding
+/// Member paths are bound parameters, so a directory name holding
 /// parentheses, `+`, `@` or non-ASCII text must be queried, not rejected.
 #[test]
 fn query_crate_loc_accepts_member_paths_with_punctuation_and_non_ascii() {
@@ -245,7 +245,7 @@ fn query_crate_dep_counts_with_data() {
     assert_eq!(result["/ws/cli/Cargo.toml"], 1);
 }
 
-/// ERR-2 / TASK-1253: when two workspace members share the same
+/// When two workspace members share the same
 /// `crate_name` (legal in cargo for renamed packages), keying by manifest
 /// path keeps both rows distinct rather than collapsing into a single map
 /// entry that silently mis-attributes counts.
@@ -549,10 +549,7 @@ fn query_rust_loc_summary_no_view() {
     init_schema(&db).expect("init_schema");
 
     let stats = query_rust_loc_summary(&db).expect("missing view must not error");
-    assert!(
-        stats.is_empty(),
-        "missing view must read as no data: {stats:?}"
-    );
+    assert!(stats.is_empty(), "missing view must read as no data: {stats:?}");
 }
 
 /// The aggregate columns come back as `SQLite` `SUM(BIGINT)` (a 128-bit
@@ -578,10 +575,7 @@ fn query_rust_loc_summary_aggregates_per_region() {
     let stats = query_rust_loc_summary(&db).expect("query should work");
     assert_eq!(stats.len(), 3, "one row per region: {stats:?}");
 
-    let main = stats
-        .iter()
-        .find(|s| s.region == "main")
-        .expect("main region present");
+    let main = stats.iter().find(|s| s.region == "main").expect("main region present");
     assert_eq!(main.files, 2);
     assert_eq!(main.code, 500);
     assert_eq!(main.docs, 50);
@@ -589,17 +583,11 @@ fn query_rust_loc_summary_aggregates_per_region() {
     assert_eq!(main.blanks, 75);
     assert_eq!(main.lines, 640);
 
-    let test = stats
-        .iter()
-        .find(|s| s.region == "test")
-        .expect("test region present");
+    let test = stats.iter().find(|s| s.region == "test").expect("test region present");
     assert_eq!(test.code, 120);
     assert_eq!(test.files, 1);
 
-    let example = stats
-        .iter()
-        .find(|s| s.region == "example")
-        .expect("example region present");
+    let example = stats.iter().find(|s| s.region == "example").expect("example region present");
     assert_eq!(example.code, 30);
 }
 
@@ -624,10 +612,7 @@ fn query_rust_loc_summary_empty_table_yields_no_rows() {
     drop(conn);
 
     let stats = query_rust_loc_summary(&db).expect("query should work");
-    assert!(
-        stats.is_empty(),
-        "no source rows means no regions: {stats:?}"
-    );
+    assert!(stats.is_empty(), "no source rows means no regions: {stats:?}");
 }
 
 /// The distinct-file count must not double-count a file that carries both
@@ -653,7 +638,7 @@ fn query_rust_loc_file_count_no_table() {
     assert_eq!(files, 0);
 }
 
-/// TASK-2282: `query_rust_loc_files` returns one row per (file, region),
+/// `query_rust_loc_files` returns one row per (file, region),
 /// ordered, with `files` fixed at 1 so a caller's sum is a file count.
 #[test]
 fn query_rust_loc_files_returns_every_row() {
@@ -662,10 +647,8 @@ fn query_rust_loc_files_returns_every_row() {
     rust_loc_files_fixture(&db);
 
     let rows = query_rust_loc_files(&db).expect("query should work");
-    let keys: Vec<(&str, &str)> = rows
-        .iter()
-        .map(|(file, stat)| (file.as_str(), stat.region.as_str()))
-        .collect();
+    let keys: Vec<(&str, &str)> =
+        rows.iter().map(|(file, stat)| (file.as_str(), stat.region.as_str())).collect();
     assert_eq!(
         keys,
         [

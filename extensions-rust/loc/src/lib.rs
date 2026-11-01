@@ -234,10 +234,7 @@ pub fn collect_rust_loc(
 
 /// Sort key giving the emitted rows a deterministic order.
 fn row_key(row: &serde_json::Value) -> (&str, &str) {
-    (
-        row["file"].as_str().unwrap_or_default(),
-        row["region"].as_str().unwrap_or_default(),
-    )
+    (row["file"].as_str().unwrap_or_default(), row["region"].as_str().unwrap_or_default())
 }
 
 /// What classifying one walk entry produced.
@@ -471,10 +468,7 @@ fn is_excluded_dir(entry: &DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_some_and(|ft| ft.is_dir()) {
         return false;
     }
-    entry
-        .file_name()
-        .to_str()
-        .is_some_and(|name| EXCLUDED_DIRS.contains(&name))
+    entry.file_name().to_str().is_some_and(|name| EXCLUDED_DIRS.contains(&name))
 }
 
 fn push_records(records: &mut Vec<serde_json::Value>, file: &str, counts: &FileCounts) {

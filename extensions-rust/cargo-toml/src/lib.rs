@@ -227,10 +227,7 @@ impl CargoTomlProvider {
             return Ok(root.clone());
         }
         find_workspace_root_strict(working_dir).with_context(|| {
-            format!(
-                "resolving cargo_toml workspace root from {}",
-                working_dir.display()
-            )
+            format!("resolving cargo_toml workspace root from {}", working_dir.display())
         })
     }
 }
@@ -253,7 +250,7 @@ impl CargoTomlProvider {
     /// # Errors
     ///
     /// [`DataProviderError`] if the workspace root cannot be found, `Cargo.toml`
-    /// cannot be read (including exceeding the SEC-33 byte cap), or the manifest
+    /// cannot be read (including exceeding the byte cap), or the manifest
     /// fails to parse or resolve its workspace inheritance.
     pub fn provide_typed(&self, ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
         let root = self.resolve_root(ctx.working_directory())?;
@@ -267,9 +264,7 @@ impl CargoTomlProvider {
         let mut manifest: CargoToml = toml::from_str(&content)
             .with_context(|| format!("parsing {}", cargo_toml.display()))?;
 
-        manifest
-            .resolve_inheritance()
-            .context("resolving workspace inheritance")?;
+        manifest.resolve_inheritance().context("resolving workspace inheritance")?;
 
         manifest.resolve_package_inheritance();
 

@@ -1,6 +1,6 @@
 //! Shared test utilities for ops unit tests.
 //!
-//! # Surface index (READ-3)
+//! # Surface index
 //!
 //! This module is compiled under `#[cfg(any(test, feature = "test-support"))]`
 //! and re-exported to downstream crates via the `test-support` feature. The
@@ -47,8 +47,8 @@
 //!   `#[serial]`.
 //! - [`is_root_euid`] — true on Unix when EUID is 0; tests that depend on
 //!   DAC-permission denial must `return` early when this is true (see
-//!   TEST-19 in the function rustdoc).
-//! - [`skip_precondition`] — TEST-26 / TASK-2126, TASK-2166: print the
+//!   the function rustdoc).
+//! - [`skip_precondition`] — print the
 //!   `skip:` line that makes a precondition-bailed test distinguishable in
 //!   runner output from one whose assertions executed.
 //! - [`git_fixture`] / [`git_fixture_os`] — run a hermetic `git -C dir …`
@@ -56,13 +56,13 @@
 //!   (surface a skip) versus [`GitFixtureError::CommandFailed`] (fail the
 //!   test; a present-but-refusing git is a broken fixture, not a missing
 //!   capability).
-//! - [`CwdGuard`] / [`CWD_MUTEX`] — DRY-1 / TASK-2034: the workspace's one
+//! - [`CwdGuard`] / [`CWD_MUTEX`] — the workspace's one
 //!   working-directory guard. It serialises on the mutex itself, so a caller
 //!   that forgets `#[serial]` still cannot race another CWD-dependent test.
 //!
 //! ## Tracing capture (public-under-feature)
 //!
-//! DUP-3 / TASK-2014: the workspace's single tracing-capture harness, so no
+//! The workspace's single tracing-capture harness, so no
 //! crate has to re-derive the global-dispatcher pin whose absence is a silent
 //! flake.
 //!
@@ -94,15 +94,13 @@
 /// Follows the caller-canonicalizes-once rule from
 /// `text::open_refusing_symlinks`'s architecture note: tests that hand a
 /// raw `tempfile::tempdir()` path to the workspace-config layer hit the
-/// SEC-33 symlink refusal on macOS, where `/var` is a symlink (Linux CI's
+/// symlink refusal on macOS, where `/var` is a symlink (Linux CI's
 /// `/tmp` is not, which is why these tests only fail locally). Production
 /// callers get the same guarantee for free from `current_dir()`.
 #[cfg(test)]
 #[must_use = "canonicalizing without using the resolved root wastes the syscall"]
 pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
-    dir.path()
-        .canonicalize()
-        .unwrap_or_else(|_| dir.path().to_path_buf())
+    dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf())
 }
 
 use indexmap::IndexMap;
@@ -168,10 +166,7 @@ pub fn false_cmd() -> ExecCommandSpec {
 pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
     let secs_str = secs.to_string();
     if cfg!(windows) {
-        exec_spec(
-            "ping",
-            &["-n", &format!("{}", secs.saturating_add(1)), "127.0.0.1"],
-        )
+        exec_spec("ping", &["-n", &format!("{}", secs.saturating_add(1)), "127.0.0.1"])
     } else {
         exec_spec("sleep", &[&secs_str])
     }
@@ -181,10 +176,7 @@ pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
 #[allow(dead_code)]
 pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
     CompositeCommandSpec {
-        commands: commands
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        commands: commands.iter().map(std::string::ToString::to_string).collect(),
         parallel: false,
         fail_fast: true,
         help: None,
@@ -198,10 +190,7 @@ pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
 #[allow(dead_code)]
 pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
     CompositeCommandSpec {
-        commands: commands
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        commands: commands.iter().map(std::string::ToString::to_string).collect(),
         parallel: true,
         fail_fast: true,
         help: None,
@@ -213,7 +202,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
 
 /// Builder for creating test configs.
 ///
-/// # DUP-002: Shared Pattern with `ConfigOverlayBuilder`
+/// # Shared pattern with `ConfigOverlayBuilder`
 ///
 /// Both `TestConfigBuilder` and `ConfigOverlayBuilder` provide similar fluent APIs
 /// (`exec()`, `composite()`, `theme()`). While a shared trait could reduce duplication,
@@ -235,22 +224,16 @@ pub struct TestConfigBuilder {
 impl TestConfigBuilder {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            output: OutputConfig::default(),
-            commands: IndexMap::new(),
-        }
+        Self { output: OutputConfig::default(), commands: IndexMap::new() }
     }
 
     #[must_use]
     pub fn exec(mut self, name: &str, program: &str, args: &[&str]) -> Self {
-        self.commands.insert(
-            name.to_string(),
-            CommandSpec::Exec(exec_spec(program, args)),
-        );
+        self.commands.insert(name.to_string(), CommandSpec::Exec(exec_spec(program, args)));
         self
     }
 
-    /// DUP-002: Create a `CommandSpec::Exec` variant directly.
+    /// Create a `CommandSpec::Exec` variant directly.
     ///
     /// This is useful when you need the `CommandSpec` variant for tests that
     /// require the wrapped type rather than the inner `ExecCommandSpec`.
@@ -267,19 +250,13 @@ impl TestConfigBuilder {
 
     #[must_use]
     pub fn composite(mut self, name: &str, commands: &[&str]) -> Self {
-        self.commands.insert(
-            name.to_string(),
-            CommandSpec::Composite(composite_cmd(commands)),
-        );
+        self.commands.insert(name.to_string(), CommandSpec::Composite(composite_cmd(commands)));
         self
     }
 
     #[must_use]
     pub fn parallel_composite(mut self, name: &str, commands: &[&str]) -> Self {
-        self.commands.insert(
-            name.to_string(),
-            CommandSpec::Composite(parallel_cmd(commands)),
-        );
+        self.commands.insert(name.to_string(), CommandSpec::Composite(parallel_cmd(commands)));
         self
     }
 
@@ -333,7 +310,7 @@ impl Default for TestConfigBuilder {
     }
 }
 
-/// DUP-001: Builder for creating `ConfigOverlay` in tests.
+/// Builder for creating `ConfigOverlay` in tests.
 ///
 /// Reduces boilerplate in config tests by providing a fluent API
 /// for constructing overlays with only the fields needed.
@@ -350,12 +327,7 @@ pub struct ConfigOverlayBuilder {
 impl ConfigOverlayBuilder {
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            output: None,
-            commands: None,
-            themes: None,
-            extensions: None,
-        }
+        Self { output: None, commands: None, themes: None, extensions: None }
     }
 
     #[must_use]
@@ -366,26 +338,17 @@ impl ConfigOverlayBuilder {
 
     #[must_use]
     pub fn theme(self, theme: impl Into<String>) -> Self {
-        self.output(OutputConfigOverlay {
-            theme: Some(theme.into()),
-            ..Default::default()
-        })
+        self.output(OutputConfigOverlay { theme: Some(theme.into()), ..Default::default() })
     }
 
     #[must_use]
     pub fn columns(self, columns: u16) -> Self {
-        self.output(OutputConfigOverlay {
-            columns: Some(columns),
-            ..Default::default()
-        })
+        self.output(OutputConfigOverlay { columns: Some(columns), ..Default::default() })
     }
 
     #[must_use]
     pub fn show_error_detail(self, show: bool) -> Self {
-        self.output(OutputConfigOverlay {
-            show_error_detail: Some(show),
-            ..Default::default()
-        })
+        self.output(OutputConfigOverlay { show_error_detail: Some(show), ..Default::default() })
     }
 
     #[must_use]
@@ -397,27 +360,15 @@ impl ConfigOverlayBuilder {
     #[must_use]
     pub fn exec(self, name: &str, program: &str, args: &[&str]) -> Self {
         let mut cmds = self.commands.unwrap_or_default();
-        cmds.insert(
-            name.to_string(),
-            CommandSpec::Exec(exec_spec(program, args)),
-        );
-        Self {
-            commands: Some(cmds),
-            ..self
-        }
+        cmds.insert(name.to_string(), CommandSpec::Exec(exec_spec(program, args)));
+        Self { commands: Some(cmds), ..self }
     }
 
     #[must_use]
     pub fn composite(self, name: &str, commands: &[&str]) -> Self {
         let mut cmds = self.commands.unwrap_or_default();
-        cmds.insert(
-            name.to_string(),
-            CommandSpec::Composite(composite_cmd(commands)),
-        );
-        Self {
-            commands: Some(cmds),
-            ..self
-        }
+        cmds.insert(name.to_string(), CommandSpec::Composite(composite_cmd(commands)));
+        Self { commands: Some(cmds), ..self }
     }
 
     #[must_use]
@@ -430,10 +381,7 @@ impl ConfigOverlayBuilder {
     pub fn custom_theme(self, name: &str, theme: ThemeConfig) -> Self {
         let mut themes = self.themes.unwrap_or_default();
         themes.insert(name.to_string(), theme);
-        Self {
-            themes: Some(themes),
-            ..self
-        }
+        Self { themes: Some(themes), ..self }
     }
 
     #[must_use]
@@ -444,9 +392,7 @@ impl ConfigOverlayBuilder {
 
     #[must_use]
     pub fn enabled_extensions(self, enabled: Vec<String>) -> Self {
-        self.extensions(ExtensionConfigOverlay {
-            enabled: Some(enabled),
-        })
+        self.extensions(ExtensionConfigOverlay { enabled: Some(enabled) })
     }
 
     #[must_use]
@@ -485,7 +431,7 @@ pub fn test_config_with_commands<S: std::hash::BuildHasher>(
     builder.build()
 }
 
-/// DUP-011: Platform-specific output creation for tests.
+/// Platform-specific output creation for tests.
 ///
 /// Creates a `std::process::Output` with the given status code and output bytes.
 #[allow(dead_code)]
@@ -543,7 +489,7 @@ pub fn make_test_output(status_code: i32, stdout: &[u8], stderr: &[u8]) -> std::
 /// }
 /// ```
 ///
-/// # DRY-1 / TASK-2059
+/// # Single env-var guard
 ///
 /// This is the workspace's only env-var guard. `ops_cli::test_utils`,
 /// `ops_hook_common::test_helpers` and `ops_deps::test_support` each used to
@@ -604,8 +550,8 @@ impl EnvGuard {
     }
 
     /// [`Self::remove`] under the name the `EnvVarGuard` copies used, so
-    /// `unset`-spelled call sites keep reading the same way after DRY-1 /
-    /// TASK-2059 collapsed the four guards into this one.
+    /// `unset`-spelled call sites keep reading the same way after the four
+    /// guards were collapsed into this one.
     pub fn unset(key: impl AsRef<std::ffi::OsStr>) -> Self {
         Self::remove(key)
     }
@@ -636,10 +582,7 @@ impl EnvGuard {
 #[must_use]
 pub fn isolate_global_config(dir: &std::path::Path) -> GlobalConfigIsolation {
     crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
-    let guard = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        dir.join("xdg-empty").display().to_string(),
-    );
+    let guard = EnvGuard::set("XDG_CONFIG_HOME", dir.join("xdg-empty").display().to_string());
     crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
     GlobalConfigIsolation { _env: guard }
 }
@@ -668,7 +611,7 @@ impl Drop for GlobalConfigIsolation {
     }
 }
 
-/// TEST-19 (TASK-1033): true when the current effective UID is 0 on Unix.
+/// True when the current effective UID is 0 on Unix.
 ///
 /// Tests that rely on DAC permission denial (`chmod 0o000` + assert read
 /// fails) silently invert their assertion when run as root because the
@@ -699,7 +642,7 @@ pub fn is_root_euid() -> bool {
     false
 }
 
-/// TEST-26 / TASK-2126, TASK-2166: surface a test whose precondition cannot
+/// Surface a test whose precondition cannot
 /// be met, so a vacuous pass is distinguishable from an executed one.
 ///
 /// A bare `return` in a test reports "passed" while every assertion behind it
@@ -712,7 +655,7 @@ pub fn skip_precondition(what: &str, why: &str) {
     eprintln!("skip: {what}: {why}");
 }
 
-/// Why a git fixture command could not run (TEST-26 / TASK-2126, TASK-2166).
+/// Why a git fixture command could not run.
 ///
 /// The split is the whole point: `BinaryAbsent` is an environment legitimately
 /// lacking a capability (surface a [`skip_precondition`] and return), while
@@ -740,11 +683,9 @@ impl std::fmt::Display for GitFixtureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BinaryAbsent => f.write_str("git is not on PATH"),
-            Self::CommandFailed {
-                cmd,
-                status,
-                stderr,
-            } => write!(f, "`{cmd}` failed ({status}): {stderr}"),
+            Self::CommandFailed { cmd, status, stderr } => {
+                write!(f, "`{cmd}` failed ({status}): {stderr}")
+            }
         }
     }
 }
@@ -764,10 +705,8 @@ impl std::fmt::Display for GitFixtureError {
 /// [`GitFixtureError::CommandFailed`] when git runs and exits non-zero or
 /// cannot be spawned for any other reason.
 pub fn git_fixture(dir: &std::path::Path, args: &[&str]) -> Result<(), GitFixtureError> {
-    let os_args: Vec<&std::ffi::OsStr> = args
-        .iter()
-        .map(std::convert::AsRef::<std::ffi::OsStr>::as_ref)
-        .collect();
+    let os_args: Vec<&std::ffi::OsStr> =
+        args.iter().map(std::convert::AsRef::<std::ffi::OsStr>::as_ref).collect();
     git_fixture_os(dir, &os_args)
 }
 
@@ -783,11 +722,7 @@ pub fn git_fixture_os(
     args: &[&std::ffi::OsStr],
 ) -> Result<(), GitFixtureError> {
     // Diagnostic text only — `to_string_lossy` is fine for a panic message.
-    let rendered = args
-        .iter()
-        .map(|a| a.to_string_lossy())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let rendered = args.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ");
     let cmd = format!("git -C {} {}", dir.display(), rendered);
     match Command::new("git")
         .arg("-C")
@@ -836,7 +771,7 @@ pub fn git_fixture_os(
 #[cfg(any(test, feature = "test-support"))]
 pub static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// DRY-1 / TASK-2034: the workspace's one working-directory guard — acquires
+/// The workspace's one working-directory guard — acquires
 /// [`CWD_MUTEX`], switches to a target directory, and restores the original
 /// CWD on drop, **including on the unwind path**.
 ///
@@ -887,10 +822,7 @@ impl CwdGuard {
         unsafe {
             std::env::set_current_dir(target)?;
         };
-        Ok(Self {
-            _lock: lock,
-            original_dir,
-        })
+        Ok(Self { _lock: lock, original_dir })
     }
 }
 
@@ -909,7 +841,7 @@ impl Drop for CwdGuard {
     }
 }
 
-/// DUP-3 / TASK-2014, TASK-2025: the workspace's one tracing-capture harness.
+/// The workspace's one tracing-capture harness.
 ///
 /// Every crate that asserts on `tracing` output used to grow its own copy of
 /// the buffer / `MakeWriter` shim *and* of the global-dispatcher pin below,
@@ -937,20 +869,14 @@ mod tracing_capture {
         /// splits a multi-byte char by going through `from_utf8_lossy`.
         #[must_use]
         pub fn captured(&self) -> String {
-            let guard = self
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let guard = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             String::from_utf8_lossy(&guard).into_owned()
         }
     }
 
     impl Write for TracingBuf {
         fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .extend_from_slice(b);
+            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend_from_slice(b);
             Ok(b.len())
         }
 
@@ -1057,7 +983,7 @@ mod tracing_capture {
     /// The capture subscriber [`capture_tracing`] installs, as a detached
     /// [`tracing::Dispatch`] plus the buffer it writes into.
     ///
-    /// DUP-3 / TASK-2069: for the test whose work does not run on the calling
+    /// For the test whose work does not run on the calling
     /// thread and so cannot use the scoped form — a `tokio::spawn`ed task
     /// attached with `WithSubscriber`, say. Such a test used to hand-build the
     /// `fmt()` subscriber and its own `MakeWriter` shim, which meant a second
@@ -1119,7 +1045,7 @@ impl Drop for EnvGuard {
 
 #[cfg(test)]
 mod builder_parity_tests {
-    //! DUP-2 regression: [`TestConfigBuilder`] and [`ConfigOverlayBuilder`]
+    //! Drift regression: [`TestConfigBuilder`] and [`ConfigOverlayBuilder`]
     //! grew drift over time (each acquired methods the other lacked). These
     //! tests fail to compile — not merely assert-fail — if the set of shared
     //! fluent methods diverges. Adding a new builder method on one side
@@ -1152,17 +1078,13 @@ mod builder_parity_tests {
     #[test]
     fn both_builders_expose_exec_method() {
         let _ = TestConfigBuilder::new().exec("c", "echo", &["x"]).build();
-        let _ = ConfigOverlayBuilder::new()
-            .exec("c", "echo", &["x"])
-            .build();
+        let _ = ConfigOverlayBuilder::new().exec("c", "echo", &["x"]).build();
     }
 
     #[test]
     fn both_builders_expose_composite_method() {
         let _ = TestConfigBuilder::new().composite("c", &["a", "b"]).build();
-        let _ = ConfigOverlayBuilder::new()
-            .composite("c", &["a", "b"])
-            .build();
+        let _ = ConfigOverlayBuilder::new().composite("c", &["a", "b"]).build();
     }
 }
 

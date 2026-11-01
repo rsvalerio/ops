@@ -19,10 +19,7 @@ fn interpret_deny_result_reports_config_error_from_error_log() {
         msg.contains("status 1") && msg.contains("configuration error"),
         "expected a configuration error, got: {msg}"
     );
-    assert!(
-        msg.contains("failed to deserialize config"),
-        "cargo-deny's reason preserved: {msg}"
-    );
+    assert!(msg.contains("failed to deserialize config"), "cargo-deny's reason preserved: {msg}");
 }
 
 /// The reason is cargo-deny's own text, so it is Debug-escaped like every
@@ -33,10 +30,7 @@ fn interpret_deny_result_config_error_debug_escapes_reason() {
     let err = interpret_deny_result(Some(1), stderr).expect_err("config error must surface");
     let msg = err.to_string();
     assert!(msg.contains("configuration error"), "got: {msg}");
-    assert!(
-        !msg.contains('\u{1b}'),
-        "ANSI ESC must not survive in: {msg:?}"
-    );
+    assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
 }
 
 /// An `ERROR` log next to decodable findings does not hide them: the run
@@ -61,10 +55,7 @@ fn interpret_deny_result_errs_on_exit_2_usage_error() {
         msg.contains("status 2") && msg.contains("zero diagnostics"),
         "expected the exit-2 zero-diagnostics error, got: {msg}"
     );
-    assert!(
-        msg.contains("unexpected argument"),
-        "stderr context preserved: {msg}"
-    );
+    assert!(msg.contains("unexpected argument"), "stderr context preserved: {msg}");
 }
 
 /// cargo-deny 0.20 exits with a bitset of the failed checks. A bans-only
@@ -107,8 +98,7 @@ fn interpret_deny_result_accepts_every_check_bitset_and_nothing_wider() {
         let err = interpret_deny_result(Some(code), stderr)
             .expect_err("a status outside the check bitset must surface");
         assert!(
-            err.to_string()
-                .contains(&format!("unexpected status code {code}")),
+            err.to_string().contains(&format!("unexpected status code {code}")),
             "exit {code}: {err}"
         );
     }
@@ -122,19 +112,13 @@ fn interpret_deny_result_errs_on_exit_1_with_empty_stderr() {
     let result = interpret_deny_result(Some(1), "");
     let err = result.expect_err("empty stderr at exit 1 must surface");
     let msg = err.to_string();
-    assert!(
-        msg.contains("status 1") && msg.contains("no diagnostics"),
-        "got: {msg}"
-    );
+    assert!(msg.contains("status 1") && msg.contains("no diagnostics"), "got: {msg}");
 }
 
 #[test]
 fn interpret_deny_result_errs_on_exit_1_with_whitespace_stderr() {
     let result = interpret_deny_result(Some(1), "   \n\t \n");
-    assert!(
-        result.is_err(),
-        "whitespace-only stderr at exit 1 must surface"
-    );
+    assert!(result.is_err(), "whitespace-only stderr at exit 1 must surface");
 }
 
 /// Exit 1 with non-empty but non-JSON stderr (e.g. text-mode banners
@@ -160,10 +144,7 @@ fn interpret_deny_result_errs_on_exit_1_with_non_json_stderr() {
 fn interpret_deny_result_errs_on_signal_kill() {
     let result = interpret_deny_result(None, "");
     let err = result.expect_err("None exit code must surface");
-    assert!(
-        err.to_string().contains("signal"),
-        "error must name the signal-kill case, got: {err}"
-    );
+    assert!(err.to_string().contains("signal"), "error must name the signal-kill case, got: {err}");
 }
 
 #[test]
@@ -282,10 +263,7 @@ fn resolve_package_is_idempotent_and_leaves_the_diagnostic_intact() {
         "a second resolve must not fall through to the <no package> sentinel"
     );
     assert_eq!(
-        advisory_backed
-            .advisory
-            .as_ref()
-            .and_then(|a| a.package.as_deref()),
+        advisory_backed.advisory.as_ref().and_then(|a| a.package.as_deref()),
         Some("vuln-pkg"),
         "resolve_package must leave the advisory readable for push_diagnostic"
     );
@@ -295,11 +273,7 @@ fn resolve_package_is_idempotent_and_leaves_the_diagnostic_intact() {
         severity: "error".to_string(),
         message: "crate is banned".to_string(),
         advisory: None,
-        graphs: Some(vec![DenyGraph {
-            krate: Some(DenyKrate {
-                name: "bad-crate".to_string(),
-            }),
-        }]),
+        graphs: Some(vec![DenyGraph { krate: Some(DenyKrate { name: "bad-crate".to_string() }) }]),
         labels: None,
     };
     assert_eq!(resolve_package(&graph_backed), "bad-crate");
@@ -662,11 +636,8 @@ fn interpret_deny_result_accepts_a_stream_of_unused_license_allowances() {
         r#"{"type":"summary","fields":{"errors":0,"warnings":2}}"#
     );
     let result = interpret_deny_result(Some(0), &stderr).expect("unused allowances are warnings");
-    let subjects: Vec<&str> = result
-        .unused_license_allowances
-        .iter()
-        .map(|l| l.package.as_str())
-        .collect();
+    let subjects: Vec<&str> =
+        result.unused_license_allowances.iter().map(|l| l.package.as_str()).collect();
     assert_eq!(subjects, ["0BSD", "Zlib"]);
 }
 
@@ -755,10 +726,7 @@ fn interpret_deny_result_zero_diagnostics_debug_escapes_stderr_tail() {
     let result = interpret_deny_result(Some(1), stderr);
     let err = result.expect_err("non-JSON stderr at exit 1 must surface");
     let msg = err.to_string();
-    assert!(
-        !msg.contains('\u{1b}'),
-        "ANSI ESC must not survive in: {msg:?}"
-    );
+    assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
 }
 
 /// The same escape contract on an exit-2 usage error.
@@ -768,13 +736,7 @@ fn interpret_deny_result_exit_two_debug_escapes_stderr_tail() {
     let result = interpret_deny_result(Some(2), stderr);
     let err = result.expect_err("usage error must surface");
     let msg = err.to_string();
-    assert!(
-        !msg.contains('\u{1b}'),
-        "ANSI ESC must not survive in: {msg:?}"
-    );
+    assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
     // Operator-readable content survives.
-    assert!(
-        msg.contains("invalid TOML"),
-        "expected stderr context preserved: {msg}"
-    );
+    assert!(msg.contains("invalid TOML"), "expected stderr context preserved: {msg}");
 }

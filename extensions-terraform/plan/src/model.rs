@@ -239,18 +239,12 @@ mod tests {
 
     #[test]
     fn classify_replace_delete_create() {
-        assert_eq!(
-            Action::classify(&["delete".into(), "create".into()]),
-            Some(Action::Replace)
-        );
+        assert_eq!(Action::classify(&["delete".into(), "create".into()]), Some(Action::Replace));
     }
 
     #[test]
     fn classify_replace_create_delete() {
-        assert_eq!(
-            Action::classify(&["create".into(), "delete".into()]),
-            Some(Action::Replace)
-        );
+        assert_eq!(Action::classify(&["create".into(), "delete".into()]), Some(Action::Replace));
     }
 
     #[test]
@@ -270,10 +264,7 @@ mod tests {
         // A combined-action sequence that is not enumerated (e.g.
         // ["create", "delete", "create"] or ["import", "update"]) must
         // surface, not vanish.
-        assert_eq!(
-            Action::classify(&["import".into(), "update".into()]),
-            Some(Action::Unknown)
-        );
+        assert_eq!(Action::classify(&["import".into(), "update".into()]), Some(Action::Unknown));
     }
 
     #[test]
@@ -288,13 +279,9 @@ mod tests {
 
     #[test]
     fn is_change_true_for_all_non_noop() {
-        for action in [
-            Action::Create,
-            Action::Delete,
-            Action::Update,
-            Action::Replace,
-            Action::Read,
-        ] {
+        for action in
+            [Action::Create, Action::Delete, Action::Update, Action::Replace, Action::Read]
+        {
             assert!(action.is_change(), "{action:?} should be a change");
         }
     }

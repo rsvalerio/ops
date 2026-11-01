@@ -10,9 +10,7 @@ use ops_extension::{CommandRegistry, DataRegistry};
 #[test]
 fn builtin_extensions_rejects_unknown_extension() {
     let config = Config {
-        extensions: ExtensionConfig {
-            enabled: Some(vec!["nonexistent-extension".to_string()]),
-        },
+        extensions: ExtensionConfig { enabled: Some(vec!["nonexistent-extension".to_string()]) },
         ..Default::default()
     };
     let result = builtin_extensions(&config, std::path::Path::new("."));
@@ -30,9 +28,7 @@ fn builtin_extensions_rejects_unknown_extension() {
 #[test]
 fn builtin_extensions_unknown_lists_available_in_sorted_order() {
     let config = Config {
-        extensions: ExtensionConfig {
-            enabled: Some(vec!["nonexistent-extension".to_string()]),
-        },
+        extensions: ExtensionConfig { enabled: Some(vec!["nonexistent-extension".to_string()]) },
         ..Default::default()
     };
 
@@ -46,48 +42,27 @@ fn builtin_extensions_unknown_lists_available_in_sorted_order() {
     // which extensions survive stack filtering and so the "available"
     // list — a process-level race, not a discovery-layer bug.
     let workspace = tempfile::tempdir().expect("tempdir");
-    let err1 = builtin_extensions(&config, workspace.path())
-        .err()
-        .unwrap()
-        .to_string();
-    let err2 = builtin_extensions(&config, workspace.path())
-        .err()
-        .unwrap()
-        .to_string();
-    assert_eq!(
-        err1, err2,
-        "available list must be deterministic across calls"
-    );
+    let err1 = builtin_extensions(&config, workspace.path()).err().unwrap().to_string();
+    let err2 = builtin_extensions(&config, workspace.path()).err().unwrap().to_string();
+    assert_eq!(err1, err2, "available list must be deterministic across calls");
 
     // The "available: " segment must be sorted ascending.
-    let available_segment = err1
-        .split("available: ")
-        .nth(1)
-        .expect("error contains `available:` segment");
+    let available_segment =
+        err1.split("available: ").nth(1).expect("error contains `available:` segment");
     let names: Vec<&str> = available_segment.split(", ").collect();
     let mut sorted = names.clone();
     sorted.sort_unstable();
-    assert_eq!(
-        names, sorted,
-        "available list must be sorted alphabetically"
-    );
+    assert_eq!(names, sorted, "available list must be sorted alphabetically");
 }
 
 #[test]
 fn builtin_extensions_empty_enabled_list() {
-    let config = Config {
-        extensions: ExtensionConfig {
-            enabled: Some(vec![]),
-        },
-        ..Default::default()
-    };
+    let config =
+        Config { extensions: ExtensionConfig { enabled: Some(vec![]) }, ..Default::default() };
     let result = builtin_extensions(&config, std::path::Path::new("."));
     assert!(result.is_ok());
     let exts = result.unwrap();
-    assert!(
-        exts.is_empty(),
-        "empty enabled list should return no extensions"
-    );
+    assert!(exts.is_empty(), "empty enabled list should return no extensions");
 }
 
 /// When `extensions.enabled` is absent, the loader returns every
@@ -163,12 +138,8 @@ fn collect_compiled_extensions_returns_entries() {
 /// `compiled.len() >= filtered.len()`.
 #[test]
 fn collect_compiled_extensions_unfiltered_by_config() {
-    let config = Config {
-        extensions: ExtensionConfig {
-            enabled: Some(vec![]),
-        },
-        ..Default::default()
-    };
+    let config =
+        Config { extensions: ExtensionConfig { enabled: Some(vec![]) }, ..Default::default() };
     let compiled = collect_compiled_extensions(&config, std::path::Path::new("."));
     let filtered = builtin_extensions(&config, std::path::Path::new(".")).unwrap();
     assert!(filtered.is_empty(), "empty enabled list filters everything");
@@ -253,10 +224,8 @@ fn register_extension_commands_detects_duplicate_command_id() {
             "ext_a"
         }
         fn register_commands(&self, registry: &mut CommandRegistry) {
-            registry.insert(
-                "shared".into(),
-                CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
-            );
+            registry
+                .insert("shared".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])));
         }
     }
     struct ExtB;
@@ -265,10 +234,8 @@ fn register_extension_commands_detects_duplicate_command_id() {
             "ext_b"
         }
         fn register_commands(&self, registry: &mut CommandRegistry) {
-            registry.insert(
-                "shared".into(),
-                CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])),
-            );
+            registry
+                .insert("shared".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])));
         }
     }
 
@@ -339,10 +306,8 @@ fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
             "ext_a"
         }
         fn register_commands(&self, registry: &mut CommandRegistry) {
-            registry.insert(
-                "shared".into(),
-                CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
-            );
+            registry
+                .insert("shared".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])));
         }
     }
 
@@ -380,23 +345,13 @@ fn register_extension_commands_zero_extensions_preserves_existing_entries() {
     use ops_core::config::{CommandSpec, ExecCommandSpec};
 
     let mut registry = CommandRegistry::new();
-    registry.insert(
-        "seed_a".into(),
-        CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
-    );
-    registry.insert(
-        "seed_b".into(),
-        CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])),
-    );
+    registry.insert("seed_a".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])));
+    registry.insert("seed_b".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])));
     let before_len = registry.len();
 
     register_extension_commands(&[], &mut registry);
 
-    assert_eq!(
-        registry.len(),
-        before_len,
-        "zero extensions must not change registry length"
-    );
+    assert_eq!(registry.len(), before_len, "zero extensions must not change registry length");
     match registry.get("seed_a") {
         Some(CommandSpec::Exec(e)) => assert_eq!(e.args, vec!["a".to_string()]),
         other => panic!("seed_a must survive untouched, got {other:?}"),
@@ -460,17 +415,11 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
         logs.contains("ext_a") && logs.contains("ext_b") && logs.contains("shared"),
         "warning must name both extensions and the provider, got: {logs}"
     );
-    let kept = registry
-        .get("shared")
-        .expect("first-write-wins must keep the first registration");
+    let kept = registry.get("shared").expect("first-write-wins must keep the first registration");
     // Pin which extension's provider survived. ExtA
     // registered StubProvider("a"); first-write-wins means that, not
     // StubProvider("b"), is the one we get back.
-    assert_eq!(
-        kept.name(),
-        "a",
-        "first-write-wins must keep ExtA's provider, not ExtB's"
-    );
+    assert_eq!(kept.name(), "a", "first-write-wins must keep ExtA's provider, not ExtB's");
 }
 
 /// Parallel pin for the *commands* path: register two
@@ -513,10 +462,9 @@ fn register_extension_commands_pins_last_write_wins() {
     let mut registry = CommandRegistry::new();
     register_extension_commands(&exts, &mut registry);
     match registry.get("shared") {
-        Some(CommandSpec::Exec(e)) => assert_eq!(
-            e.program, "second",
-            "last-write-wins must keep ExtB's command, not ExtA's"
-        ),
+        Some(CommandSpec::Exec(e)) => {
+            assert_eq!(e.program, "second", "last-write-wins must keep ExtB's command, not ExtA's");
+        }
         other => panic!("expected exec spec, got {other:?}"),
     }
 }
@@ -592,10 +540,7 @@ fn register_extension_data_providers_empty_inputs() {
         "registry must remain empty when no extensions register, got: {:?}",
         registry.provider_names()
     );
-    assert!(
-        registry.get("any_name").is_none(),
-        "an unregistered name must resolve to None"
-    );
+    assert!(registry.get("any_name").is_none(), "an unregistered name must resolve to None");
 }
 
 /// Pin the "aggregation does not drop entries"
@@ -617,10 +562,8 @@ fn register_extension_commands_aggregates_across_multiple_extensions() {
             "ext_a"
         }
         fn register_commands(&self, registry: &mut CommandRegistry) {
-            registry.insert(
-                "a_only".into(),
-                CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
-            );
+            registry
+                .insert("a_only".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])));
         }
     }
     struct ExtB;
@@ -629,10 +572,8 @@ fn register_extension_commands_aggregates_across_multiple_extensions() {
             "ext_b"
         }
         fn register_commands(&self, registry: &mut CommandRegistry) {
-            registry.insert(
-                "b_only".into(),
-                CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])),
-            );
+            registry
+                .insert("b_only".into(), CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])));
         }
     }
 
@@ -643,11 +584,7 @@ fn register_extension_commands_aggregates_across_multiple_extensions() {
     let mut combined = CommandRegistry::new();
     register_extension_commands(&ext_refs, &mut combined);
 
-    assert_eq!(
-        combined.len(),
-        2,
-        "aggregation must preserve both non-colliding command ids"
-    );
+    assert_eq!(combined.len(), 2, "aggregation must preserve both non-colliding command ids");
     assert!(combined.get("a_only").is_some(), "ext_a contribution kept");
     assert!(combined.get("b_only").is_some(), "ext_b contribution kept");
 }

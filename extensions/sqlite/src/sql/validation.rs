@@ -1,6 +1,6 @@
 //! SQL security validation functions for path and identifier safety.
 //!
-//! ARCH-9 / TASK-1862: this module is `pub(crate)`. Only the items
+//! This module is `pub(crate)`. Only the items
 //! re-exported from [`crate::sql`] (`SqlError`, `TableName`, `quoted_ident`)
 //! cross the crate boundary; the granular validators are reachable inside
 //! the crate only, so a downstream caller cannot reach for a single helper
@@ -77,7 +77,7 @@ pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
     Ok(())
 }
 
-/// SEC-12 / TASK-0856: const-validated wrapper for SQL identifiers.
+/// Const-validated wrapper for SQL identifiers.
 ///
 /// Construct with [`TableName::from_static`] (compile-time validation via
 /// `const fn` + `assert!`) so an invalid literal is a build error, not a
@@ -85,10 +85,10 @@ pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
 /// for diagnostics; the quoted form is built on demand and is safe to
 /// interpolate into SQL without re-validation.
 ///
-/// READ-1 / TASK-1624: not to be confused with
+/// Not to be confused with
 /// `crate::sql::query::helpers::QueryTableName`, which is a *runtime*-
 /// validated equivalent used by the per-crate query scaffolding. Both
-/// share the SEC-12 "identifier allowlist before interpolation" contract
+/// share the "identifier allowlist before interpolation" contract
 /// but differ in when validation runs (build-time vs. runtime).
 #[derive(Debug, Clone, Copy)]
 pub struct TableName(&'static str);
@@ -178,9 +178,7 @@ pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
     if path.is_empty() {
         return Err(SqlError::EmptyPath);
     }
-    path.chars()
-        .find(|ch| ch.is_control())
-        .map_or(Ok(()), |ch| Err(SqlError::InvalidPathChar(ch)))
+    path.chars().find(|ch| ch.is_control()).map_or(Ok(()), |ch| Err(SqlError::InvalidPathChar(ch)))
 }
 
 /// Reject a path that contains a parent-directory (`..`) component.
@@ -270,18 +268,12 @@ mod tests {
 
     #[test]
     fn validate_identifier_rejects_empty() {
-        assert!(matches!(
-            validate_identifier(""),
-            Err(SqlError::InvalidIdentifier(_))
-        ));
+        assert!(matches!(validate_identifier(""), Err(SqlError::InvalidIdentifier(_))));
     }
 
     #[test]
     fn validate_identifier_rejects_leading_digit() {
-        assert!(matches!(
-            validate_identifier("1table"),
-            Err(SqlError::InvalidIdentifier(_))
-        ));
+        assert!(matches!(validate_identifier("1table"), Err(SqlError::InvalidIdentifier(_))));
     }
 
     #[test]

@@ -320,10 +320,7 @@ impl DepsOptions {
     /// Options with `refresh` set as given and every other field defaulted.
     #[must_use]
     pub const fn new(refresh: bool) -> Self {
-        Self {
-            refresh,
-            check: false,
-        }
+        Self { refresh, check: false }
     }
 
     /// Switch to the CI-safe check mode; see [`DepsOptions::check`].
@@ -435,11 +432,9 @@ fn run_deps_report(
     // `DepsReport` is `#[non_exhaustive]` and still gaining fields — so a
     // cache written by an older `ops` is a live failure mode whose remedy
     // (`--refresh`) the operator cannot guess from `missing field `upgrades``.
-    let value = ctx
-        .get_or_provide(DATA_PROVIDER_NAME, data_registry)
-        .with_context(|| {
-            format!("deps: the `{DATA_PROVIDER_NAME}` data provider failed to produce a report")
-        })?;
+    let value = ctx.get_or_provide(DATA_PROVIDER_NAME, data_registry).with_context(|| {
+        format!("deps: the `{DATA_PROVIDER_NAME}` data provider failed to produce a report")
+    })?;
     let report: DepsReport = serde_json::from_value(std::sync::Arc::unwrap_or_clone(value))
         .context(
             "deps: failed to decode the dependency report payload; it may have been written to \
@@ -612,9 +607,7 @@ fn collect_unused(working_dir: &std::path::Path) -> anyhow::Result<UnusedDepsRes
     if !probe_tool_in(&CARGO_MACHETE, working_dir)? {
         return Ok(UnusedDepsResult::NotInstalled);
     }
-    Ok(UnusedDepsResult::Checked {
-        entries: run_cargo_machete(working_dir)?,
-    })
+    Ok(UnusedDepsResult::Checked { entries: run_cargo_machete(working_dir)? })
 }
 
 /// Data provider for the dependency health report, served under the
@@ -644,11 +637,7 @@ impl DataProvider for DepsProvider {
             .context("cargo machete failed")
             .map_err(DataProviderError::from)?;
 
-        let report = DepsReport {
-            upgrades,
-            deny,
-            unused,
-        };
+        let report = DepsReport { upgrades, deny, unused };
         serde_json::to_value(&report).map_err(DataProviderError::from)
     }
 
@@ -671,21 +660,13 @@ impl DataProvider for DepsProvider {
                     "Vec<AdvisoryEntry>",
                     "Security advisories from RustSec",
                 ),
-                DataField::new(
-                    "deny.licenses",
-                    "Vec<LicenseEntry>",
-                    "License compliance issues",
-                ),
+                DataField::new("deny.licenses", "Vec<LicenseEntry>", "License compliance issues"),
                 DataField::new(
                     "deny.unused_license_allowances",
                     "Vec<LicenseEntry>",
                     "Allowed licenses in deny.toml that no dependency uses",
                 ),
-                DataField::new(
-                    "deny.bans",
-                    "Vec<BanEntry>",
-                    "Banned or duplicate crate issues",
-                ),
+                DataField::new("deny.bans", "Vec<BanEntry>", "Banned or duplicate crate issues"),
                 DataField::new("deny.sources", "Vec<SourceEntry>", "Source trust issues"),
                 DataField::new(
                     "unused",

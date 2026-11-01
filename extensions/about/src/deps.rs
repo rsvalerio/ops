@@ -106,18 +106,11 @@ pub fn deps_json(deps: &ProjectDependencies) -> DepsDocument {
                 })
                 .collect();
             dependencies.sort_by(|a, b| a.name.cmp(&b.name));
-            UnitDepsRecord {
-                name: u.unit_name.clone(),
-                dependencies,
-            }
+            UnitDepsRecord { name: u.unit_name.clone(), dependencies }
         })
         .collect();
     units.sort_by(|a, b| a.name.cmp(&b.name));
-    DepsDocument {
-        schema_version: DEPS_JSON_SCHEMA_VERSION,
-        kind: "about-dependencies",
-        units,
-    }
+    DepsDocument { schema_version: DEPS_JSON_SCHEMA_VERSION, kind: "about-dependencies", units }
 }
 
 /// `ops about dependencies --json`.
@@ -313,11 +306,7 @@ pub fn run_about_duplicates_with(
     is_tty: bool,
     options: DuplicatesOptions<'_>,
 ) -> anyhow::Result<()> {
-    let DuplicatesOptions {
-        json,
-        include_dev,
-        targets,
-    } = options;
+    let DuplicatesOptions { json, include_dev, targets } = options;
     let mut ctx = crate::providers::subpage_context("deps")?;
     if !targets.is_empty() {
         ctx = ctx.with_arg(DUPLICATES_TARGET_ARG, targets.join(","));
@@ -332,11 +321,7 @@ pub fn run_about_duplicates_with(
     if json {
         return crate::write_json_document(writer, &duplicates_json(&report));
     }
-    writeln!(
-        writer,
-        "{}",
-        format_duplicates_section(&report, is_tty).join("\n")
-    )?;
+    writeln!(writer, "{}", format_duplicates_section(&report, is_tty).join("\n"))?;
     Ok(())
 }
 
@@ -369,21 +354,13 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
         for (name, version) in rest {
             lines.push(format!(
                 "  {}",
-                tty_style(
-                    &format!("\u{251c}\u{2500}\u{2500} {name} {version}"),
-                    dim,
-                    is_tty,
-                )
+                tty_style(&format!("\u{251c}\u{2500}\u{2500} {name} {version}"), dim, is_tty,)
             ));
         }
         let (last_name, last_version) = last;
         lines.push(format!(
             "  {}",
-            tty_style(
-                &format!("\u{2514}\u{2500}\u{2500} {last_name} {last_version}"),
-                dim,
-                is_tty,
-            )
+            tty_style(&format!("\u{2514}\u{2500}\u{2500} {last_name} {last_version}"), dim, is_tty,)
         ));
     }
 
@@ -402,10 +379,7 @@ mod tests {
         let registry = DataRegistry::new();
         let mut out: Vec<u8> = Vec::new();
         run_about_deps_with(&registry, &mut out, false).expect("runner must succeed");
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "No dependency data available.\n"
-        );
+        assert_eq!(String::from_utf8(out).unwrap(), "No dependency data available.\n");
     }
 
     /// Pins the `ops about dependencies --json` shape.
@@ -495,10 +469,7 @@ mod tests {
             &registry,
             &mut out,
             false,
-            DuplicatesOptions {
-                json: true,
-                ..DuplicatesOptions::default()
-            },
+            DuplicatesOptions { json: true, ..DuplicatesOptions::default() },
         )
         .expect("runner");
         let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
@@ -542,10 +513,7 @@ mod tests {
             vec![("anyhow".to_string(), "^1.0".to_string())],
         )]);
         let out = format_dependencies_section(&deps, false).join("\n");
-        assert!(
-            !out.contains('\x1b'),
-            "non-TTY writer must receive plain text: {out:?}"
-        );
+        assert!(!out.contains('\x1b'), "non-TTY writer must receive plain text: {out:?}");
     }
 
     /// Pass a unit with empty deps directly and verify

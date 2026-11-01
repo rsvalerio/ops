@@ -1,10 +1,10 @@
 ---
 id: TASK-2649
 title: 'Commands: a spelling for re-invoking the running ops from .ops.toml (wrap around a group)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 00:30'
-updated_date: '2026-11-01 10:31'
+updated_date: '2026-11-01 13:31'
 labels:
   - code-review-rust
   - config
@@ -31,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A config can name the running ops binary without resolving it through PATH, or the docs state why it cannot
+- [x] #1 A config can name the running ops binary without resolving it through PATH, or the docs state why it cannot
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed via a new `OPS_BIN` builtin variable (crates/core/src/expand.rs): `program = "${OPS_BIN}"` expands to the running ops binary's absolute path (`current_ops_program()`) at spawn and in `--dry-run`, shadowing any ambient `OPS_BIN` in the environment like `OPS_ROOT`. The wrap-a-group example in docs/configuration.md now uses the spelling and explains why bare `program = "ops"` is a PATH hazard. Cross-reference added to `current_ops_program`'s doc. Tests: expand.rs (both ref forms, ambient shadowing), runner build.rs (spawn head resolves to the running binary).
+<!-- SECTION:NOTES:END -->

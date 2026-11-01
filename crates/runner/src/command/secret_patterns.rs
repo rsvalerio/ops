@@ -9,16 +9,8 @@
 /// Patterns that both warn and redact in dry-run output. Single source of
 /// truth; the warn list is `SENSITIVE_REDACTION_PATTERNS` chained with
 /// [`WARN_ONLY_PATTERNS`].
-const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "private",
-    "credential",
-    "auth",
-];
+const SENSITIVE_REDACTION_PATTERNS: &[&str] =
+    &["password", "secret", "token", "api_key", "apikey", "private", "credential", "auth"];
 
 /// Patterns that only trigger a warning. Kept separate because they commonly
 /// appear in non-secret contexts (e.g. `AWS_ACCESS_KEY_ID` is half a credential
@@ -26,9 +18,7 @@ const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
 const WARN_ONLY_PATTERNS: &[&str] = &["access_key", "session"];
 
 fn warn_patterns() -> impl Iterator<Item = &'static &'static str> {
-    SENSITIVE_REDACTION_PATTERNS
-        .iter()
-        .chain(WARN_ONLY_PATTERNS.iter())
+    SENSITIVE_REDACTION_PATTERNS.iter().chain(WARN_ONLY_PATTERNS.iter())
 }
 
 /// Warn if environment variable key or value looks sensitive.
@@ -74,9 +64,7 @@ pub fn warn_if_sensitive_env(key: &str, value: &str) {
 #[must_use]
 pub fn is_sensitive_env_key(key: &str) -> bool {
     let key_bytes = key.as_bytes();
-    SENSITIVE_REDACTION_PATTERNS
-        .iter()
-        .any(|p| ascii_contains_ignore_case(key_bytes, p.as_bytes()))
+    SENSITIVE_REDACTION_PATTERNS.iter().any(|p| ascii_contains_ignore_case(key_bytes, p.as_bytes()))
 }
 
 /// Allocation-free ASCII case-insensitive substring search.
@@ -94,12 +82,9 @@ fn ascii_contains_ignore_case(haystack: &[u8], needle: &[u8]) -> bool {
     if haystack.len() < needle.len() {
         return false;
     }
-    haystack.windows(needle.len()).any(|window| {
-        window
-            .iter()
-            .zip(needle)
-            .all(|(h, n)| h.eq_ignore_ascii_case(n))
-    })
+    haystack
+        .windows(needle.len())
+        .any(|window| window.iter().zip(needle).all(|(h, n)| h.eq_ignore_ascii_case(n)))
 }
 
 /// Upper bound on bytes scanned by [`looks_like_secret_value`].
@@ -244,9 +229,7 @@ pub fn looks_like_uuid(value: &str) -> bool {
         && group3.len() == 4
         && group4.len() == 4
         && group5.len() == 12
-        && parts
-            .iter()
-            .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
+        && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 #[cfg(test)]
@@ -344,9 +327,7 @@ mod tests {
         }
         fn redact_oracle(key: &str) -> bool {
             let lower = key.to_lowercase();
-            SENSITIVE_REDACTION_PATTERNS
-                .iter()
-                .any(|p| lower.contains(p))
+            SENSITIVE_REDACTION_PATTERNS.iter().any(|p| lower.contains(p))
         }
 
         // Sensitive (warn): should match patterns from either list.
@@ -421,10 +402,7 @@ mod tests {
         // What the `key = ?key` field renders.
         let rendered = format!("{key:?}");
         assert!(!rendered.contains('\n'), "raw newline survived: {rendered}");
-        assert!(
-            !rendered.contains('\u{1b}'),
-            "raw ANSI survived: {rendered}"
-        );
+        assert!(!rendered.contains('\u{1b}'), "raw ANSI survived: {rendered}");
         assert!(rendered.contains("\\n"));
         assert!(rendered.contains("\\u{1b}"));
         // Sanity: the raw key does contain a newline — Display would not

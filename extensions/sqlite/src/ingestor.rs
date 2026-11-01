@@ -4,10 +4,7 @@ use crate::connection::Sqlite;
 // READ-4 / TASK-1875: `DbError` is imported for the intra-doc links in the
 // `# Errors` sections below; without it `[`DbError::Io`]` and friends did not
 // resolve. The `use` is doc-only, hence the narrow `expect`.
-#[expect(
-    unused_imports,
-    reason = "referenced only by intra-doc links in this module"
-)]
+#[expect(unused_imports, reason = "referenced only by intra-doc links in this module")]
 use crate::error::DbError;
 use crate::error::DbResult;
 use crate::sql::IngestDir;
@@ -17,7 +14,7 @@ use std::path::Path;
 
 /// Result of a load operation (record count, etc.).
 ///
-/// API-9 / TASK-0879: fields are intentionally `pub` so downstream
+/// Fields are intentionally `pub` so downstream
 /// extensions parsing this struct (test assertions, ingestor wrappers,
 /// future `--ingest-stats` output) can read them directly without paying
 /// for accessor boilerplate. Construction stays funneled through
@@ -40,14 +37,11 @@ impl LoadResult {
     /// Builds a successful result for `source_name` carrying `record_count`.
     #[must_use = "return the result; building it logs nothing"]
     pub const fn success(source_name: &'static str, record_count: u64) -> Self {
-        Self {
-            source_name,
-            record_count,
-        }
+        Self { source_name, record_count }
     }
 }
 
-/// Configuration for a sidecar-based ingestor pipeline (DUP-001).
+/// Configuration for a sidecar-based ingestor pipeline.
 ///
 /// Captures the static parameters shared by ingestors that use workspace sidecar
 /// files (e.g., tokei, coverage). The methods handle the common collect/load/checksum
@@ -231,11 +225,9 @@ impl SidecarIngestorConfig {
     /// the double-quoted identifier returned by `self.count_table.quoted()`.
     fn count_records_with(&self, conn: &rusqlite::Connection, quoted: &str) -> DbResult<u64> {
         let raw_count: i64 = conn
-            .query_row(
-                &format!("SELECT COUNT(*) FROM {quoted}"),
-                [],
-                |row: &rusqlite::Row<'_>| row.get::<_, i64>(0),
-            )
+            .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row: &rusqlite::Row<'_>| {
+                row.get::<_, i64>(0)
+            })
             .map_err(|e| {
                 crate::error::DbError::query_failed(
                     format!("{} count", self.count_table.as_str()),
@@ -386,11 +378,7 @@ fn unlink_and_remove_sidecar(
 /// operator chasing a half-cleaned crash always sees both names, regardless
 /// of which branch the cleanup hit.
 fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> String {
-    format!(
-        "original={:?} effective={:?}",
-        original.display(),
-        effective.display()
-    )
+    format!("original={:?} effective={:?}", original.display(), effective.display())
 }
 
 /// Trait for data sources that collect raw data and load it into `SQLite`.
@@ -459,7 +447,7 @@ mod tests {
     use super::*;
     use crate::{connection::Sqlite, error::DbError};
 
-    /// ERR-1 / TASK-1242: the cleanup breadcrumb must surface *both* the
+    /// The cleanup breadcrumb must surface *both* the
     /// original JSON staging path and the post-rename effective path.
     /// Pinned via the shared formatter so a future refactor that drops
     /// one of the two fields trips this test instead of silently
@@ -503,7 +491,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2054: every test stages through a verified anchor, the
+    /// Every test stages through a verified anchor, the
     /// same way `provide_via_ingestor` does in production.
     fn anchor(tmp: &tempfile::TempDir) -> IngestDir {
         IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open ingest dir")
@@ -546,13 +534,11 @@ mod tests {
         let ctx = Context::new(config, std::path::PathBuf::from("."));
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&temp_dir);
-        ingestor
-            .collect(&ctx, &dir)
-            .expect("collect should succeed");
+        ingestor.collect(&ctx, &dir).expect("collect should succeed");
         assert!(dir.entry_path("data.json").exists());
     }
 
-    /// SEC-25 / TASK-0911: a successful `collect_sidecar` must leave no
+    /// a successful `collect_sidecar` must leave no
     /// `.tmp.*` leftover from the `atomic_write` sibling-temp pattern. Pin
     /// the JSON path on the same crash-safe write helper that the
     /// workspace sidecar already uses.
@@ -575,13 +561,10 @@ mod tests {
             .filter_map(Result::ok)
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
-        assert!(
-            leftovers.is_empty(),
-            "atomic_write left a tmp sibling: {leftovers:?}"
-        );
+        assert!(leftovers.is_empty(), "atomic_write left a tmp sibling: {leftovers:?}");
     }
 
-    /// ERR-1 (TASK-0466): if JSON removal fails for a real I/O reason
+    /// if JSON removal fails for a real I/O reason
     /// (write-protected parent dir), the sidecar must remain on disk so the
     /// next run can recompute the checksum from leftover JSON.
     #[cfg(unix)]
@@ -613,10 +596,7 @@ mod tests {
             }
         }
         let original = std::fs::metadata(&parent).expect("meta").permissions();
-        let _guard = PermsGuard {
-            path: parent.clone(),
-            original: original.clone(),
-        };
+        let _guard = PermsGuard { path: parent.clone(), original: original.clone() };
         let mut readonly = original.clone();
         readonly.set_mode(0o500);
         std::fs::set_permissions(&parent, readonly).expect("chmod");
@@ -627,13 +607,10 @@ mod tests {
         std::fs::set_permissions(&parent, original).expect("restore");
 
         let sidecar = dir.entry_path(&crate::sql::sidecar_name(config.name));
-        assert!(
-            sidecar.exists(),
-            "sidecar must remain when JSON removal fails: {sidecar:?}"
-        );
+        assert!(sidecar.exists(), "sidecar must remain when JSON removal fails: {sidecar:?}");
     }
 
-    /// ARCH-2 / TASK-1008: simulate a `kill -9` between the upsert and
+    /// Simulate a `kill -9` between the upsert and
     /// the post-load cleanup. The crashed run leaves a `*.json.done`
     /// file (rename-then-unlink ordering — the rename succeeded, the
     /// unlink didn't). The next user-driven invocation re-runs
@@ -653,18 +630,14 @@ mod tests {
         let done_path = dir.entry_path("data.json.done");
 
         // Prior crash residue: `.done` file exists but `.json` is gone.
-        dir.write_atomic("data.json.done", b"crash-residue")
-            .unwrap();
+        dir.write_atomic("data.json.done", b"crash-residue").unwrap();
 
         // Re-run a successful ingest path: the staging JSON exists again.
         dir.write_atomic("data.json", b"new-load").unwrap();
         crate::sql::write_workspace_sidecar(&dir, config.name, temp_dir.path()).unwrap();
         config.cleanup_artifacts(&dir);
 
-        assert!(
-            !json_path.exists(),
-            "json staging file must be gone after successful cleanup"
-        );
+        assert!(!json_path.exists(), "json staging file must be gone after successful cleanup");
         // The rename overwrites the prior `.done` residue, then unlink
         // removes the result — so a clean rerun also clears any leftover
         // crash debris on disk. The directory ends up empty (modulo the
@@ -703,8 +676,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&temp_dir);
         let db = Sqlite::open_in_memory().expect("db");
-        dir.write_atomic("data.json", br#"{"test": "data"}"#)
-            .unwrap();
+        dir.write_atomic("data.json", br#"{"test": "data"}"#).unwrap();
         let result = ingestor.load(&dir, &db).expect("load should succeed");
         assert_eq!(result.source_name, "test");
         assert_eq!(result.record_count, 1);
@@ -750,11 +722,9 @@ mod tests {
             // load_with_sidecar uses `u64::try_from(raw_count)` and maps the
             // failure to DbError::InvalidRecordCount.
             let raw_count: i64 = -1;
-            let result: Result<u64, _> =
-                u64::try_from(raw_count).map_err(|_| DbError::InvalidRecordCount {
-                    table: "tokei_files".to_string(),
-                    count: raw_count,
-                });
+            let result: Result<u64, _> = u64::try_from(raw_count).map_err(|_| {
+                DbError::InvalidRecordCount { table: "tokei_files".to_string(), count: raw_count }
+            });
             match result {
                 Err(DbError::InvalidRecordCount { table, count }) => {
                     assert_eq!(table, "tokei_files");
@@ -764,7 +734,7 @@ mod tests {
             }
         }
 
-        /// CONC-2 / TASK-0364: two ingestors writing the same `count_table`
+        /// Two ingestors writing the same `count_table`
         /// concurrently must each observe their *own* row count, not the
         /// other's. The fix holds the connection lock across
         /// `load_tables_with` and `count_records_with` so a concurrent
@@ -783,9 +753,7 @@ mod tests {
             let tmp_b = tempfile::tempdir().expect("dir b");
             let dir_a = anchor(&tmp_a);
             let dir_b = anchor(&tmp_b);
-            dir_a
-                .write_atomic("a.json", br#"[{"i":1},{"i":2},{"i":3}]"#)
-                .expect("write a.json");
+            dir_a.write_atomic("a.json", br#"[{"i":1},{"i":2},{"i":3}]"#).expect("write a.json");
             dir_b
                 .write_atomic("b.json", br#"[{"i":1},{"i":2},{"i":3},{"i":4},{"i":5}]"#)
                 .expect("write b.json");
@@ -830,7 +798,7 @@ mod tests {
             assert_eq!(res_b.record_count, 5, "ingB must observe its own 5 rows");
         }
 
-        /// SEC-12 / TASK-0856: an invalid `count_table` can no longer reach
+        /// an invalid `count_table` can no longer reach
         /// runtime — `TableName::from_static` asserts at compile time. The
         /// previous runtime-error test (which built `count_table: "bad;
         /// DROP TABLE users; --"`) is now structurally impossible: the

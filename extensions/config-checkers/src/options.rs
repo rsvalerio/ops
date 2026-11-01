@@ -30,12 +30,7 @@ impl CheckerOptions {
     /// candidate set, JSON5 off, and the default byte cap.
     #[must_use]
     pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
-        Self {
-            root,
-            tracked_only,
-            allow_json5: false,
-            max_bytes: DEFAULT_MAX_BYTES,
-        }
+        Self { root, tracked_only, allow_json5: false, max_bytes: DEFAULT_MAX_BYTES }
     }
 
     /// Enables JSON5 acceptance (JSON checker only).

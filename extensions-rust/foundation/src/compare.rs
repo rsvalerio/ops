@@ -28,10 +28,7 @@ pub struct Drift {
 
 impl Drift {
     pub(crate) fn new(location: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            location: location.into(),
-            message: message.into(),
-        }
+        Self { location: location.into(), message: message.into() }
     }
 }
 
@@ -70,27 +67,13 @@ pub fn compare(
 }
 
 fn compare_sets(want: &[Value], have: &[Value], location: &str, out: &mut Vec<Drift>) {
-    let missing: Vec<String> = want
-        .iter()
-        .filter(|v| !have.contains(v))
-        .map(render)
-        .collect();
-    let extra: Vec<String> = have
-        .iter()
-        .filter(|v| !want.contains(v))
-        .map(render)
-        .collect();
+    let missing: Vec<String> = want.iter().filter(|v| !have.contains(v)).map(render).collect();
+    let extra: Vec<String> = have.iter().filter(|v| !want.contains(v)).map(render).collect();
     if !missing.is_empty() {
-        out.push(Drift::new(
-            location,
-            format!("missing items {}", missing.join(", ")),
-        ));
+        out.push(Drift::new(location, format!("missing items {}", missing.join(", "))));
     }
     if !extra.is_empty() {
-        out.push(Drift::new(
-            location,
-            format!("unexpected items {}", extra.join(", ")),
-        ));
+        out.push(Drift::new(location, format!("unexpected items {}", extra.join(", "))));
     }
 }
 
@@ -99,16 +82,10 @@ fn compare_lint_level(want: Level, actual: &Value, location: &str, out: &mut Vec
         Some(have) if have >= want => {}
         Some(have) => out.push(Drift::new(
             location,
-            format!(
-                "level {} is weaker than the baseline {}",
-                have.name(),
-                want.name()
-            ),
+            format!("level {} is weaker than the baseline {}", have.name(), want.name()),
         )),
-        None => out.push(Drift::new(
-            location,
-            format!("expected a lint level, found {}", render(actual)),
-        )),
+        None => out
+            .push(Drift::new(location, format!("expected a lint level, found {}", render(actual)))),
     }
 }
 
@@ -172,43 +149,26 @@ mod tests {
 
     fn drift(expected: &str, actual: &str, rule: Rule) -> Vec<Drift> {
         let mut out = Vec::new();
-        compare(
-            &parse(expected),
-            Some(&parse(actual)),
-            "f.toml",
-            rule,
-            &mut out,
-        );
+        compare(&parse(expected), Some(&parse(actual)), "f.toml", rule, &mut out);
         out
     }
 
     #[test]
     fn identical_tables_do_not_drift() {
-        assert!(drift(
-            "a = 1\n[t]\nb = \"x\"\n",
-            "a = 1\n[t]\nb = \"x\"\n",
-            Rule::Exact
-        )
-        .is_empty());
+        assert!(drift("a = 1\n[t]\nb = \"x\"\n", "a = 1\n[t]\nb = \"x\"\n", Rule::Exact).is_empty());
     }
 
     #[test]
     fn extra_keys_are_the_repos_own() {
-        let out = drift(
-            "a = 1\n",
-            "a = 1\nignore = [\"RUSTSEC-1\"]\n[extra]\nk = 2\n",
-            Rule::Exact,
-        );
+        let out =
+            drift("a = 1\n", "a = 1\nignore = [\"RUSTSEC-1\"]\n[extra]\nk = 2\n", Rule::Exact);
         assert!(out.is_empty(), "{out:?}");
     }
 
     #[test]
     fn missing_key_and_changed_value_drift_with_their_path() {
-        let out = drift(
-            "a = 1\n[t]\nb = \"x\"\nc = true\n",
-            "a = 2\n[t]\nb = \"x\"\n",
-            Rule::Exact,
-        );
+        let out =
+            drift("a = 1\n[t]\nb = \"x\"\nc = true\n", "a = 2\n[t]\nb = \"x\"\n", Rule::Exact);
         assert_eq!(
             out,
             vec![
@@ -221,11 +181,7 @@ mod tests {
     #[test]
     fn arrays_compare_as_sets() {
         assert!(drift("l = [\"a\", \"b\"]\n", "l = [\"b\", \"a\"]\n", Rule::Exact).is_empty());
-        let out = drift(
-            "l = [\"a\", \"b\"]\n",
-            "l = [\"a\", \"GPL-3.0\"]\n",
-            Rule::Exact,
-        );
+        let out = drift("l = [\"a\", \"b\"]\n", "l = [\"a\", \"GPL-3.0\"]\n", Rule::Exact);
         assert_eq!(
             out,
             vec![
@@ -257,10 +213,7 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Drift::new(
-                    "f.toml:clippy.panic",
-                    "level allow is weaker than the baseline warn"
-                ),
+                Drift::new("f.toml:clippy.panic", "level allow is weaker than the baseline warn"),
                 Drift::new("f.toml:clippy.todo", "missing"),
             ]
         );

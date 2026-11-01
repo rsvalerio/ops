@@ -1,10 +1,10 @@
 ---
 id: TASK-2656
 title: 'code-review-plan-wave79'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 10:31'
-updated_date: '2026-11-01 10:31'
+updated_date: '2026-11-01 13:47'
 labels:
   - code-review-wave
 dependencies:
@@ -39,4 +39,8 @@ Rationale: how [commands] entries resolve from .ops.toml, both follow-ups from T
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2655/wave78 (docs/configuration.md)
+
+Branch: code-review/TASK-2656
+Worktree: /home/rsvalerio/projects/.wave-TASK-2656
+
 <!-- SECTION:NOTES:END -->

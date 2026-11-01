@@ -25,11 +25,7 @@ pub struct ExpandError {
 
 impl fmt::Display for ExpandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "variable expansion failed for `${}`: {}",
-            self.var_name, self.cause
-        )
+        write!(f, "variable expansion failed for `${}`: {}", self.var_name, self.cause)
     }
 }
 
@@ -57,7 +53,7 @@ impl std::error::Error for ExpandError {
 /// A genuine `Err(VarError)` from the lookup (e.g. `VarError::NotUnicode`
 /// for a non-UTF-8 env value) is *not* the same as a missing variable.
 /// We log such errors at `tracing::warn!` with the offending variable
-/// name (ERR-1) before falling back to `Cow::Borrowed(input)`, so config
+/// name before falling back to `Cow::Borrowed(input)`, so config
 /// bugs are visible instead of silently passing through unchanged.
 #[derive(Debug, Clone)]
 pub struct Variables {
@@ -67,6 +63,38 @@ pub struct Variables {
     /// process environment. Set by [`Variables::poisoned`], the fail-closed
     /// fallback for infallible construction sites.
     poison: Option<ExpandError>,
+}
+
+/// Cached absolute path of the running `ops` binary — the value behind the
+/// `OPS_BIN` builtin. Computed once per process from
+/// [`crate::config::current_ops_program`] (itself a `current_exe()` lookup
+/// with a `"ops"` fallback for unusual sandboxing): the running executable
+/// cannot change mid-process, so repeat `Variables::from_env` calls hand out
+/// an `Arc::clone` instead of re-reading `/proc/self/exe` and re-allocating.
+///
+/// `OPS_BIN` exists so a `.ops.toml` can re-invoke *this* binary —
+/// `program = "${OPS_BIN}"`, args = `["<group>"]` under a `wrap` — without
+/// resolving a bare `"ops"` through `PATH`, where a stale `~/.cargo/bin`
+/// copy, a direnv shim, or a wrapper that prepends directories to `PATH`
+/// silently substitutes a different ops version (the same reason the
+/// internal registrations spawn `current_ops_program()`). As a builtin it
+/// shadows any ambient `OPS_BIN` in the environment, matching the
+/// `OPS_ROOT` policy: an inherited variable cannot redirect what
+/// "the running ops" means.
+static OPS_BIN_CACHE: OnceLock<Arc<str>> = OnceLock::new();
+
+/// Hand out the cached [`OPS_BIN_CACHE`] value, initialising it on first
+/// use. Infallible: [`crate::config::current_ops_program`] has a `"ops"`
+/// fallback, so there is no error path to surface (unlike `OPS_ROOT`,
+/// whose non-UTF-8 rendering must fail the strict contract).
+fn cached_ops_bin_arc() -> Arc<str> {
+    if let Some(arc) = OPS_BIN_CACHE.get() {
+        return Arc::clone(arc);
+    }
+    let arc: Arc<str> = Arc::from(crate::config::current_ops_program());
+    // A concurrent caller may win the race; both computed the same
+    // value, so either is correct.
+    Arc::clone(OPS_BIN_CACHE.get_or_init(|| arc))
 }
 
 /// Cached `std::env::temp_dir()` rendering. Computed once per process: the
@@ -140,12 +168,10 @@ fn cached_tmpdir_arc() -> Result<Arc<str>, ExpandError> {
 /// Pure renderer behind [`cached_tmpdir_arc`], split out so the non-UTF-8
 /// branch is reachable from a test without touching the process cache.
 fn tmpdir_arc_from(dir: &Path) -> Result<Arc<str>, ExpandError> {
-    dir.to_str()
-        .map(Arc::<str>::from)
-        .ok_or_else(|| ExpandError {
-            var_name: "TMPDIR".to_string(),
-            cause: std::env::VarError::NotUnicode(dir.as_os_str().to_owned()),
-        })
+    dir.to_str().map(Arc::<str>::from).ok_or_else(|| ExpandError {
+        var_name: "TMPDIR".to_string(),
+        cause: std::env::VarError::NotUnicode(dir.as_os_str().to_owned()),
+    })
 }
 
 /// Test-only guard that installs a [`TMPDIR_OVERRIDE`] for the current
@@ -199,12 +225,7 @@ pub(crate) const OPS_ROOT_CACHE_CAP: usize = 64;
 
 fn ops_root_cache() -> &'static Mutex<OpsRootCache> {
     static CACHE: std::sync::OnceLock<Mutex<OpsRootCache>> = std::sync::OnceLock::new();
-    CACHE.get_or_init(|| {
-        Mutex::new(OpsRootCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        })
-    })
+    CACHE.get_or_init(|| Mutex::new(OpsRootCache { map: HashMap::new(), order: VecDeque::new() }))
 }
 
 /// Resolve the `OPS_ROOT` `Arc<str>` for a workspace root, caching the
@@ -268,10 +289,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // the real path directly), reuse that `Arc<str>` so a real + symlink
     // pair collapses to one rendering. Without this branch the new entry
     // would shadow the existing one and break `Arc::ptr_eq`.
-    let arc = guard
-        .map
-        .get(key)
-        .map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
+    let arc = guard.map.get(key).map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
     // Evict the oldest entry when at cap so the new
     // distinct root still fits.
     if guard.map.len() >= OPS_ROOT_CACHE_CAP {
@@ -308,9 +326,7 @@ pub(crate) fn ops_root_cache_len() -> usize {
     // sibling panic shows up at the right level instead of looking like a
     // later value-mismatch.
     let cache = ops_root_cache();
-    crate::sync::lock_recover_warn(cache, "ops_root_cache_len")
-        .map
-        .len()
+    crate::sync::lock_recover_warn(cache, "ops_root_cache_len").map.len()
 }
 
 #[cfg(test)]
@@ -359,10 +375,7 @@ fn record_canonicalize_call(path: &Path) {
 
 #[cfg(test)]
 pub(crate) fn canonicalize_call_count(path: &Path) -> usize {
-    crate::sync::lock_recover(canonicalize_calls())
-        .get(path)
-        .copied()
-        .unwrap_or(0)
+    crate::sync::lock_recover(canonicalize_calls()).get(path).copied().unwrap_or(0)
 }
 
 /// Maximum number of distinct
@@ -395,10 +408,7 @@ struct ExpandWarnSeen {
 
 impl ExpandWarnSeen {
     fn new() -> Self {
-        Self {
-            set: HashSet::new(),
-            order: VecDeque::new(),
-        }
+        Self { set: HashSet::new(), order: VecDeque::new() }
     }
 
     /// Insert `var_name`; evict the oldest entry first if at capacity.
@@ -441,9 +451,7 @@ pub(crate) fn expand_warn_seen_count() -> usize {
     // sibling-panic flake is visible at the recovery site rather than
     // masquerading as a later count mismatch.
     let cache = expand_warn_seen();
-    crate::sync::lock_recover_warn(cache, "expand_warn_seen_count")
-        .set
-        .len()
+    crate::sync::lock_recover_warn(cache, "expand_warn_seen_count").set.len()
 }
 
 #[cfg(test)]
@@ -473,10 +481,7 @@ impl Variables {
     /// through unchanged.
     #[must_use]
     pub fn poisoned(err: ExpandError) -> Self {
-        Self {
-            builtins: HashMap::new(),
-            poison: Some(err),
-        }
+        Self { builtins: HashMap::new(), poison: Some(err) }
     }
 
     /// Build from environment and workspace root.
@@ -488,6 +493,10 @@ impl Variables {
     /// `TMPDIR`, set it before any `Variables::from_env` runs in that
     /// process.
     ///
+    /// `OPS_BIN` (the running binary's absolute path) is cached the same
+    /// way in [`OPS_BIN_CACHE`]; it is a builtin, so an ambient `OPS_BIN`
+    /// in the environment is always shadowed.
+    ///
     /// # Errors
     ///
     /// An [`ExpandError`] carrying `VarError::NotUnicode` if `ops_root` or
@@ -495,18 +504,16 @@ impl Variables {
     /// rather than lossily rendered so a corrupt path cannot flow into a
     /// spawned subprocess.
     pub fn from_env(ops_root: &Path) -> Result<Self, ExpandError> {
-        let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
+        let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(3);
         // Surface a non-UTF-8 workspace root as a typed
         // `ExpandError` instead of lossy-rendering through
         // `Path::display()`. Strict callers (the command-build path)
         // propagate this so a corrupt OPS_ROOT cannot silently flow into
         // spawned subprocess argv / cwd / env.
         builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root)?);
+        builtins.insert("OPS_BIN", cached_ops_bin_arc());
         builtins.insert("TMPDIR", cached_tmpdir_arc()?);
-        Ok(Self {
-            builtins,
-            poison: None,
-        })
+        Ok(Self { builtins, poison: None })
     }
 
     /// Expand `$VAR`, `${VAR}`, `${VAR:-default}`, and `~` in the input string.
@@ -573,10 +580,7 @@ impl Variables {
         // Delegate to the shared helper so `~` expansion stays in sync
         // with platform path conventions used by the config loader.
         let home_dir = || -> Option<String> {
-            crate::paths::home_dir()
-                .as_deref()
-                .and_then(std::path::Path::to_str)
-                .map(String::from)
+            crate::paths::home_dir().as_deref().and_then(std::path::Path::to_str).map(String::from)
         };
 
         // Builtins are borrowed from `self`; `Cow::Borrowed` avoids
@@ -593,10 +597,8 @@ impl Variables {
             }
         };
 
-        shellexpand::full_with_context(input, home_dir, lookup).map_err(|err| ExpandError {
-            var_name: err.var_name,
-            cause: err.cause,
-        })
+        shellexpand::full_with_context(input, home_dir, lookup)
+            .map_err(|err| ExpandError { var_name: err.var_name, cause: err.cause })
     }
 }
 
@@ -626,9 +628,7 @@ mod tests {
     fn expands_tilde() {
         let vars = test_vars();
         let result = vars.expand("~/config");
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap();
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap();
         assert_eq!(result, format!("{home}/config"));
     }
 
@@ -636,13 +636,11 @@ mod tests {
     fn expands_home_var() {
         let vars = test_vars();
         let result = vars.expand("$HOME/.config");
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap();
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap();
         assert_eq!(result, format!("{home}/.config"));
     }
 
-    /// PERF-3 / TASK-1183: two `from_env` calls with the same `ops_root`
+    /// Two `from_env` calls with the same `ops_root`
     /// must hand out the same `Arc<str>` for `OPS_ROOT` (LRU-of-1 cache),
     /// mirroring the TMPDIR amortisation invariant captured below.
     #[test]
@@ -659,7 +657,7 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-0967: every `Variables::from_env` call must reuse the
+    /// Every `Variables::from_env` call must reuse the
     /// same `Arc<str>` for the cached `TMPDIR` rather than allocating a
     /// fresh `String`. Verified via `Arc::ptr_eq` on the values stored in
     /// the builtins map; the API surface (`expand` / `try_expand`) is
@@ -670,16 +668,57 @@ mod tests {
         let v2 = test_vars();
         let a = v1.builtins.get("TMPDIR").expect("TMPDIR populated");
         let b = v2.builtins.get("TMPDIR").expect("TMPDIR populated");
-        assert!(
-            Arc::ptr_eq(a, b),
-            "TMPDIR must be the same Arc across from_env calls"
+        assert!(Arc::ptr_eq(a, b), "TMPDIR must be the same Arc across from_env calls");
+    }
+
+    /// `${OPS_BIN}` expands to the running binary's absolute
+    /// path — the config-side spelling for re-invoking *this* ops (see
+    /// `current_ops_program`) without resolving a bare `"ops"` through
+    /// `PATH`. Both reference forms must work, like every other builtin.
+    #[test]
+    fn ops_bin_expands_to_the_running_binary() {
+        let vars = test_vars();
+        let expected = crate::config::current_ops_program();
+        assert_eq!(vars.expand("${OPS_BIN}"), expected);
+        assert_eq!(vars.expand("$OPS_BIN"), expected);
+    }
+
+    /// `OPS_BIN` is a builtin, so an ambient `OPS_BIN` in the
+    /// environment can never redirect what "the running ops" means — the
+    /// same shadowing policy `OPS_ROOT` applies. Pin it: a hostile or
+    /// accidentally-exported `OPS_BIN` is ignored.
+    #[test]
+    #[serial_test::serial]
+    fn ops_bin_shadows_ambient_environment() {
+        // `set_var` is process-global; save and restore the prior value so
+        // the window is invisible to tests that are not party to this one.
+        let saved = std::env::var("OPS_BIN").ok();
+        // SAFETY: test-only mutation, serialised against other `#[serial]`
+        // tests by the attribute above and restored before any assertion.
+        unsafe {
+            std::env::set_var("OPS_BIN", "/nonexistent/ops-shim");
+        }
+        let vars = test_vars();
+        let expanded = vars.expand("${OPS_BIN}");
+        // Restore before asserting so a panic does not leak state.
+        // SAFETY: same test-only window as the swap above.
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var("OPS_BIN", v),
+                None => std::env::remove_var("OPS_BIN"),
+            }
+        }
+        assert_eq!(
+            expanded,
+            crate::config::current_ops_program(),
+            "ambient OPS_BIN must be shadowed by the builtin"
         );
     }
 
-    /// READ-5 / TASK-1068: lock in the documented process-lifetime contract
+    /// Lock in the documented process-lifetime contract
     /// of [`TMPDIR_DISPLAY`]. Once `Variables::from_env` has been called in
     /// the process, swapping `TMPDIR` via `set_var` is invisible — the cache
-    /// is deliberate (PERF-3 / TASK-0967) and tests that need a different
+    /// is deliberate and tests that need a different
     /// `TMPDIR` must set it before any `from_env` call. This test asserts
     /// that the post-init swap is *not* observed.
     #[test]
@@ -688,11 +727,7 @@ mod tests {
         // Force the cache to populate (idempotent if already initialised in
         // this process — that is exactly the contract under test).
         let v_before = test_vars();
-        let cached = v_before
-            .builtins
-            .get("TMPDIR")
-            .expect("TMPDIR populated")
-            .clone();
+        let cached = v_before.builtins.get("TMPDIR").expect("TMPDIR populated").clone();
 
         // Swap TMPDIR to a value the cache could not possibly have captured.
         //
@@ -781,7 +816,7 @@ mod tests {
         assert_eq!(result, input);
     }
 
-    /// READ-4 regression: pinning pass-through for a *deterministically*
+    /// Regression: pinning pass-through for a *deterministically*
     /// unset env var (removed via `remove_var`) rather than relying on a
     /// long unlikely-to-exist name. If shellexpand ever changes `Ok(None)`
     /// behaviour to substitute empty strings, this test breaks loudly.
@@ -797,7 +832,7 @@ mod tests {
         assert_eq!(result.as_ref(), input, "missing env var must pass through");
     }
 
-    /// ERR-1 regression: a `VarError::NotUnicode` from the lookup must not
+    /// Regression: a `VarError::NotUnicode` from the lookup must not
     /// be conflated with "missing variable". The current contract is to log
     /// at warn and pass the input through unchanged; this test pins that
     /// pass-through for a deliberately-corrupt env value.
@@ -821,14 +856,10 @@ mod tests {
         unsafe {
             std::env::remove_var(key);
         }
-        assert_eq!(
-            result.as_ref(),
-            input,
-            "non-UTF-8 env value must fall back to original input"
-        );
+        assert_eq!(result.as_ref(), input, "non-UTF-8 env value must fall back to original input");
     }
 
-    /// ERR-1 / TASK-1224: when `expand` falls back on a `VarError`, the
+    /// When `expand` falls back on a `VarError`, the
     /// first failure per distinct variable name surfaces via the always-on
     /// `crate::ui::warn` channel; subsequent failures of the same variable
     /// must stay structured-only so a single bad env value in a hot loop
@@ -865,11 +896,7 @@ mod tests {
 
         // A new distinct var: ui::warn fires again, set grows.
         let _ = vars.expand(&format!("${key_b}"));
-        assert_eq!(
-            super::expand_warn_seen_count(),
-            2,
-            "distinct var must surface a new ui::warn"
-        );
+        assert_eq!(super::expand_warn_seen_count(), 2, "distinct var must surface a new ui::warn");
 
         // SAFETY: test-only guard via #[serial] attribute.
         unsafe {
@@ -879,7 +906,7 @@ mod tests {
         super::reset_expand_warn_seen();
     }
 
-    /// CONC-1 / TASK-1418: the `ops_root_cache` must stay bounded under a
+    /// The `ops_root_cache` must stay bounded under a
     /// stream of distinct workspace roots (e.g. an embedder rotating
     /// projects). Insert past the cap and assert the map size clamps to
     /// [`super::OPS_ROOT_CACHE_CAP`] with FIFO eviction so a new distinct
@@ -904,7 +931,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// PERF-3 / TASK-1423: the cache hit path must reuse the same
+    /// The cache hit path must reuse the same
     /// `Arc<str>` across many lookups on the same root, going through the
     /// borrow-by-`&Path` fast path rather than allocating a fresh
     /// `PathBuf` per call. We can't observe the absence of allocation
@@ -919,23 +946,16 @@ mod tests {
         super::reset_ops_root_cache();
         let root = PathBuf::from("/synthetic/cache/hit/pin");
         let warm = Variables::from_env(&root).expect("UTF-8 path");
-        let warm_arc = warm
-            .builtins
-            .get("OPS_ROOT")
-            .expect("OPS_ROOT populated")
-            .clone();
+        let warm_arc = warm.builtins.get("OPS_ROOT").expect("OPS_ROOT populated").clone();
         for _ in 0..1024 {
             let v = Variables::from_env(&root).expect("UTF-8 path");
             let got = v.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
-            assert!(
-                Arc::ptr_eq(got, &warm_arc),
-                "OPS_ROOT Arc must be reused on cache hits"
-            );
+            assert!(Arc::ptr_eq(got, &warm_arc), "OPS_ROOT Arc must be reused on cache hits");
         }
         super::reset_ops_root_cache();
     }
 
-    /// ERR-1 / TASK-1462: a non-UTF-8 workspace root must fail
+    /// a non-UTF-8 workspace root must fail
     /// `Variables::from_env` with a typed `ExpandError::NotUnicode`
     /// instead of being lossy-rendered through `Path::display()` and
     /// silently flowing into argv / cwd / env via `try_expand`. The
@@ -965,12 +985,12 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1465: once the `OPS_ROOT` cache has been warmed for a
+    /// Once the `OPS_ROOT` cache has been warmed for a
     /// given workspace root, subsequent `from_env` calls must skip the
     /// `std::fs::canonicalize` syscall entirely — the hit path probes the
     /// cache by raw `&Path` before paying any IO.
     ///
-    /// TEST-15 / TASK-1664: asserted by **counting the syscall**, not by
+    /// Asserted by **counting the syscall**, not by
     /// timing. The previous form ran 200k calls against a one-second
     /// wall-clock budget, which is load-dependent in a debug build: it passes
     /// on an idle machine and fails under CPU contention (measured here at
@@ -1010,7 +1030,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// ERR-1 / TASK-1424: two semantically equal workspace roots — here, a
+    /// Two semantically equal workspace roots — here, a
     /// real tempdir and a symlink that points at it — must yield the same
     /// `OPS_ROOT` `Arc<str>` so a single process that derives the root
     /// twice (relative for dry-run, absolute for exec) cannot leak two
@@ -1039,7 +1059,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: an adversarial stream of
+    /// An adversarial stream of
     /// distinct variable names must not grow `expand_warn_seen` without
     /// bound. The cap is documented at [`super::EXPAND_WARN_SEEN_CAP`];
     /// eviction is FIFO so a new distinct name still surfaces a one-shot
@@ -1065,23 +1085,17 @@ mod tests {
         // it must again return `true` (the user-facing warn fires once more).
         let first_name = "ADVERSARIAL_VAR_0";
         let re_marked = super::mark_expand_warn_emitted(first_name);
-        assert!(
-            re_marked,
-            "evicted name must re-mark as new on next sighting (FIFO eviction)"
-        );
+        assert!(re_marked, "evicted name must re-mark as new on next sighting (FIFO eviction)");
 
         // A name still inside the window must dedupe (warn-once contract).
         let recent_name = format!("ADVERSARIAL_VAR_{}", cap * 2 - 1);
         let recent_dedupe = super::mark_expand_warn_emitted(&recent_name);
-        assert!(
-            !recent_dedupe,
-            "recent name must still dedupe within the capacity window"
-        );
+        assert!(!recent_dedupe, "recent name must still dedupe within the capacity window");
 
         super::reset_expand_warn_seen();
     }
 
-    /// TASK-1444 AC#3: the bound must be large enough that realistic
+    /// The bound must be large enough that realistic
     /// command-spec workloads never evict (>= 64). Pin the documented floor
     /// at compile time so a future tightening surfaces in build output.
     const _: () = assert!(
@@ -1089,7 +1103,7 @@ mod tests {
         "documented floor (TASK-1444): cap must accommodate realistic workloads"
     );
 
-    /// TASK-0450: strict `try_expand` must surface the underlying
+    /// Strict `try_expand` must surface the underlying
     /// `VarError::NotUnicode` so the caller can fail the spawn instead of
     /// materialising a literal `${VAR}` into argv / cwd.
     #[cfg(unix)]
@@ -1123,9 +1137,7 @@ mod tests {
     #[test]
     fn try_expand_propagates_value_for_known_var() {
         let vars = test_vars();
-        let result = vars
-            .try_expand("$OPS_ROOT/src")
-            .expect("known var must succeed");
+        let result = vars.try_expand("$OPS_ROOT/src").expect("known var must succeed");
         assert_eq!(result, "/test/project/src");
     }
 
@@ -1154,11 +1166,7 @@ mod tests {
         let root = PathBuf::from("/bench/root");
         // Warm the OnceLock once.
         let warm = Variables::from_env(&root).expect("UTF-8 path");
-        let warm_tmpdir = warm
-            .builtins
-            .get("TMPDIR")
-            .expect("TMPDIR populated")
-            .clone();
+        let warm_tmpdir = warm.builtins.get("TMPDIR").expect("TMPDIR populated").clone();
         // Subsequent calls must observe the *same* cached `Arc<str>` — not just
         // an equal string. TEST-11 / TASK-1037: a value-equality assertion here
         // would still pass even if `from_env` re-rendered the TMPDIR path on
@@ -1174,7 +1182,7 @@ mod tests {
         }
     }
 
-    /// ERR-1 / TASK-1805: a non-UTF-8 temporary directory must surface as an
+    /// a non-UTF-8 temporary directory must surface as an
     /// `ExpandError` rather than being lossy-rendered through
     /// `Path::display()` into a U+FFFD-corrupted `TMPDIR` builtin.
     #[cfg(unix)]
@@ -1196,7 +1204,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1805 (AC#2): a refused non-UTF-8 rendering must not be
+    /// A refused non-UTF-8 rendering must not be
     /// cached. A later caller with a valid temporary directory still gets a
     /// clean UTF-8 value rather than an inherited corruption.
     #[cfg(unix)]
@@ -1219,7 +1227,7 @@ mod tests {
         );
     }
 
-    /// SEC-31 / TASK-1854 (AC#3): pin what an *undefined* variable actually
+    /// Pin what an *undefined* variable actually
     /// does. Bare and braced references stay literal; the `:-` form resolves
     /// to its default. `try_expand` does not error on any of them — which is
     /// exactly why the fail-closed fallback below has to exist.
@@ -1229,8 +1237,7 @@ mod tests {
         let name = "OPS_DEFINITELY_UNSET_TASK_1854";
         assert!(std::env::var_os(name).is_none(), "test precondition");
         assert_eq!(
-            vars.try_expand(&format!("${name}/src"))
-                .expect("undefined variable is not an error"),
+            vars.try_expand(&format!("${name}/src")).expect("undefined variable is not an error"),
             format!("${name}/src")
         );
         assert_eq!(
@@ -1239,13 +1246,12 @@ mod tests {
             format!("${{{name}}}/src")
         );
         assert_eq!(
-            vars.try_expand(&format!("${{{name}:-fallback}}/src"))
-                .expect("default form resolves"),
+            vars.try_expand(&format!("${{{name}:-fallback}}/src")).expect("default form resolves"),
             "fallback/src"
         );
     }
 
-    /// SEC-31 / TASK-1854 (AC#4): the construction-failure fallback must fail
+    /// The construction-failure fallback must fail
     /// closed. With `OPS_ROOT` set in the ambient process environment, a
     /// poisoned `Variables` must **not** silently resolve `$OPS_ROOT` to that
     /// unrelated directory — the old empty-builtins fallback did exactly that.

@@ -71,11 +71,7 @@ fn collect_coverage_demotes_non_zero_exit_with_parseable_report() {
     )
     .expect("non-zero exit with a parseable report must be demoted to a warn");
     let arr = rows.as_array().expect("flatten output is an array");
-    assert_eq!(
-        arr.len(),
-        1,
-        "partial coverage must survive the soft-fail demotion"
-    );
+    assert_eq!(arr.len(), 1, "partial coverage must survive the soft-fail demotion");
 }
 
 /// The hard-fail fall-through — the predicate rejects the report, so the
@@ -87,11 +83,7 @@ fn collect_coverage_non_zero_exit_with_rejected_report_surfaces_cargo_error() {
     let dir = tempfile::tempdir().expect("tempdir");
     let err = collect_coverage_with(
         dir.path(),
-        runner_writing(
-            r#"{"data":[{}]}"#,
-            101 << 8,
-            "error: could not compile `ops`",
-        ),
+        runner_writing(r#"{"data":[{}]}"#, 101 << 8, "error: could not compile `ops`"),
     )
     .expect_err("a report without files must not be demoted");
     let msg = err.to_string();
@@ -99,10 +91,7 @@ fn collect_coverage_non_zero_exit_with_rejected_report_surfaces_cargo_error() {
         msg.contains("cargo llvm-cov exited with status 101"),
         "cargo exit must be the headline error, got: {msg}"
     );
-    assert!(
-        !msg.contains("'files'"),
-        "must not surface a schema-shape parse error, got: {msg}"
-    );
+    assert!(!msg.contains("'files'"), "must not surface a schema-shape parse error, got: {msg}");
 }
 
 /// An unreadable (here: removed) report on the non-zero path falls through
@@ -193,12 +182,6 @@ fn non_zero_exit_without_files_surfaces_cargo_error() {
     };
     let err = check_llvm_cov_output(&output).unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("cargo llvm-cov exited with"),
-        "should surface cargo error, got: {msg}"
-    );
-    assert!(
-        !msg.contains("'files'"),
-        "should not mention files schema, got: {msg}"
-    );
+    assert!(msg.contains("cargo llvm-cov exited with"), "should surface cargo error, got: {msg}");
+    assert!(!msg.contains("'files'"), "should not mention files schema, got: {msg}");
 }

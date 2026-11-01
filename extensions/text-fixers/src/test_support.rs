@@ -99,10 +99,7 @@ impl ReadOnlyDir {
 
         let original = std::fs::metadata(path).ok()?.permissions();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o555)).ok()?;
-        let guard = Self {
-            path: path.to_path_buf(),
-            original,
-        };
+        let guard = Self { path: path.to_path_buf(), original };
 
         let probe = path.join(".ops-permission-probe");
         if std::fs::write(&probe, b"").is_ok() {
@@ -139,10 +136,7 @@ impl UnreadableFile {
 
         let original = std::fs::metadata(path).ok()?.permissions();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).ok()?;
-        let guard = Self {
-            path: path.to_path_buf(),
-            original,
-        };
+        let guard = Self { path: path.to_path_buf(), original };
         if std::fs::read(path).is_ok() {
             return None;
         }
@@ -176,10 +170,7 @@ impl UnsearchableDir {
 
         let original = std::fs::metadata(path).ok()?.permissions();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).ok()?;
-        let guard = Self {
-            path: path.to_path_buf(),
-            original,
-        };
+        let guard = Self { path: path.to_path_buf(), original };
         if std::fs::read_dir(path).is_ok() {
             return None;
         }

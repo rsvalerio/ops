@@ -61,10 +61,7 @@ where
 /// point passes `io::stdout()`; tests pass a `Vec<u8>` so the
 /// confirmation is observable without spawning the binary.
 fn write_added_confirmation<W: Write>(w: &mut W, name: &str) -> io::Result<()> {
-    writeln!(
-        w,
-        "Added command '{name}' to .ops.toml. Run it with: ops {name}"
-    )
+    writeln!(w, "Added command '{name}' to .ops.toml. Run it with: ops {name}")
 }
 
 /// Validate that `name` is usable both as a TOML key under `[commands.<name>]`
@@ -118,9 +115,7 @@ fn parse_command(input: &str) -> anyhow::Result<(String, Vec<String>)> {
         )
     })?;
     let mut iter = parts.into_iter();
-    let program = iter
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("command cannot be empty"))?;
+    let program = iter.next().ok_or_else(|| anyhow::anyhow!("command cannot be empty"))?;
     let args: Vec<String> = iter.collect();
     Ok((program, args))
 }
@@ -161,16 +156,7 @@ mod tests {
         let (prog, args) =
             parse_command("cargo install --path crates/cli --force --all-features").unwrap();
         assert_eq!(prog, "cargo");
-        assert_eq!(
-            args,
-            vec![
-                "install",
-                "--path",
-                "crates/cli",
-                "--force",
-                "--all-features"
-            ]
-        );
+        assert_eq!(args, vec!["install", "--path", "crates/cli", "--force", "--all-features"]);
     }
 
     #[test]
@@ -212,10 +198,7 @@ mod tests {
             out.contains("Added command 'deploy'"),
             "expected confirmation to name the command: {out}"
         );
-        assert!(
-            out.contains("ops deploy"),
-            "expected run-with hint in confirmation: {out}"
-        );
+        assert!(out.contains("ops deploy"), "expected run-with hint in confirmation: {out}");
         assert!(out.ends_with('\n'), "confirmation must terminate with LF");
     }
 
@@ -224,10 +207,7 @@ mod tests {
         let result = parse_command(r#"cargo install --features "a b"#);
         assert!(result.is_err(), "expected unbalanced-quote error");
         let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("could not parse command"),
-            "unhelpful error: {msg}"
-        );
+        assert!(msg.contains("could not parse command"), "unhelpful error: {msg}");
     }
 
     #[test]
@@ -261,13 +241,8 @@ theme = "classic"
         )
         .unwrap();
 
-        append_command_to_config(
-            &crate::canonical_root(&dir),
-            "test",
-            "cargo",
-            &["test".into()],
-        )
-        .expect("append");
+        append_command_to_config(&crate::canonical_root(&dir), "test", "cargo", &["test".into()])
+            .expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains(r#"theme = "classic""#));
@@ -279,13 +254,8 @@ theme = "classic"
     fn append_command_rejects_duplicate() {
         let dir = tempfile::tempdir().expect("tempdir");
 
-        append_command_to_config(
-            &crate::canonical_root(&dir),
-            "build",
-            "cargo",
-            &["build".into()],
-        )
-        .expect("first append");
+        append_command_to_config(&crate::canonical_root(&dir), "build", "cargo", &["build".into()])
+            .expect("first append");
         let result = append_command_to_config(&crate::canonical_root(&dir), "build", "make", &[]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -332,13 +302,8 @@ theme = "classic"
         std::fs::create_dir_all(&subdir).unwrap();
         let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
 
-        append_command_to_config(
-            &crate::canonical_root(&dir),
-            "build",
-            "cargo",
-            &["build".into()],
-        )
-        .expect("append");
+        append_command_to_config(&crate::canonical_root(&dir), "build", "cargo", &["build".into()])
+            .expect("append");
 
         assert!(workspace_root.join(".ops.toml").exists());
         assert!(
@@ -350,10 +315,7 @@ theme = "classic"
     #[test]
     fn validate_command_name_accepts_typical_names() {
         for name in ["build", "test-suite", "deploy_prod", "ci.smoke", "v2"] {
-            assert!(
-                validate_command_name(name).is_ok(),
-                "expected '{name}' to be accepted"
-            );
+            assert!(validate_command_name(name).is_ok(), "expected '{name}' to be accepted");
         }
     }
 
@@ -418,9 +380,8 @@ theme = "classic"
             );
         }
         for name in builtins {
-            let err = validate_command_name(name).expect_err(&format!(
-                "built-in '{name}' must be rejected as a new-command name"
-            ));
+            let err = validate_command_name(name)
+                .expect_err(&format!("built-in '{name}' must be rejected as a new-command name"));
             let msg = format!("{err:#}");
             assert!(
                 msg.contains(name) && msg.contains("built-in"),
@@ -434,10 +395,7 @@ theme = "classic"
         let dir = tempfile::tempdir().expect("tempdir");
         let result = run_new_command_with_tty_check(dir.path(), || false);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
     }
 
     /// Esc / Ctrl-C at this command's picker is a user cancel —
@@ -445,17 +403,13 @@ theme = "classic"
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn new_command_full_command_cancel_exits_130_without_an_error_frame() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let err =
                 crate::prompt::require_answer(Err::<String, _>(err), "new-command full command")
                     .expect_err("a cancelled prompt must not yield an answer");
-            assert_eq!(
-                crate::extract_exit_code_override(&err),
-                Some(crate::SIGINT_EXIT)
-            );
+            assert_eq!(crate::extract_exit_code_override(&err), Some(crate::SIGINT_EXIT));
             assert_eq!(
                 crate::prompt::cancellation_of(&err).map(ToString::to_string),
                 Some("new-command full command cancelled".to_string()),
@@ -468,17 +422,13 @@ theme = "classic"
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn new_command_name_cancel_exits_130_without_an_error_frame() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let err =
                 crate::prompt::require_answer(Err::<String, _>(err), "new-command command name")
                     .expect_err("a cancelled prompt must not yield an answer");
-            assert_eq!(
-                crate::extract_exit_code_override(&err),
-                Some(crate::SIGINT_EXIT)
-            );
+            assert_eq!(crate::extract_exit_code_override(&err), Some(crate::SIGINT_EXIT));
             assert_eq!(
                 crate::prompt::cancellation_of(&err).map(ToString::to_string),
                 Some("new-command command name cancelled".to_string()),

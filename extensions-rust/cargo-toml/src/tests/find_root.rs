@@ -3,7 +3,7 @@ use crate::workspace_root::content_declares_workspace;
 use std::fs;
 use std::path::Path;
 
-/// ERR-7 (TASK-0947): tracing fields for ancestor-walk Cargo.toml paths
+/// Tracing fields for ancestor-walk Cargo.toml paths
 /// flow through the `?` formatter so an attacker-controlled CWD path with
 /// embedded newlines / ANSI escapes cannot forge log records.
 #[test]
@@ -38,7 +38,7 @@ fn find_root_in_parent() {
     assert_eq!(root, fs::canonicalize(temp_dir.path()).unwrap());
 }
 
-/// SEC-25 / TASK-0379: a symlinked ancestor must resolve once up front
+/// a symlinked ancestor must resolve once up front
 /// and the walk must terminate even when a symlink loop is on the path.
 #[cfg(unix)]
 #[test]
@@ -55,26 +55,20 @@ fn find_root_terminates_on_symlink_loop() {
     assert!(result.is_err());
 }
 
-/// TASK-0501: from inside a member crate, walk past the member manifest to
+/// From inside a member crate, walk past the member manifest to
 /// the parent that declares `[workspace]`. Returning the member silently
 /// produced empty units/coverage when running `ops about` from `crates/foo`.
 #[test]
 fn find_root_prefers_workspace_over_member() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let root = temp_dir.path();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"crates/foo\"]\n",
-    )
-    .expect("write workspace");
+    fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/foo\"]\n")
+        .expect("write workspace");
 
     let member = root.join("crates").join("foo");
     fs::create_dir_all(&member).expect("create member dir");
-    fs::write(
-        member.join("Cargo.toml"),
-        "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write member");
+    fs::write(member.join("Cargo.toml"), "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n")
+        .expect("write member");
 
     let found = find_workspace_root(&member).expect("should find workspace root");
     assert_eq!(found, fs::canonicalize(root).unwrap());
@@ -87,11 +81,8 @@ fn find_root_prefers_workspace_over_member() {
 fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let outer = temp_dir.path();
-    fs::write(
-        outer.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"inner\"]\n",
-    )
-    .expect("write outer workspace");
+    fs::write(outer.join("Cargo.toml"), "[workspace]\nmembers = [\"inner\"]\n")
+        .expect("write outer workspace");
 
     let inner = outer.join("inner");
     fs::create_dir_all(&inner).expect("create inner dir");
@@ -100,11 +91,8 @@ fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
 
     let leaf = inner.join("crates").join("leaf");
     fs::create_dir_all(&leaf).expect("create leaf dir");
-    fs::write(
-        leaf.join("Cargo.toml"),
-        "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write leaf member");
+    fs::write(leaf.join("Cargo.toml"), "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n")
+        .expect("write leaf member");
 
     let found = find_workspace_root(&leaf).expect("should find workspace root");
     assert_eq!(
@@ -120,11 +108,8 @@ fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
 fn find_root_falls_back_to_nearest_when_no_workspace_in_chain() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let root = temp_dir.path();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"loner\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write package");
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"loner\"\nversion = \"0.1.0\"\n")
+        .expect("write package");
 
     let sub = root.join("src");
     fs::create_dir_all(&sub).expect("create src");
@@ -133,7 +118,7 @@ fn find_root_falls_back_to_nearest_when_no_workspace_in_chain() {
     assert_eq!(found, fs::canonicalize(root).unwrap());
 }
 
-/// SEC-25 / TASK-0604: `start` is canonicalised once before the walk, so a
+/// `start` is canonicalised once before the walk, so a
 /// symlinked parent directory in the input path resolves to the real
 /// filesystem location and the walk operates on that resolved chain.
 #[cfg(unix)]
@@ -143,16 +128,10 @@ fn find_root_resolves_symlinked_parent_in_start_path() {
     let real_root = temp_dir.path().join("real");
     let real_member = real_root.join("crates").join("foo");
     fs::create_dir_all(&real_member).expect("create real member");
-    fs::write(
-        real_root.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"crates/foo\"]\n",
-    )
-    .expect("write workspace");
-    fs::write(
-        real_member.join("Cargo.toml"),
-        "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write member");
+    fs::write(real_root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/foo\"]\n")
+        .expect("write workspace");
+    fs::write(real_member.join("Cargo.toml"), "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n")
+        .expect("write member");
 
     // Create a symlink that aliases `real/crates` → accessed via a sibling path.
     let alias = temp_dir.path().join("alias_crates");
@@ -165,7 +144,7 @@ fn find_root_resolves_symlinked_parent_in_start_path() {
     assert_eq!(found, fs::canonicalize(&real_root).unwrap());
 }
 
-/// TASK-0963: the ancestor-depth bound must be honored. Verified via the
+/// The ancestor-depth bound must be honored. Verified via the
 /// injectable [`find_workspace_root_with_depth`] entry point so the test
 /// does not have to materialise a 64-deep directory hierarchy. With
 /// `max_depth = 1`, a Cargo.toml in the start dir's *grandparent* is
@@ -180,10 +159,7 @@ fn find_root_respects_injected_depth_bound() {
 
     let bounded = find_workspace_root_with_depth(&leaf, 1);
     assert!(
-        matches!(
-            bounded,
-            Err(FindWorkspaceRootError::NotFound { depth: 1, .. })
-        ),
+        matches!(bounded, Err(FindWorkspaceRootError::NotFound { depth: 1, .. })),
         "depth=1 must NotFound before reaching grandparent, got: {bounded:?}"
     );
 
@@ -197,13 +173,10 @@ fn find_root_not_found() {
 
     let result = find_workspace_root(temp_dir.path());
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("no Cargo.toml found"));
+    assert!(result.unwrap_err().to_string().contains("no Cargo.toml found"));
 }
 
-/// ARCH-2 / TASK-0871: `NotFound` and `CanonicalizeFailed` must be
+/// `NotFound` and `CanonicalizeFailed` must be
 /// distinguishable via the typed error so consumers
 /// (`is_manifest_missing`) don't need to chain-walk an `io::Error`.
 #[test]
@@ -214,7 +187,7 @@ fn find_root_typed_not_found_variant() {
     assert!(err.is_not_found());
 }
 
-/// ARCH-2 / TASK-0918: a missing-or-deleted `start` path now routes
+/// a missing-or-deleted `start` path now routes
 /// through `NotFound` (matching the no-Cargo.toml branch), not
 /// `CanonicalizeFailed`. Pre-fix this surfaced as a confusing
 /// "failed to canonicalize" error during transient cwd unlinks (CI
@@ -232,7 +205,7 @@ fn find_root_canonicalize_notfound_routes_to_not_found_variant() {
     assert!(err.is_not_found());
 }
 
-/// SEC-25 / TASK-1204: pin that the lenient walk follows a symlinked
+/// Pin that the lenient walk follows a symlinked
 /// ancestor into an attacker tree. A symlink replaces `inner_link` →
 /// `attacker/`, and the lenient walker — which canonicalises once up
 /// front — walks inside the attacker subtree and returns the attacker's
@@ -266,10 +239,10 @@ fn find_root_lenient_follows_symlinked_ancestor_into_attacker_tree() {
     );
 }
 
-/// SEC-25 / TASK-1204: the strict variant accepts a candidate whose
+/// The strict variant accepts a candidate whose
 /// canonical parent is on the canonical start's ancestor chain.
 ///
-/// TEST-6 / TASK-1785: renamed from
+/// Renamed from
 /// `find_root_strict_skips_off_chain_canonical_ancestor`, which promised a
 /// rejection this body never exercised (it plants no symlink and asserts
 /// nothing the lenient walk does not already satisfy). The rejection arms
@@ -284,11 +257,8 @@ fn find_root_strict_accepts_on_chain_canonical_ancestor() {
     let legit = real_root.join("legit");
     let leaf = legit.join("leaf");
     fs::create_dir_all(&leaf).unwrap();
-    fs::write(
-        leaf.join("Cargo.toml"),
-        "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n",
-    )
-    .unwrap();
+    fs::write(leaf.join("Cargo.toml"), "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n")
+        .unwrap();
 
     // The strict variant must accept the legit leaf manifest because
     // its canonical parent is on the canonical-start chain.
@@ -300,7 +270,7 @@ fn find_root_strict_accepts_on_chain_canonical_ancestor() {
     assert_eq!(lenient, leaf);
 }
 
-/// TEST-6 / TASK-1785: pin the actual scope of the strict variant against
+/// Pin the actual scope of the strict variant against
 /// the symlinked-ancestor layout its doc comment describes.
 ///
 /// A symlink inside the *caller's* `start` path is resolved by the shared
@@ -336,7 +306,7 @@ fn find_root_strict_also_follows_symlink_inside_the_start_path() {
     );
 }
 
-/// SEC-25 / TASK-2026: the strict variant's *reachable* defence — a
+/// The strict variant's *reachable* defence — a
 /// `Cargo.toml` that is itself a symlink into an attacker tree.
 ///
 /// This is the layout the strict variant's ancestor-chain check cannot see:
@@ -379,7 +349,7 @@ fn find_root_strict_rejects_symlinked_manifest_that_lenient_accepts() {
     );
 }
 
-/// TEST-6 / TASK-1785: the off-chain rejection arm
+/// The off-chain rejection arm
 /// (`workspace_root.rs`, `CandidateAction::Skip`) is unreachable through a
 /// quiescent filesystem — every lexical ancestor of an already-canonical
 /// path is canonical — so it is driven here through the injected
@@ -407,7 +377,7 @@ fn strict_candidate_action_skips_off_chain_canonical_parent() {
     );
 }
 
-/// TEST-6 / TASK-1785: the second `CandidateAction::Skip` arm — a candidate
+/// The second `CandidateAction::Skip` arm — a candidate
 /// ancestor whose `canonicalize` fails — is likewise unreachable through a
 /// quiescent filesystem, since `walk_ancestors` already canonicalized the
 /// start successfully.
@@ -421,12 +391,7 @@ fn strict_candidate_action_skips_ancestor_that_fails_to_canonicalize() {
         lexical_parent,
         &cargo_toml,
         start_canonical,
-        &|_| {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "denied",
-            ))
-        },
+        &|_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied")),
     );
 
     assert_eq!(
@@ -436,7 +401,7 @@ fn strict_candidate_action_skips_ancestor_that_fails_to_canonicalize() {
     );
 }
 
-/// TEST-6 / TASK-1785: the accept arms of the same function, so the two
+/// The accept arms of the same function, so the two
 /// `Skip` tests above cannot pass by the function returning `Skip`
 /// unconditionally.
 #[test]
@@ -463,7 +428,7 @@ fn strict_candidate_action_accepts_on_chain_parent() {
     );
 }
 
-/// ARCH-2 / TASK-0918: a non-NotFound canonicalize failure still
+/// a non-NotFound canonicalize failure still
 /// surfaces as a typed `FindWorkspaceRootError` variant so it remains
 /// investigable. Use a 0o000-permission directory on Unix to force a
 /// `PermissionDenied` at canonicalize time.
@@ -472,7 +437,7 @@ fn strict_candidate_action_accepts_on_chain_parent() {
 /// how the kernel surfaces EACCES on a descendant — Linux and macOS
 /// differ — so the assertion accepts either.
 ///
-/// TEST-18 / TASK-1802: the 0o000 directory is owned by a `Drop` guard so a
+/// The 0o000 directory is owned by a `Drop` guard so a
 /// panic in the body cannot leak an undeletable directory past the
 /// `TempDir`, and the guard probes whether the mode bits are enforced at all
 /// — as uid 0 the traversal succeeds and there is no error to assert on.
@@ -509,7 +474,7 @@ fn find_root_canonicalize_perm_denied_returns_typed_error() {
     );
 }
 
-/// PERF-3 / TASK-1512: `[workspace.metadata]` (a sub-table of workspace)
+/// `[workspace.metadata]` (a sub-table of workspace)
 /// must still count as declaring a workspace.
 #[test]
 fn content_declares_workspace_subtable() {
@@ -517,7 +482,7 @@ fn content_declares_workspace_subtable() {
     assert!(content_declares_workspace(content));
 }
 
-/// PERF-3 / TASK-1512: a string value containing `[workspace]` must NOT
+/// a string value containing `[workspace]` must NOT
 /// register as declaring a workspace — only real table headers count.
 #[test]
 fn content_declares_workspace_ignores_string_value() {
@@ -532,7 +497,7 @@ version = "0.1.0"
     assert!(!content_declares_workspace(content));
 }
 
-/// PERF-3 / TASK-1512: literal multi-line strings (''') also suppress false
+/// Literal multi-line strings (''') also suppress false
 /// positives.
 #[test]
 fn content_declares_workspace_ignores_literal_multiline_string() {
@@ -552,10 +517,7 @@ fn content_declares_workspace_ignores_triple_quotes_in_comments() {
         "[package]\na = 1 # '''\n[workspace]\n",
         "[package]\nname = 'x' # \"\"\" and ''' and \"\"\"\n[workspace]\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
 }
 
@@ -568,10 +530,7 @@ fn content_declares_workspace_tracks_single_line_strings() {
         "[package]\ndescription = \"say \\\"\\\"\\\" twice\"\n[workspace]\n",
         "[package]\ndescription = \"it's\" # it's '''\n[workspace]\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
     // `#` inside a string does not end the scan, so the multi-line string
     // opened after it still hides its body.
@@ -588,10 +547,7 @@ fn content_declares_workspace_tracks_multiline_string_state_across_lines() {
         "[package]\na = \"\"\"x\"\"\" # done\n[workspace]\n",
         "[package]\na = \"\"\"\nx\n\"\"\" # '''\n[workspace]\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
     for content in [
         "[package]\na = \"\"\"\nx \\\"\"\"\n[workspace]\n\"\"\"\n",
@@ -604,14 +560,14 @@ fn content_declares_workspace_tracks_multiline_string_state_across_lines() {
     }
 }
 
-/// PERF-3 / TASK-1512: a real `[workspace]` header is detected.
+/// a real `[workspace]` header is detected.
 #[test]
 fn content_declares_workspace_detects_bare_workspace() {
     let content = "[workspace]\nmembers = [\"crates/*\"]\n";
     assert!(content_declares_workspace(content));
 }
 
-/// SEC-11 / TASK-1781: a trailing comment on the table header is ordinary,
+/// a trailing comment on the table header is ordinary,
 /// valid TOML. Missing it made the walk climb past the real workspace root
 /// into attacker-plantable ancestors.
 #[test]
@@ -622,14 +578,11 @@ fn content_declares_workspace_accepts_trailing_comment() {
         "[workspace.package]   # shared metadata\nversion = \"1.0.0\"\n",
         "  [workspace]\t# indented header with a tab-separated comment\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
 }
 
-/// SEC-11 / TASK-1781: quoted bare keys are valid TOML table keys.
+/// Quoted bare keys are valid TOML table keys.
 #[test]
 fn content_declares_workspace_accepts_quoted_key() {
     for content in [
@@ -639,14 +592,11 @@ fn content_declares_workspace_accepts_quoted_key() {
         "[ 'workspace' . package ] # shared\nversion = \"1.0.0\"\n",
         "[\"workspace\".package]\nversion = \"1.0.0\"\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
 }
 
-/// SEC-11 / TASK-1781: the accept-side widening must not weaken the existing
+/// The accept-side widening must not weaken the existing
 /// false-positive guarantees.
 #[test]
 fn content_declares_workspace_rejects_non_headers() {

@@ -90,11 +90,7 @@ pub fn format_rust_loc_section(page: Option<&RustLocPage>) -> Option<Vec<String>
     });
 
     let mut lines = vec![String::new()];
-    lines.extend(
-        format_region_table(&sorted)
-            .lines()
-            .map(|l| format!("    {l}")),
-    );
+    lines.extend(format_region_table(&sorted).lines().map(|l| format!("    {l}")));
     lines.push(String::new());
     lines.push(format_totals_line(&sorted, page.files));
 
@@ -103,9 +99,7 @@ pub fn format_rust_loc_section(page: Option<&RustLocPage>) -> Option<Vec<String>
 
 fn format_region_table(stats: &[&RustLocStat]) -> String {
     let mut table = OpsTable::new();
-    table.set_header(vec![
-        "Region", "Files", "Code", "Docs", "Comments", "Blanks", "Lines",
-    ]);
+    table.set_header(vec!["Region", "Files", "Code", "Docs", "Comments", "Blanks", "Lines"]);
 
     for stat in stats {
         let (_, name) = region_display(&stat.region);
@@ -250,18 +244,15 @@ struct RegionTally {
 impl RegionTally {
     fn add(&mut self, file: &str, stat: &RustLocStat) {
         self.files.insert(file.to_string());
-        let entry = self
-            .regions
-            .entry(stat.region.clone())
-            .or_insert_with(|| RustLocStat {
-                region: stat.region.clone(),
-                files: 0,
-                code: 0,
-                docs: 0,
-                comments: 0,
-                blanks: 0,
-                lines: 0,
-            });
+        let entry = self.regions.entry(stat.region.clone()).or_insert_with(|| RustLocStat {
+            region: stat.region.clone(),
+            files: 0,
+            code: 0,
+            docs: 0,
+            comments: 0,
+            blanks: 0,
+            lines: 0,
+        });
         entry.files = entry.files.saturating_add(stat.files);
         entry.code = entry.code.saturating_add(stat.code);
         entry.docs = entry.docs.saturating_add(stat.docs);
@@ -321,13 +312,7 @@ pub fn build_loc_document(
                         .strip_prefix(c.manifest_dir.as_str())
                         .is_some_and(|rest| rest.starts_with('/'))
             })
-            .max_by_key(|(_, c)| {
-                if c.manifest_dir == "." {
-                    0
-                } else {
-                    c.manifest_dir.len()
-                }
-            })
+            .max_by_key(|(_, c)| if c.manifest_dir == "." { 0 } else { c.manifest_dir.len() })
             .map(|(i, _)| i);
         if let Some(tally) = owner.and_then(|i| per_crate.get_mut(i)) {
             tally.add(file, stat);
@@ -388,10 +373,8 @@ pub fn run_about_loc_json_with(
         data_registry,
         crate::units::PROJECT_UNITS_PROVIDER,
     )?;
-    let records: Vec<crate::units::UnitRecord> = units
-        .iter()
-        .map(crate::units::UnitRecord::from_unit)
-        .collect();
+    let records: Vec<crate::units::UnitRecord> =
+        units.iter().map(crate::units::UnitRecord::from_unit).collect();
     crate::write_json_document(writer, &build_loc_document(&rows, &records))
 }
 
@@ -435,11 +418,7 @@ mod tests {
             row("crates/a/src/lib.rs", "test", 5),
             row("crates/ab/src/lib.rs", "main", 7),
         ];
-        let crates = vec![
-            record("root", "."),
-            record("a", "crates/a"),
-            record("ab", "crates/ab"),
-        ];
+        let crates = vec![record("root", "."), record("a", "crates/a"), record("ab", "crates/ab")];
         let doc = build_loc_document(&rows, &crates);
         let value = serde_json::to_value(&doc).expect("serialize");
         assert_eq!(value["schemaVersion"], 1);
@@ -453,10 +432,7 @@ mod tests {
             ])
         );
         let crates = value["crates"].as_array().expect("crates");
-        let dirs: Vec<&str> = crates
-            .iter()
-            .map(|c| c["manifestDir"].as_str().unwrap())
-            .collect();
+        let dirs: Vec<&str> = crates.iter().map(|c| c["manifestDir"].as_str().unwrap()).collect();
         assert_eq!(dirs, [".", "crates/a", "crates/ab"]);
         assert_eq!(crates[0]["files"], 1);
         assert_eq!(crates[0]["regions"][0]["code"], 10);
@@ -492,10 +468,7 @@ mod tests {
         let registry = DataRegistry::new();
         let mut out: Vec<u8> = Vec::new();
         run_about_loc_with(&registry, &mut out).expect("runner must succeed");
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "No Rust LOC data available.\n"
-        );
+        assert_eq!(String::from_utf8(out).unwrap(), "No Rust LOC data available.\n");
     }
 
     /// A region row carrying only the fields the ordering and totals
@@ -542,14 +515,8 @@ mod tests {
     /// — production/test/example is the order the reader expects.
     #[test]
     fn format_rust_loc_section_orders_regions_canonically() {
-        let stats = page(
-            vec![
-                stat("test", 5, 900),
-                stat("example", 1, 30),
-                stat("main", 10, 500),
-            ],
-            12,
-        );
+        let stats =
+            page(vec![stat("test", 5, 900), stat("example", 1, 30), stat("main", 10, 500)], 12);
         let lines = format_rust_loc_section(Some(&stats)).expect("data returns Some");
         let table = lines.join("\n");
         let production = table.find("Production").expect("production row");
@@ -588,10 +555,7 @@ mod tests {
         let lines = format_rust_loc_section(Some(&stats)).expect("data returns Some");
         assert!(lines.len() >= 4, "got lines: {lines:?}");
         assert!(lines.first().expect("first").is_empty(), "leading blank");
-        assert!(
-            lines[lines.len() - 2].is_empty(),
-            "blank before totals: {lines:?}"
-        );
+        assert!(lines[lines.len() - 2].is_empty(), "blank before totals: {lines:?}");
         let table_block = &lines[1..lines.len() - 2];
         assert!(
             table_block.iter().all(|l| l.starts_with("    ")),
@@ -639,9 +603,7 @@ mod tests {
             }],
             3,
         );
-        let table = format_rust_loc_section(Some(&stats))
-            .expect("data returns Some")
-            .join("\n");
+        let table = format_rust_loc_section(Some(&stats)).expect("data returns Some").join("\n");
         for expected in ["Docs", "Comments", "Blanks", "120", "45", "80", "745"] {
             assert!(table.contains(expected), "missing {expected}: {table}");
         }

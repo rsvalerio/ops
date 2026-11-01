@@ -71,11 +71,7 @@ pub fn locks_dir(cwd: &Path) -> anyhow::Result<PathBuf> {
     }
     let raw = String::from_utf8_lossy(&output.stdout);
     let common = PathBuf::from(raw.trim_end_matches(['\n', '\r']));
-    let common = if common.is_absolute() {
-        common
-    } else {
-        cwd.join(common)
-    };
+    let common = if common.is_absolute() { common } else { cwd.join(common) };
     let dir = common.join("ops").join("locks");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     Ok(dir)
@@ -91,9 +87,7 @@ pub fn locks_dir(cwd: &Path) -> anyhow::Result<PathBuf> {
 pub fn validate_name(name: &str) -> anyhow::Result<()> {
     let valid = !name.is_empty()
         && !name.starts_with(['.', '-'])
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
     if valid {
         Ok(())
     } else {
@@ -179,9 +173,7 @@ impl Holder {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn hostname() -> String {
@@ -277,11 +269,7 @@ pub async fn acquire(
     holder: &Holder,
     wait: Wait<'_>,
 ) -> anyhow::Result<Acquired> {
-    let Wait {
-        timeout,
-        notice,
-        signals,
-    } = wait;
+    let Wait { timeout, notice, signals } = wait;
     validate_name(name)?;
     let path = lock_path(dir, name);
     let mut file = open_lock_file(&path)?;
@@ -352,9 +340,7 @@ impl Signals {
             use tokio::signal::unix::{signal, SignalKind};
             let term = signal(SignalKind::terminate()).context("installing the SIGTERM handler")?;
             let int = signal(SignalKind::interrupt()).context("installing the SIGINT handler")?;
-            Ok(Self {
-                streams: Some((term, int)),
-            })
+            Ok(Self { streams: Some((term, int)) })
         }
         #[cfg(not(unix))]
         {
@@ -527,12 +513,8 @@ pub fn break_to(dir: &Path, name: &str, out: &mut dyn Write) -> anyhow::Result<(
                     write_record(&mut file, "")
                         .with_context(|| format!("clearing {}", path.display()))?;
                     file.unlock().ok();
-                    writeln!(
-                        out,
-                        "{name}: cleared the stale record of {}",
-                        describe(&holder)
-                    )
-                    .context("printing")?;
+                    writeln!(out, "{name}: cleared the stale record of {}", describe(&holder))
+                        .context("printing")?;
                 }
                 Err(_) => anyhow::bail!("{name} was taken while breaking it; re-run status"),
             }
@@ -571,11 +553,7 @@ pub fn run_locked(
         .context("building the lock runtime")?;
     let code = runtime.block_on(async {
         let mut signals = Signals::install()?;
-        let wait = Wait {
-            timeout,
-            notice: &mut std::io::stderr(),
-            signals: &mut signals,
-        };
+        let wait = Wait { timeout, notice: &mut std::io::stderr(), signals: &mut signals };
         let acquired = acquire(&dir, name, &holder, wait).await?;
         let guard = match acquired {
             Acquired::Held(guard) => guard,
@@ -603,9 +581,7 @@ fn git_toplevel(cwd: &Path) -> Option<PathBuf> {
         .ok()?;
     output.status.success().then(|| {
         PathBuf::from(
-            String::from_utf8_lossy(&output.stdout)
-                .trim_end_matches(['\n', '\r'])
-                .to_string(),
+            String::from_utf8_lossy(&output.stdout).trim_end_matches(['\n', '\r']).to_string(),
         )
     })
 }
@@ -682,10 +658,7 @@ fn exit_code(status: std::process::ExitStatus, received: Option<i32>) -> u8 {
 
 /// The shell's exit code for a death by `signo`: `128 + signo`.
 fn signal_code(signo: i32) -> u8 {
-    u8::try_from(signo)
-        .ok()
-        .and_then(|signo| signo.checked_add(128))
-        .unwrap_or(1)
+    u8::try_from(signo).ok().and_then(|signo| signo.checked_add(128)).unwrap_or(1)
 }
 
 #[cfg(test)]
@@ -703,9 +676,7 @@ mod tests {
     }
 
     fn take(dir: &Path, name: &str) -> anyhow::Result<Guard> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
         let acquired = runtime.block_on(acquire(
             dir,
             name,
@@ -738,14 +709,8 @@ mod tests {
         let first = take(dir.path(), "merge").expect("first");
         let err = take(dir.path(), "merge").expect_err("contended");
         assert!(format!("{err:#}").contains("timed out"), "got: {err:#}");
-        assert!(
-            format!("{err:#}").contains("ops verify"),
-            "names the holder"
-        );
-        assert!(matches!(
-            probe(dir.path(), "merge").expect("probe"),
-            LockState::Held(Some(_))
-        ));
+        assert!(format!("{err:#}").contains("ops verify"), "names the holder");
+        assert!(matches!(probe(dir.path(), "merge").expect("probe"), LockState::Held(Some(_))));
         let text = status(dir.path(), Some("merge"));
         assert!(text.contains("held (alive)"), "got: {text}");
         assert!(text.contains("worktree /wt"), "got: {text}");
@@ -792,15 +757,9 @@ mod tests {
     #[test]
     fn a_dead_holders_record_is_stale_and_does_not_block() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            lock_path(dir.path(), "merge"),
-            holder(u32::MAX - 1).render(),
-        )
-        .expect("seed");
-        assert!(matches!(
-            probe(dir.path(), "merge").expect("probe"),
-            LockState::Stale(_)
-        ));
+        std::fs::write(lock_path(dir.path(), "merge"), holder(u32::MAX - 1).render())
+            .expect("seed");
+        assert!(matches!(probe(dir.path(), "merge").expect("probe"), LockState::Stale(_)));
         let text = status(dir.path(), None);
         assert!(text.contains("merge: stale"), "got: {text}");
 
@@ -808,11 +767,8 @@ mod tests {
         break_to(dir.path(), "merge", &mut out).expect("break");
         assert_eq!(probe(dir.path(), "merge").expect("probe"), LockState::Free);
 
-        std::fs::write(
-            lock_path(dir.path(), "merge"),
-            holder(u32::MAX - 1).render(),
-        )
-        .expect("reseed");
+        std::fs::write(lock_path(dir.path(), "merge"), holder(u32::MAX - 1).render())
+            .expect("reseed");
         take(dir.path(), "merge").expect("a stale record never blocks");
     }
 
@@ -837,10 +793,7 @@ mod tests {
         })();
         assert!(result.is_err());
         assert_eq!(probe(dir.path(), "merge").expect("probe"), LockState::Free);
-        assert_eq!(
-            std::fs::read_to_string(lock_path(dir.path(), "merge")).expect("read"),
-            ""
-        );
+        assert_eq!(std::fs::read_to_string(lock_path(dir.path(), "merge")).expect("read"), "");
     }
 
     #[test]

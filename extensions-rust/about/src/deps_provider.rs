@@ -41,10 +41,8 @@ impl DataProvider for RustDepsProvider {
             std::collections::HashMap::<String, Vec<(String, String)>>::new(),
             || query_crate_deps(db),
         );
-        let units: Vec<UnitDeps> = per_crate
-            .into_iter()
-            .map(|(unit_name, deps)| UnitDeps::new(unit_name, deps))
-            .collect();
+        let units: Vec<UnitDeps> =
+            per_crate.into_iter().map(|(unit_name, deps)| UnitDeps::new(unit_name, deps)).collect();
 
         let result = ProjectDependencies::new(units);
         serde_json::to_value(&result).map_err(DataProviderError::from)
@@ -140,10 +138,7 @@ pub enum PlatformFilter {
     /// Ungated edges, plus gated edges active on any of `targets` — or, for
     /// an edge compiled for the host (beneath a build-dependency or a
     /// proc-macro), active on `host`.
-    Targets {
-        targets: Vec<TargetPlatform>,
-        host: TargetPlatform,
-    },
+    Targets { targets: Vec<TargetPlatform>, host: TargetPlatform },
 }
 
 impl PlatformFilter {
@@ -189,35 +184,29 @@ fn platform_filter(
     }
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let probe = |triple: String| -> Result<TargetPlatform, DataProviderError> {
-        let cfg = rustc_stdout(
-            &rustc,
-            &["--print", "cfg", "--target", &triple],
-            working_dir,
-        )?;
-        Ok(TargetPlatform {
-            cfg: parse_rustc_cfg(&cfg),
-            triple,
-        })
+        let cfg = rustc_stdout(&rustc, &["--print", "cfg", "--target", &triple], working_dir)?;
+        Ok(TargetPlatform { cfg: parse_rustc_cfg(&cfg), triple })
     };
     let host_triple =
         parse_rustc_host(&rustc_stdout(&rustc, &["-vV"], working_dir)?).ok_or_else(|| {
             DataProviderError::computation_failed("`rustc -vV` printed no host triple")
         })?;
     let host = probe(host_triple)?;
-    let targets = if requested.is_empty() {
-        vec![host.clone()]
-    } else {
-        requested
-            .into_iter()
-            .map(|triple| {
-                if triple == host.triple {
-                    Ok(host.clone())
-                } else {
-                    probe(triple.to_string())
-                }
-            })
-            .collect::<Result<_, _>>()?
-    };
+    let targets =
+        if requested.is_empty() {
+            vec![host.clone()]
+        } else {
+            requested
+                .into_iter()
+                .map(|triple| {
+                    if triple == host.triple {
+                        Ok(host.clone())
+                    } else {
+                        probe(triple.to_string())
+                    }
+                })
+                .collect::<Result<_, _>>()?
+        };
     Ok(PlatformFilter::Targets { targets, host })
 }
 
@@ -237,9 +226,7 @@ fn rustc_stdout(
             out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         ))),
-        Err(e) => Err(DataProviderError::computation_failed(format!(
-            "`{label}` failed: {e}"
-        ))),
+        Err(e) => Err(DataProviderError::computation_failed(format!("`{label}` failed: {e}"))),
     }
 }
 
@@ -274,10 +261,7 @@ fn package_index(metadata: &serde_json::Value) -> HashMap<&str, (&str, &str)> {
         .into_iter()
         .flatten()
         .filter_map(|p| {
-            Some((
-                p.get("id")?.as_str()?,
-                (p.get("name")?.as_str()?, p.get("version")?.as_str()?),
-            ))
+            Some((p.get("id")?.as_str()?, (p.get("name")?.as_str()?, p.get("version")?.as_str()?)))
         })
         .collect()
 }
@@ -351,9 +335,7 @@ fn resolve_edges<'a>(
     platforms: &PlatformFilter,
 ) -> HashMap<Unit<'a>, Vec<Unit<'a>>> {
     let host_compiled = proc_macros(metadata);
-    let nodes = metadata
-        .pointer("/resolve/nodes")
-        .and_then(serde_json::Value::as_array);
+    let nodes = metadata.pointer("/resolve/nodes").and_then(serde_json::Value::as_array);
     let mut edges = HashMap::new();
     for node in nodes.into_iter().flatten() {
         let Some(id) = node.get("id").and_then(serde_json::Value::as_str) else {
@@ -544,9 +526,8 @@ impl<'a> Pullers<'a, '_> {
                 .dry_runs
                 .entry(puller_id)
                 .or_insert_with(|| (self.updater)(puller_name, puller_version));
-            let update_removes_duplicate = entries
-                .as_ref()
-                .map(|e| update_drops_version(e, name, version, others));
+            let update_removes_duplicate =
+                entries.as_ref().map(|e| update_drops_version(e, name, version, others));
             pulled_by.push(PullingDependency {
                 name: puller_name.to_string(),
                 version: puller_version.to_string(),
@@ -670,18 +651,12 @@ mod tests {
         let (value, logs) = provide_with(Some(db));
         assert!(logs.is_empty(), "a healthy query must not warn: {logs}");
 
-        let units = value
-            .get("units")
-            .and_then(|u| u.as_array())
-            .expect("units");
+        let units = value.get("units").and_then(|u| u.as_array()).expect("units");
         assert_eq!(units.len(), 2, "one UnitDeps per crate, got: {value}");
         let by_name: std::collections::BTreeMap<&str, Vec<&str>> = units
             .iter()
             .map(|u| {
-                let name = u
-                    .get("unit_name")
-                    .and_then(|n| n.as_str())
-                    .expect("unit name");
+                let name = u.get("unit_name").and_then(|n| n.as_str()).expect("unit name");
                 let deps = u
                     .get("deps")
                     .and_then(|d| d.as_array())
@@ -777,21 +752,11 @@ mod tests {
             &super::PlatformFilter::All,
             &no_change,
         );
-        assert_eq!(
-            report.crates[0].older[0].pulled_by[0].update_removes_duplicate,
-            Some(false)
-        );
+        assert_eq!(report.crates[0].older[0].pulled_by[0].update_removes_duplicate, Some(false));
         let failed = |_: &str, _: &str| None;
-        let report = super::find_duplicates(
-            &sample_metadata(),
-            false,
-            &super::PlatformFilter::All,
-            &failed,
-        );
-        assert_eq!(
-            report.crates[0].older[0].pulled_by[0].update_removes_duplicate,
-            None
-        );
+        let report =
+            super::find_duplicates(&sample_metadata(), false, &super::PlatformFilter::All, &failed);
+        assert_eq!(report.crates[0].older[0].pulled_by[0].update_removes_duplicate, None);
     }
 
     /// With `include_dev` the dev-only `old` duplicate
@@ -846,10 +811,7 @@ mod tests {
 
     /// A filter for one target that is also the host.
     fn only(p: super::TargetPlatform) -> super::PlatformFilter {
-        super::PlatformFilter::Targets {
-            targets: vec![p.clone()],
-            host: p,
-        }
+        super::PlatformFilter::Targets { targets: vec![p.clone()], host: p }
     }
 
     fn duplicate_names(platforms: &super::PlatformFilter) -> Vec<String> {
@@ -943,10 +905,7 @@ mod tests {
     /// With the host as the only target the host-side walk changes nothing.
     #[test]
     fn host_target_filter_matches_the_host_side() {
-        let linux = only(platform(
-            "x86_64-unknown-linux-gnu",
-            &["unix", "target_os=\"linux\""],
-        ));
+        let linux = only(platform("x86_64-unknown-linux-gnu", &["unix", "target_os=\"linux\""]));
         assert_eq!(names_in(&host_metadata("build"), &linux), ["jobs", "term"]);
     }
 
@@ -954,10 +913,7 @@ mod tests {
     /// through other targets' `cfg(..)` / triple edges.
     #[test]
     fn find_duplicates_drops_crates_gated_on_other_targets() {
-        let linux = only(platform(
-            "x86_64-unknown-linux-gnu",
-            &["unix", "target_os=\"linux\""],
-        ));
+        let linux = only(platform("x86_64-unknown-linux-gnu", &["unix", "target_os=\"linux\""]));
         assert_eq!(duplicate_names(&linux), ["term"]);
     }
 
@@ -965,15 +921,10 @@ mod tests {
     /// target-gated duplicate, and its older version names the gated puller.
     #[test]
     fn find_duplicates_keeps_gated_crates_for_their_target_and_for_all() {
-        let windows = only(platform(
-            "x86_64-pc-windows-msvc",
-            &["windows", "target_os=\"windows\""],
-        ));
+        let windows =
+            only(platform("x86_64-pc-windows-msvc", &["windows", "target_os=\"windows\""]));
         assert_eq!(duplicate_names(&windows), ["sys", "term"]);
-        assert_eq!(
-            duplicate_names(&super::PlatformFilter::All),
-            ["sys", "term"]
-        );
+        assert_eq!(duplicate_names(&super::PlatformFilter::All), ["sys", "term"]);
 
         let no_change = |_: &str, _: &str| Some(Vec::new());
         for platforms in [windows, super::PlatformFilter::All] {
@@ -999,10 +950,7 @@ mod tests {
     fn platform_filter_admits_ungated_matching_cfg_and_matching_triple() {
         let linux = platform("x86_64-unknown-linux-gnu", &["unix"]);
         let filter = super::PlatformFilter::Targets {
-            targets: vec![
-                linux.clone(),
-                platform("wasm32-wasip1", &["target_os=\"wasi\""]),
-            ],
+            targets: vec![linux.clone(), platform("wasm32-wasip1", &["target_os=\"wasi\""])],
             host: linux,
         };
         let admits = |gate| filter.admits(gate, super::Side::Target);
@@ -1038,10 +986,7 @@ mod tests {
         use super::{
             RustDuplicatesProvider, DUPLICATES_PROVIDER_NAME, DUPLICATES_WITH_DEV_PROVIDER_NAME,
         };
-        assert_eq!(
-            RustDuplicatesProvider { include_dev: false }.name(),
-            DUPLICATES_PROVIDER_NAME
-        );
+        assert_eq!(RustDuplicatesProvider { include_dev: false }.name(), DUPLICATES_PROVIDER_NAME);
         assert_eq!(
             RustDuplicatesProvider { include_dev: true }.name(),
             DUPLICATES_WITH_DEV_PROVIDER_NAME
@@ -1061,9 +1006,8 @@ mod tests {
         use super::RustDuplicatesProvider;
         let dir = tempfile::tempdir().expect("tempdir");
         let mut ctx = Context::test_context(dir.path().to_path_buf());
-        let value = RustDuplicatesProvider { include_dev: false }
-            .provide(&mut ctx)
-            .expect("provide");
+        let value =
+            RustDuplicatesProvider { include_dev: false }.provide(&mut ctx).expect("provide");
         assert_eq!(value, serde_json::json!({"crates": []}));
     }
 }

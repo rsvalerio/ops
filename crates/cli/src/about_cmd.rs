@@ -49,10 +49,7 @@ where
 
     let options: Vec<SelectOption> = about_fields
         .iter()
-        .map(|f| SelectOption {
-            name: f.id.to_string(),
-            description: f.description.to_string(),
-        })
+        .map(|f| SelectOption { name: f.id.to_string(), description: f.description.to_string() })
         .collect();
 
     // Probe the set of currently-enabled field ids in
@@ -136,10 +133,7 @@ mod tests {
         let mut buf = Vec::new();
         let result = run_about_setup_with(&config, &registry, dir.path(), &mut buf, || false);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
         assert!(buf.is_empty(), "non-TTY path must not write anything");
     }
 
@@ -153,10 +147,7 @@ mod tests {
         let mut buf = Vec::new();
         write_about_setup_confirmation(&mut buf, &["project".to_string(), "codebase".to_string()])
             .expect("write_about_setup_confirmation");
-        assert_eq!(
-            String::from_utf8(buf).unwrap(),
-            "About card will show: project, codebase\n"
-        );
+        assert_eq!(String::from_utf8(buf).unwrap(), "About card will show: project, codebase\n");
     }
 
     #[test]
@@ -185,10 +176,7 @@ mod tests {
         save_about_fields(&fields, &crate::canonical_root(&dir)).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(
-            content.contains("theme = \"classic\""),
-            "should preserve existing: {content}"
-        );
+        assert!(content.contains("theme = \"classic\""), "should preserve existing: {content}");
         assert!(content.contains("[about]"), "got: {content}");
         assert!(content.contains("authors"), "got: {content}");
     }
@@ -200,11 +188,7 @@ mod tests {
         let existing = "[about]\nfields = [\"project\"]\n";
         std::fs::write(dir.path().join(".ops.toml"), existing).unwrap();
 
-        let fields = vec![
-            "project".to_string(),
-            "codebase".to_string(),
-            "repository".to_string(),
-        ];
+        let fields = vec!["project".to_string(), "codebase".to_string(), "repository".to_string()];
         save_about_fields(&fields, &crate::canonical_root(&dir)).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -285,19 +269,15 @@ mod tests {
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn about_setup_cancel_exits_130_without_an_error_frame() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let err = crate::prompt::require_answer(
                 Err::<Vec<crate::tty::SelectOption>, _>(err),
                 "about setup",
             )
             .expect_err("a cancelled prompt must not yield an answer");
-            assert_eq!(
-                crate::extract_exit_code_override(&err),
-                Some(crate::SIGINT_EXIT)
-            );
+            assert_eq!(crate::extract_exit_code_override(&err), Some(crate::SIGINT_EXIT));
             assert_eq!(
                 crate::prompt::cancellation_of(&err).map(ToString::to_string),
                 Some("about setup cancelled".to_string()),

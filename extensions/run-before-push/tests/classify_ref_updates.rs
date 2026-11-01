@@ -27,10 +27,7 @@ fn classify_runs_when_stream_is_absent() {
 #[test]
 fn classify_reports_nothing_to_push_for_empty_stream() {
     assert_eq!(classify_ref_updates(Some("")), PushRefs::NothingToPush);
-    assert_eq!(
-        classify_ref_updates(Some("\n  \n")),
-        PushRefs::NothingToPush
-    );
+    assert_eq!(classify_ref_updates(Some("\n  \n")), PushRefs::NothingToPush);
 }
 
 #[test]
@@ -70,16 +67,12 @@ fn classify_runs_for_malformed_lines() {
     );
     // oid that is not hex of the right length
     assert_eq!(
-        classify_ref_updates(Some(&format!(
-            "refs/heads/main zzzz refs/heads/main {SHA1_B}\n"
-        ))),
+        classify_ref_updates(Some(&format!("refs/heads/main zzzz refs/heads/main {SHA1_B}\n"))),
         PushRefs::Run
     );
     // a malformed line must not be masked by a well-formed deletion
     assert_eq!(
-        classify_ref_updates(Some(&format!(
-            "(delete) {ZERO} refs/heads/old {SHA1_A}\ngarbage\n"
-        ))),
+        classify_ref_updates(Some(&format!("(delete) {ZERO} refs/heads/old {SHA1_A}\ngarbage\n"))),
         PushRefs::Run
     );
 }
@@ -88,10 +81,7 @@ fn classify_runs_for_malformed_lines() {
 fn skip_reason_is_none_only_for_run() {
     assert_eq!(PushRefs::Run.skip_reason(), None);
     assert_eq!(PushRefs::DeleteOnly.skip_reason(), Some("delete-only push"));
-    assert_eq!(
-        PushRefs::NothingToPush.skip_reason(),
-        Some("nothing to push")
-    );
+    assert_eq!(PushRefs::NothingToPush.skip_reason(), Some("nothing to push"));
 }
 
 #[test]
@@ -123,10 +113,8 @@ fn skip_reason_reads_the_forwarded_env_var() {
 #[test]
 #[serial_test::serial]
 fn push_refs_runs_when_the_truncation_marker_is_set() {
-    let _refs = EnvGuard::set(
-        REF_UPDATES_ENV_VAR,
-        format!("(delete) {ZERO} refs/heads/old {SHA1_A}\n"),
-    );
+    let _refs =
+        EnvGuard::set(REF_UPDATES_ENV_VAR, format!("(delete) {ZERO} refs/heads/old {SHA1_A}\n"));
     assert_eq!(
         {
             let _marker = EnvGuard::remove(REFS_TRUNCATED_ENV_VAR);
@@ -143,11 +131,7 @@ fn push_refs_runs_when_the_truncation_marker_is_set() {
     // Only the literal `1` counts; the hook exports an empty value when
     // it did not truncate, which must not read as truncated.
     let _marker = EnvGuard::set(REFS_TRUNCATED_ENV_VAR, "");
-    assert_eq!(
-        push_refs(),
-        PushRefs::DeleteOnly,
-        "an empty marker must not force Run"
-    );
+    assert_eq!(push_refs(), PushRefs::DeleteOnly, "an empty marker must not force Run");
 }
 
 // -- should_skip --

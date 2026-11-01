@@ -14,10 +14,7 @@ use std::time::Duration;
 fn success_stderr_diagnostic_returns_some_for_nonempty_stderr() {
     let diag = format_stderr_diagnostic(b"warning: something");
     assert!(diag.is_some());
-    assert!(
-        diag.unwrap().contains("warning"),
-        "diagnostic should contain stderr tail"
-    );
+    assert!(diag.unwrap().contains("warning"), "diagnostic should contain stderr tail");
 }
 
 #[test]
@@ -51,10 +48,7 @@ fn check_llvm_cov_output_failure_includes_stderr_tail() {
     // Format is "cargo llvm-cov exited with status {code}: ...".
     assert!(msg.contains("cargo llvm-cov"), "got: {msg}");
     assert!(msg.contains("status 1"), "exit code must appear: {msg}");
-    assert!(
-        msg.contains("could not compile"),
-        "stderr tail should appear: {msg}"
-    );
+    assert!(msg.contains("could not compile"), "stderr tail should appear: {msg}");
 }
 
 #[cfg(unix)]
@@ -90,10 +84,7 @@ fn check_llvm_cov_output_missing_subcommand_appends_install_hint() {
     };
     let err = check_llvm_cov_output(&output).unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("cargo install cargo-llvm-cov"),
-        "install command must appear: {msg}"
-    );
+    assert!(msg.contains("cargo install cargo-llvm-cov"), "install command must appear: {msg}");
     assert!(
         msg.contains("rustup component add llvm-tools-preview"),
         "toolchain component must appear: {msg}"
@@ -248,10 +239,7 @@ fn llvm_cov_timeout_never_exceeds_the_operation_ceiling() {
 fn a_tightened_deadline_shortens_the_subprocess_wait() {
     let budget = tighter_than_ceiling();
     let sized = llvm_cov_timeout(Some(std::time::Instant::now() + budget));
-    assert!(
-        sized <= budget,
-        "wait must not outlive the budget: {sized:?} > {budget:?}"
-    );
+    assert!(sized <= budget, "wait must not outlive the budget: {sized:?} > {budget:?}");
     assert!(
         sized < ceiling(),
         "a {budget:?} budget must shorten the {:?} ceiling, got {sized:?}",
@@ -265,10 +253,7 @@ fn tighter_than_ceiling() -> Duration {
     // `checked_div` rather than `/`: the workspace denies
     // `clippy::arithmetic_side_effects`, and the fallback is the honest answer
     // for a ceiling that division cannot halve.
-    ceiling()
-        .checked_div(2)
-        .unwrap_or(Duration::ZERO)
-        .min(Duration::from_secs(60))
+    ceiling().checked_div(2).unwrap_or(Duration::ZERO).min(Duration::from_secs(60))
 }
 
 /// An already-spent deadline yields a zero wait, so the subprocess is reaped
@@ -314,16 +299,11 @@ fn a_configured_provider_budget_reaches_the_subprocess_sizing() {
     let budget = tighter_than_ceiling();
     let observed = Arc::new(Mutex::new(None));
     let mut registry = DataRegistry::new();
-    let _ = registry.register(
-        "deadline_probe",
-        Box::new(DeadlineProbe(Arc::clone(&observed))),
-    );
+    let _ = registry.register("deadline_probe", Box::new(DeadlineProbe(Arc::clone(&observed))));
 
     let mut ctx =
         Context::test_context(std::path::PathBuf::from("/tmp")).with_provider_budget(Some(budget));
-    registry
-        .provide("deadline_probe", &mut ctx)
-        .expect("probe dispatch");
+    registry.provide("deadline_probe", &mut ctx).expect("probe dispatch");
 
     let sized = observed.lock().expect("lock").expect("probe must have run");
     assert!(

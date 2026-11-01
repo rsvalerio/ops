@@ -31,9 +31,8 @@ use super::{CommandSpec, Config, ExecCommandSpec};
 /// Cargo subcommands that resolve the lockfile and accept `--locked`.
 /// `fmt`, `clean` and third-party tools that do not (or whose flag means
 /// something else) are deliberately absent.
-const LOCKFILE_SUBCOMMANDS: &[&str] = &[
-    "build", "check", "clippy", "doc", "test", "nextest", "run", "bench",
-];
+const LOCKFILE_SUBCOMMANDS: &[&str] =
+    &["build", "check", "clippy", "doc", "test", "nextest", "run", "bench"];
 
 /// Whether `spec` is a cargo invocation this switch applies to and does not
 /// already carry `--locked` / `--frozen` among its cargo flags.
@@ -55,11 +54,7 @@ fn needs_locked(spec: &ExecCommandSpec) -> bool {
     if !LOCKFILE_SUBCOMMANDS.contains(&subcommand.as_str()) {
         return false;
     }
-    !spec
-        .args
-        .iter()
-        .take_while(|a| *a != "--")
-        .any(|a| a == "--locked" || a == "--frozen")
+    !spec.args.iter().take_while(|a| *a != "--").any(|a| a == "--locked" || a == "--frozen")
 }
 
 fn lock(spec: &mut ExecCommandSpec) {
@@ -93,9 +88,7 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) {
         }
         let mut exec = exec.clone();
         lock(&mut exec);
-        config
-            .commands
-            .insert(name.clone(), CommandSpec::Exec(exec));
+        config.commands.insert(name.clone(), CommandSpec::Exec(exec));
         config.provenance.extended_stack_defaults.push(name.clone());
     }
 }
@@ -145,16 +138,9 @@ mod tests {
             "next-ignored",
         ] {
             let args = exec_args(&config, name);
+            assert!(args.iter().any(|a| a == "--locked"), "{name} must be locked: {args:?}");
             assert!(
-                args.iter().any(|a| a == "--locked"),
-                "{name} must be locked: {args:?}"
-            );
-            assert!(
-                config
-                    .provenance
-                    .extended_stack_defaults
-                    .iter()
-                    .any(|n| n == name),
+                config.provenance.extended_stack_defaults.iter().any(|n| n == name),
                 "{name} must be recorded as a stack default"
             );
         }
@@ -177,10 +163,9 @@ mod tests {
             "already".into(),
             CommandSpec::Exec(ExecCommandSpec::new("cargo", ["build", "--frozen"])),
         );
-        config.commands.insert(
-            "other".into(),
-            CommandSpec::Exec(ExecCommandSpec::new("make", ["build"])),
-        );
+        config
+            .commands
+            .insert("other".into(), CommandSpec::Exec(ExecCommandSpec::new("make", ["build"])));
         apply(&mut config, dir.path());
 
         let clippy = exec_args(&config, "clippy");
@@ -211,15 +196,8 @@ mod tests {
             CommandSpec::Exec(ExecCommandSpec::new("cargo", ["build", "-p", "mine"])),
         );
         apply(&mut config, dir.path());
-        assert_eq!(
-            exec_args(&config, "build"),
-            ["build", "-p", "mine", "--locked"]
-        );
-        assert!(!config
-            .provenance
-            .extended_stack_defaults
-            .iter()
-            .any(|n| n == "build"));
+        assert_eq!(exec_args(&config, "build"), ["build", "-p", "mine", "--locked"]);
+        assert!(!config.provenance.extended_stack_defaults.iter().any(|n| n == "build"));
     }
 
     /// A `+toolchain` override does not hide the subcommand from the switch.
@@ -232,15 +210,11 @@ mod tests {
             "nightly".into(),
             CommandSpec::Exec(ExecCommandSpec::new("cargo", ["+nightly", "build"])),
         );
-        config.commands.insert(
-            "bare".into(),
-            CommandSpec::Exec(ExecCommandSpec::new("cargo", ["+nightly"])),
-        );
+        config
+            .commands
+            .insert("bare".into(), CommandSpec::Exec(ExecCommandSpec::new("cargo", ["+nightly"])));
         apply(&mut config, dir.path());
-        assert_eq!(
-            exec_args(&config, "nightly"),
-            ["+nightly", "build", "--locked"]
-        );
+        assert_eq!(exec_args(&config, "nightly"), ["+nightly", "build", "--locked"]);
         assert_eq!(exec_args(&config, "bare"), ["+nightly"]);
     }
 }

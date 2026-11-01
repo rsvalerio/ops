@@ -23,7 +23,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use ops_core::config::{atomic_write, fields_used, mise_ops_pin};
+use ops_core::config::{atomic_write, fields_used, mise_ops_pin, OpsVersion};
 use toml::Value;
 
 pub use compare::{Drift, Rule};
@@ -37,26 +37,14 @@ pub struct ConfigFile {
 
 /// The whole-file templates, in the order they are written and checked.
 pub const FILES: [ConfigFile; 5] = [
-    ConfigFile {
-        path: "clippy.toml",
-        template: include_str!("../templates/clippy.toml"),
-    },
-    ConfigFile {
-        path: "deny.toml",
-        template: include_str!("../templates/deny.toml"),
-    },
-    ConfigFile {
-        path: "rustfmt.toml",
-        template: include_str!("../templates/rustfmt.toml"),
-    },
+    ConfigFile { path: "clippy.toml", template: include_str!("../templates/clippy.toml") },
+    ConfigFile { path: "deny.toml", template: include_str!("../templates/deny.toml") },
+    ConfigFile { path: "rustfmt.toml", template: include_str!("../templates/rustfmt.toml") },
     ConfigFile {
         path: ".config/nextest.toml",
         template: include_str!("../templates/nextest.toml"),
     },
-    ConfigFile {
-        path: "mise.toml",
-        template: include_str!("../templates/mise.toml"),
-    },
+    ConfigFile { path: "mise.toml", template: include_str!("../templates/mise.toml") },
 ];
 
 /// The lint policy, written with `[lints.*]` headers. [`scaffold`] rewrites
@@ -136,18 +124,11 @@ impl Root {
     fn load(root: &Path) -> anyhow::Result<Self> {
         let path = root.join(MANIFEST);
         let text = std::fs::read_to_string(&path).with_context(|| {
-            format!(
-                "reading {} (run from the root of a Rust project)",
-                path.display()
-            )
+            format!("reading {} (run from the root of a Rust project)", path.display())
         })?;
         let value: toml::Table =
             toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let shape = if value.contains_key("workspace") {
-            Shape::Workspace
-        } else {
-            Shape::Package
-        };
+        let shape = if value.contains_key("workspace") { Shape::Workspace } else { Shape::Package };
         let rust_version = value
             .get("workspace")
             .and_then(|w| w.get("package")?.get("rust-version"))
@@ -160,17 +141,12 @@ impl Root {
         } else {
             Vec::new()
         };
-        Ok(Self {
-            text,
-            shape,
-            rust_version,
-            members,
-        })
+        Ok(Self { text, shape, rust_version, members })
     }
 }
 
 /// Resolve members through the same glob expander the about providers use,
-/// dropping any entry that would escape the workspace (SEC-14). A root that
+/// dropping any entry that would escape the workspace. A root that
 /// is also a package is its own member and opts in like any other.
 ///
 /// # Errors
@@ -198,8 +174,7 @@ fn workspace_members(
 /// `rust-version` cannot inject TOML into `clippy.toml`.
 fn is_plain_version(v: &str) -> bool {
     !v.is_empty()
-        && v.split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        && v.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The bytes written for `file`: the template, plus `msrv` for clippy when
@@ -244,16 +219,9 @@ pub fn scaffold(root: &Path, force: bool) -> anyhow::Result<Vec<Written>> {
     let manifest = Root::load(root)?;
     let mut written = Vec::new();
     for file in &FILES {
-        let outcome = write_file(
-            root,
-            file.path,
-            &render(file, manifest.rust_version.as_deref()),
-            force,
-        )?;
-        written.push(Written {
-            target: file.path.to_owned(),
-            outcome,
-        });
+        let outcome =
+            write_file(root, file.path, &render(file, manifest.rust_version.as_deref()), force)?;
+        written.push(Written { target: file.path.to_owned(), outcome });
     }
     written.push(scaffold_lints(root, &manifest, force)?);
     for member in &manifest.members {
@@ -266,27 +234,19 @@ pub fn scaffold(root: &Path, force: bool) -> anyhow::Result<Vec<Written>> {
 
 fn write_file(root: &Path, rel: &str, content: &str, force: bool) -> anyhow::Result<Outcome> {
     let path = root.join(rel);
-    if let Some(parent) = Path::new(rel)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-    {
+    if let Some(parent) = Path::new(rel).parent().filter(|p| !p.as_os_str().is_empty()) {
         ensure_real_dir(&root.join(parent))?;
     }
     if force {
         let existed = path.symlink_metadata().is_ok();
         atomic_write(&path, content.as_bytes()).with_context(|| format!("writing {rel}"))?;
-        return Ok(if existed {
-            Outcome::Replaced
-        } else {
-            Outcome::Created
-        });
+        return Ok(if existed { Outcome::Replaced } else { Outcome::Created });
     }
     // `create_new` is the existence check: it fails on anything already at
     // the path, a dangling symlink included, so nothing is clobbered.
     match OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(mut f) => {
-            f.write_all(content.as_bytes())
-                .with_context(|| format!("writing {rel}"))?;
+            f.write_all(content.as_bytes()).with_context(|| format!("writing {rel}"))?;
             f.sync_all().with_context(|| format!("syncing {rel}"))?;
             Ok(Outcome::Created)
         }
@@ -300,10 +260,7 @@ fn write_file(root: &Path, rel: &str, content: &str, force: bool) -> anyhow::Res
 fn ensure_real_dir(dir: &Path) -> anyhow::Result<()> {
     match dir.symlink_metadata() {
         Ok(meta) if meta.file_type().is_symlink() => {
-            anyhow::bail!(
-                "{} is a symlink; refusing to write through it",
-                dir.display()
-            )
+            anyhow::bail!("{} is a symlink; refusing to write through it", dir.display())
         }
         Ok(_) => Ok(()),
         Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -318,10 +275,7 @@ fn scaffold_lints(root: &Path, manifest: &Root, force: bool) -> anyhow::Result<W
     let mut doc: toml_edit::DocumentMut = manifest.text.parse().context("parsing Cargo.toml")?;
     let present = get_path(doc.as_item(), manifest.shape.lints_path()).is_some();
     if present && !force {
-        return Ok(Written {
-            target,
-            outcome: Outcome::Kept,
-        });
+        return Ok(Written { target, outcome: Outcome::Kept });
     }
     if present {
         remove_path(&mut doc, manifest.shape.lints_path());
@@ -329,14 +283,7 @@ fn scaffold_lints(root: &Path, manifest: &Root, force: bool) -> anyhow::Result<W
     let mut text = doc.to_string();
     append_block(&mut text, &render_lints(manifest.shape));
     atomic_write(&root.join(MANIFEST), text.as_bytes()).context("writing Cargo.toml")?;
-    Ok(Written {
-        target,
-        outcome: if present {
-            Outcome::Replaced
-        } else {
-            Outcome::Added
-        },
-    })
+    Ok(Written { target, outcome: if present { Outcome::Replaced } else { Outcome::Added } })
 }
 
 /// Add `[lints] workspace = true` to a member that has no `[lints]` at all.
@@ -356,10 +303,7 @@ fn scaffold_member_opt_in(root: &Path, member: &str) -> anyhow::Result<Option<Wr
     let mut text = text;
     append_block(&mut text, "[lints]\nworkspace = true\n");
     atomic_write(&path, text.as_bytes()).with_context(|| format!("writing {rel}"))?;
-    Ok(Some(Written {
-        target: format!("{rel}:lints"),
-        outcome: Outcome::Added,
-    }))
+    Ok(Some(Written { target: format!("{rel}:lints"), outcome: Outcome::Added }))
 }
 
 fn member_manifest(member: &str) -> String {
@@ -390,10 +334,7 @@ fn remove_path(doc: &mut toml_edit::DocumentMut, path: &[&str]) {
             doc.remove(key);
         }
         [parent, key] => {
-            if let Some(table) = doc
-                .get_mut(parent)
-                .and_then(toml_edit::Item::as_table_like_mut)
-            {
+            if let Some(table) = doc.get_mut(parent).and_then(toml_edit::Item::as_table_like_mut) {
                 table.remove(key);
             }
         }
@@ -438,18 +379,33 @@ pub fn check(
 /// Report each field of the project's config that its own `ops` pin would
 /// reject, at `<file>:<field>`: CI runs the pin, so those fail every step
 /// there. A pin naming no release is already [`check_ops_pin`]'s drift, and
-/// a `mise.toml` that does not parse is [`check_file`]'s.
+/// a `mise.toml` that does not parse is [`check_file`]'s. The other mise
+/// locations only the pin lookup reads are this check's to report: their
+/// parse failure leaves no pin to compare against, and passing silently
+/// would hide the very fields it exists to flag.
 fn check_config_against_pin(root: &Path, out: &mut Vec<Drift>) {
-    let Ok(Some(pin)) = mise_ops_pin(root) else {
-        return;
+    let pin = match mise_ops_pin(root) {
+        Ok(Some(pin)) => pin,
+        Ok(None) => return,
+        Err(e) => {
+            // An unversioned winning pin in `mise.toml` is already the
+            // floor check's drift, one row for one cause; only locations
+            // the floor check never reads are reported here.
+            if !out.iter().any(|d| d.location == format!("{MISE}:tools.ops")) {
+                out.push(Drift::new(MISE, format!("{e:#}")));
+            }
+            return;
+        }
     };
     match fields_used(root) {
-        Ok(fields) => out.extend(fields.iter().filter(|used| used.since > pin).map(|used| {
-            Drift::new(
-                format!("{}:{}", used.file, used.field),
-                format!("needs ops {}, but {MISE} pins {pin}", used.since),
-            )
-        })),
+        Ok(fields) => {
+            out.extend(fields.iter().filter(|used| used.since > pin.version).map(|used| {
+                Drift::new(
+                    format!("{}:{}", used.file, used.field),
+                    format!("needs ops {}, but {} pins {}", used.since, pin.file, pin.version),
+                )
+            }));
+        }
         Err(e) => out.push(Drift::new(".ops.toml", format!("{e:#}"))),
     }
 }
@@ -530,11 +486,7 @@ fn parse_failure(text: &str, err: &toml::de::Error) -> String {
         return format!("does not parse: {reason}");
     };
     let line = before.matches('\n').count().saturating_add(1);
-    let column = before
-        .rsplit('\n')
-        .next()
-        .map_or(0, |l| l.chars().count())
-        .saturating_add(1);
+    let column = before.rsplit('\n').next().map_or(0, |l| l.chars().count()).saturating_add(1);
     format!("does not parse at line {line}, column {column}: {reason}")
 }
 
@@ -555,44 +507,20 @@ fn check_ops_pin(expected: &mut Value, actual: &Value, out: &mut Vec<Drift>) {
         out.push(Drift::new(location, "missing"));
         return;
     };
-    let version = |v: &Value| parse_version(v.as_str().or_else(|| v.get("version")?.as_str())?);
-    if version(pin)
-        .zip(version(&floor))
-        .is_none_or(|(have, want)| have < want)
-    {
-        out.push(Drift::new(
-            location,
-            format!("expected {floor} or later, found {pin}"),
-        ));
+    let version = |v: &Value| {
+        v.as_str().or_else(|| v.get("version")?.as_str()).and_then(|v| v.parse::<OpsVersion>().ok())
+    };
+    if version(pin).zip(version(&floor)).is_none_or(|(have, want)| have < want) {
+        out.push(Drift::new(location, format!("expected {floor} or later, found {pin}")));
     }
-}
-
-/// `1.2.3` as `[1, 2, 3]`, which orders the way versions do. Anything else,
-/// such as `latest` or a partial `77`, has no place against a floor.
-fn parse_version(v: &str) -> Option<[u64; 3]> {
-    let mut parts = v.split('.').map(|part| part.parse().ok());
-    let version = [parts.next()??, parts.next()??, parts.next()??];
-    parts.next().is_none().then_some(version)
 }
 
 fn check_lints(manifest: &Root, out: &mut Vec<Drift>) -> anyhow::Result<()> {
     let expected = template_value(LINTS_TEMPLATE)?;
-    let expected = expected
-        .get("lints")
-        .context("lints template has no [lints] table")?;
+    let expected = expected.get("lints").context("lints template has no [lints] table")?;
     let actual = Value::Table(toml::from_str(&manifest.text).context("parsing Cargo.toml")?);
-    let actual = manifest
-        .shape
-        .lints_path()
-        .iter()
-        .try_fold(&actual, |v, key| v.get(key));
-    compare::compare(
-        expected,
-        actual,
-        manifest.shape.lints_location(),
-        Rule::LintLevel,
-        out,
-    );
+    let actual = manifest.shape.lints_path().iter().try_fold(&actual, |v, key| v.get(key));
+    compare::compare(expected, actual, manifest.shape.lints_location(), Rule::LintLevel, out);
     Ok(())
 }
 
@@ -642,10 +570,7 @@ fn apply_waivers(drift: Vec<Drift>, waivers: &IndexMap<String, String>) -> Repor
     let mut report = Report::default();
     let mut used = vec![false; waivers.len()];
     for d in drift {
-        let hit = waivers
-            .iter()
-            .enumerate()
-            .find(|(_, (key, _))| waiver_covers(key, &d.location));
+        let hit = waivers.iter().enumerate().find(|(_, (key, _))| waiver_covers(key, &d.location));
         match hit {
             Some((i, (_, reason))) => {
                 if let Some(u) = used.get_mut(i) {
@@ -656,12 +581,8 @@ fn apply_waivers(drift: Vec<Drift>, waivers: &IndexMap<String, String>) -> Repor
             None => report.drift.push(d),
         }
     }
-    report.unused_waivers = waivers
-        .keys()
-        .zip(used)
-        .filter(|(_, used)| !used)
-        .map(|(key, _)| key.clone())
-        .collect();
+    report.unused_waivers =
+        waivers.keys().zip(used).filter(|(_, used)| !used).map(|(key, _)| key.clone()).collect();
     report
 }
 

@@ -5,28 +5,21 @@ use super::*;
 #[test]
 fn expand_to_leaves_single() {
     let runner = runner_with_test_commands();
-    let plan = runner
-        .expand_to_leaves("build")
-        .expect("build must exist in test config");
+    let plan = runner.expand_to_leaves("build").expect("build must exist in test config");
     assert_eq!(plan, vec!["build"]);
 }
 
 #[test]
 fn expand_to_leaves_composite() {
     let runner = runner_with_test_commands();
-    let plan = runner
-        .expand_to_leaves("verify")
-        .expect("verify must exist in test config");
+    let plan = runner.expand_to_leaves("verify").expect("verify must exist in test config");
     assert_eq!(plan, vec!["build", "clippy"]);
 }
 
 #[test]
 fn expand_to_leaves_unknown() {
     let runner = runner_with_test_commands();
-    assert!(matches!(
-        runner.expand_to_leaves("unknown"),
-        Err(ExpandError::Unknown(_))
-    ));
+    assert!(matches!(runner.expand_to_leaves("unknown"), Err(ExpandError::Unknown(_))));
 }
 
 #[test]
@@ -43,7 +36,7 @@ fn resolve_by_alias() {
     assert!(runner.resolve("unknown").is_none());
 }
 
-/// PERF-3 / TASK-0774: `register_commands` merges new aliases incrementally
+/// `register_commands` merges new aliases incrementally
 /// rather than rebuilding the full alias map on each batch. Verify that:
 /// - aliases registered across N successive 1-entry batches are all resolvable
 /// - re-registering the same id with different aliases prunes the stale ones
@@ -85,17 +78,14 @@ fn register_commands_re_registration_prunes_stale_aliases() {
     second.aliases = vec!["alias_b".to_string()];
     runner.register_commands(vec![("cmd".into(), CommandSpec::Exec(second))]);
 
-    assert!(
-        runner.resolve("alias_b").is_some(),
-        "new alias on re-registration must resolve"
-    );
+    assert!(runner.resolve("alias_b").is_some(), "new alias on re-registration must resolve");
     assert!(
         runner.resolve("alias_a").is_none(),
         "old alias dropped from the new spec must no longer point at the (now-replaced) command"
     );
 }
 
-/// CONC-3 / TASK-1137: when an extension/stack alias collides with a
+/// When an extension/stack alias collides with a
 /// config-defined alias of the same name, `merge_alias_for` must surface
 /// the cross-store collision via `tracing::warn!`. Pre-fix only same-store
 /// (stack vs extension) collisions warned, so a config alias silently
@@ -136,7 +126,7 @@ fn expand_to_leaves_via_alias() {
     assert_eq!(plan, vec!["build"]);
 }
 
-/// ERR-1 / TASK-1089: when a configured command that owns an alias is
+/// When a configured command that owns an alias is
 /// deleted (a user edits `.ops.toml` and removes the entry), the alias
 /// must still resolve if the same canonical name exists as a stack
 /// default. The pre-fix `resolve_alias` returned the `None` from
@@ -164,10 +154,9 @@ fn orphan_config_alias_falls_through_to_stack_default() {
     // Stack default of the same canonical name. Inserted post-construction
     // because `test_runner` does not detect a stack from a synthetic
     // working directory.
-    runner.stack_commands.insert(
-        CommandId::from("build"),
-        CommandSpec::Exec(exec_spec("echo", &["from-stack"])),
-    );
+    runner
+        .stack_commands
+        .insert(CommandId::from("build"), CommandSpec::Exec(exec_spec("echo", &["from-stack"])));
 
     // Sanity: with the config entry present the alias resolves to the
     // config spec.
@@ -187,9 +176,7 @@ fn orphan_config_alias_falls_through_to_stack_default() {
     // Mirror the alias on the non-config alias map (what an extension or
     // stack default that re-declared the alias would produce); without
     // this entry there is nothing to resolve "b" to in any store.
-    runner
-        .non_config_alias_map
-        .insert("b".to_string(), "build".to_string());
+    runner.non_config_alias_map.insert("b".to_string(), "build".to_string());
 
     // The alias must still resolve — to the stack default — rather than
     // returning `None` (the pre-fix bug).
@@ -197,17 +184,13 @@ fn orphan_config_alias_falls_through_to_stack_default() {
         runner.resolve("b").is_some(),
         "alias `b` must fall through to the stack default after the config command was deleted"
     );
-    assert!(
-        runner.resolve("build").is_some(),
-        "canonical name resolves via the stack store"
-    );
+    assert!(runner.resolve("build").is_some(), "canonical name resolves via the stack store");
 
     // expand_to_leaves drives `canonical_with_spec`; the single-pass
     // canonical+spec lookup must agree with the double-pass `resolve`
     // path (AC #3).
-    let plan = runner
-        .expand_to_leaves("b")
-        .expect("alias must canonicalize via canonical_with_spec");
+    let plan =
+        runner.expand_to_leaves("b").expect("alias must canonicalize via canonical_with_spec");
     assert_eq!(plan, vec!["build"]);
 }
 
@@ -220,19 +203,13 @@ fn orphan_config_alias_falls_through_to_stack_default() {
 #[test]
 fn builtin_commands_resolve_by_name_and_alias() {
     let runner = test_runner(HashMap::new());
-    assert!(
-        runner.resolve("end-of-file-fixer").is_some(),
-        "canonical builtin name must resolve"
-    );
+    assert!(runner.resolve("end-of-file-fixer").is_some(), "canonical builtin name must resolve");
     assert!(runner.resolve("eof").is_some(), "alias must resolve");
-    assert!(
-        runner.resolve("trailing-whitespace").is_some(),
-        "canonical builtin name must resolve"
-    );
+    assert!(runner.resolve("trailing-whitespace").is_some(), "canonical builtin name must resolve");
     assert!(runner.resolve("tw").is_some(), "alias must resolve");
 }
 
-/// TASK-2280: `locate` resolves names and aliases to the canonical name and
+/// `locate` resolves names and aliases to the canonical name and
 /// the store expansion would take the spec from.
 #[test]
 fn locate_names_canonical_and_store() {
@@ -241,34 +218,21 @@ fn locate_names_canonical_and_store() {
     spec.aliases = vec!["b".to_string()];
     commands.insert("build".to_string(), CommandSpec::Exec(spec));
     let mut runner = test_runner(commands);
-    runner.register_commands(vec![(
-        "ext-cmd".into(),
-        CommandSpec::Exec(exec_spec("echo", &["x"])),
-    )]);
+    runner
+        .register_commands(vec![("ext-cmd".into(), CommandSpec::Exec(exec_spec("echo", &["x"])))]);
 
-    assert_eq!(
-        runner.locate("build"),
-        Some(("build", CommandSource::Config))
-    );
+    assert_eq!(runner.locate("build"), Some(("build", CommandSource::Config)));
     assert_eq!(runner.locate("b"), Some(("build", CommandSource::Config)));
-    assert_eq!(
-        runner.locate("ext-cmd"),
-        Some(("ext-cmd", CommandSource::Extension))
-    );
-    assert_eq!(
-        runner.locate("eof"),
-        Some(("end-of-file-fixer", CommandSource::Builtin))
-    );
+    assert_eq!(runner.locate("ext-cmd"), Some(("ext-cmd", CommandSource::Extension)));
+    assert_eq!(runner.locate("eof"), Some(("end-of-file-fixer", CommandSource::Builtin)));
     assert_eq!(runner.locate("unknown"), None);
 }
 
 #[test]
 fn composite_can_reference_builtin_aliases() {
     let mut commands = HashMap::new();
-    commands.insert(
-        "pre-commit".to_string(),
-        CommandSpec::Composite(composite_cmd(&["eof", "tw"])),
-    );
+    commands
+        .insert("pre-commit".to_string(), CommandSpec::Composite(composite_cmd(&["eof", "tw"])));
     let runner = test_runner(commands);
     let plan = runner
         .expand_to_leaves("pre-commit")
@@ -332,7 +296,7 @@ mod proptest_tests {
 ///
 /// `expand_inner` once OR-folded `parallel` across the whole traversal, so one
 /// `parallel = true` descendant silently promoted a `parallel = false`
-/// ancestor (TASK-1657). Now the root decides: a sequential root runs a nested
+/// ancestor. Now the root decides: a sequential root runs a nested
 /// parallel group sequentially, which is always safe; a parallel root rejects
 /// a nested sequential group, whose ordering it could not honour. `fail_fast`
 /// must agree across the plan.
@@ -359,26 +323,18 @@ mod schedule_flag_agreement_tests {
         test_runner(commands)
     }
 
-    /// TASK-2275: sequential parent, parallel child (a hook group wrapping
+    /// Sequential parent, parallel child (a hook group wrapping
     /// a parallel `verify`) — the child is its own parallel stage, so its
     /// staged schedule survives under the sequential parent.
     #[test]
     fn parallel_child_under_sequential_parent_gets_its_own_stage() {
         let runner = nested_runner((false, true), (true, true));
-        let plan = runner
-            .expand_to_plan("outer")
-            .expect("a sequential root may contain a parallel group");
+        let plan =
+            runner.expand_to_plan("outer").expect("a sequential root may contain a parallel group");
         match &plan {
-            CommandPlan::Sequence {
-                children,
-                fail_fast,
-            } => {
+            CommandPlan::Sequence { children, fail_fast } => {
                 assert!(*fail_fast, "the sequential group defaults to fail-fast");
-                assert_eq!(
-                    children.len(),
-                    1,
-                    "the single entry expands to one child plan"
-                );
+                assert_eq!(children.len(), 1, "the single entry expands to one child plan");
             }
             other @ CommandPlan::Stage { .. } => {
                 panic!("a sequential root must expand to a sequence, got {other:?}")
@@ -387,10 +343,7 @@ mod schedule_flag_agreement_tests {
         // The flat leaf order is unchanged — dry-run and display still list
         // every step in declaration order.
         assert_eq!(plan.leaf_ids(), vec!["a", "b"]);
-        assert!(
-            plan.any_parallel(),
-            "the parallel child schedules its own steps"
-        );
+        assert!(plan.any_parallel(), "the parallel child schedules its own steps");
         assert!(plan.needs_worker_threads());
     }
 
@@ -416,7 +369,7 @@ mod schedule_flag_agreement_tests {
         );
     }
 
-    /// TASK-2275: a `fail_fast = false` child under a sequential parent is
+    /// a `fail_fast = false` child under a sequential parent is
     /// no longer a conflict — each entry keeps its own value, and one
     /// `false` makes the tree's effective fail-fast false.
     #[test]
@@ -473,15 +426,9 @@ mod schedule_flag_agreement_tests {
     #[test]
     fn parallel_root_stage_matches_the_agreed_declaration() {
         let runner = nested_runner((true, false), (true, false));
-        let plan = runner
-            .expand_to_plan("outer")
-            .expect("agreeing tree must expand");
+        let plan = runner.expand_to_plan("outer").expect("agreeing tree must expand");
         match &plan {
-            CommandPlan::Stage {
-                leaf_ids,
-                parallel,
-                fail_fast,
-            } => {
+            CommandPlan::Stage { leaf_ids, parallel, fail_fast } => {
                 assert_eq!(leaf_ids, &vec!["a", "b"]);
                 assert!(parallel);
                 assert!(!fail_fast);
@@ -500,27 +447,13 @@ mod schedule_flag_agreement_tests {
     fn diamond_revisit_of_agreeing_node_is_not_a_conflict() {
         let mut commands = HashMap::new();
         commands.insert("leaf".to_string(), CommandSpec::Exec(echo_cmd("l")));
-        commands.insert(
-            "shared".to_string(),
-            CommandSpec::Composite(composite_cmd(&["leaf"])),
-        );
-        commands.insert(
-            "x".to_string(),
-            CommandSpec::Composite(composite_cmd(&["shared"])),
-        );
-        commands.insert(
-            "y".to_string(),
-            CommandSpec::Composite(composite_cmd(&["shared"])),
-        );
-        commands.insert(
-            "root".to_string(),
-            CommandSpec::Composite(composite_cmd(&["x", "y"])),
-        );
+        commands.insert("shared".to_string(), CommandSpec::Composite(composite_cmd(&["leaf"])));
+        commands.insert("x".to_string(), CommandSpec::Composite(composite_cmd(&["shared"])));
+        commands.insert("y".to_string(), CommandSpec::Composite(composite_cmd(&["shared"])));
+        commands.insert("root".to_string(), CommandSpec::Composite(composite_cmd(&["x", "y"])));
 
         let runner = test_runner(commands);
-        let plan = runner
-            .expand_to_leaves("root")
-            .expect("diamond must expand");
+        let plan = runner.expand_to_leaves("root").expect("diamond must expand");
         assert_eq!(plan, vec!["leaf", "leaf"]);
     }
 
@@ -530,10 +463,7 @@ mod schedule_flag_agreement_tests {
     #[test]
     fn conflict_message_is_actionable() {
         let runner = nested_runner((true, true), (false, true));
-        let msg = runner
-            .expand_to_leaves("outer")
-            .expect_err("must conflict")
-            .to_string();
+        let msg = runner.expand_to_leaves("outer").expect_err("must conflict").to_string();
         for expected in [
             "conflicting `parallel`",
             "`outer`",
@@ -542,10 +472,7 @@ mod schedule_flag_agreement_tests {
             "parallel = true",
             "fix:",
         ] {
-            assert!(
-                msg.contains(expected),
-                "error message missing {expected:?}, got:\n{msg}"
-            );
+            assert!(msg.contains(expected), "error message missing {expected:?}, got:\n{msg}");
         }
     }
 }
@@ -564,10 +491,7 @@ mod nested_composite_tests {
             "level2_a".to_string(),
             CommandSpec::Composite(composite_cmd(&["leaf1", "leaf2"])),
         );
-        commands.insert(
-            "level2_b".to_string(),
-            CommandSpec::Composite(composite_cmd(&["leaf3"])),
-        );
+        commands.insert("level2_b".to_string(), CommandSpec::Composite(composite_cmd(&["leaf3"])));
         commands.insert(
             "level3".to_string(),
             CommandSpec::Composite(composite_cmd(&["level2_a", "level2_b"])),
@@ -582,14 +506,9 @@ mod nested_composite_tests {
     fn expand_to_leaves_nested_missing_intermediate() {
         let mut commands = HashMap::new();
         commands.insert("leaf".to_string(), CommandSpec::Exec(echo_cmd("1")));
-        commands.insert(
-            "level2".to_string(),
-            CommandSpec::Composite(composite_cmd(&["nonexistent"])),
-        );
-        commands.insert(
-            "level3".to_string(),
-            CommandSpec::Composite(composite_cmd(&["level2"])),
-        );
+        commands
+            .insert("level2".to_string(), CommandSpec::Composite(composite_cmd(&["nonexistent"])));
+        commands.insert("level3".to_string(), CommandSpec::Composite(composite_cmd(&["level2"])));
 
         let runner = test_runner(commands);
         assert!(
@@ -598,7 +517,7 @@ mod nested_composite_tests {
         );
     }
 
-    /// PATTERN-1 / TASK-0505: a diamond composite topology (two siblings
+    /// a diamond composite topology (two siblings
     /// referencing the same composite child) is a DAG, not a cycle. The
     /// previous "all-time visited" set incorrectly flagged the second visit
     /// to D as a cycle; the fix tracks only the active recursion stack.
@@ -608,22 +527,10 @@ mod nested_composite_tests {
         commands.insert("d_leaf".to_string(), CommandSpec::Exec(echo_cmd("d")));
         // D = composite that wraps a single leaf so it is a composite node
         // visited from both branches.
-        commands.insert(
-            "D".to_string(),
-            CommandSpec::Composite(composite_cmd(&["d_leaf"])),
-        );
-        commands.insert(
-            "B".to_string(),
-            CommandSpec::Composite(composite_cmd(&["D"])),
-        );
-        commands.insert(
-            "C".to_string(),
-            CommandSpec::Composite(composite_cmd(&["D"])),
-        );
-        commands.insert(
-            "A".to_string(),
-            CommandSpec::Composite(composite_cmd(&["B", "C"])),
-        );
+        commands.insert("D".to_string(), CommandSpec::Composite(composite_cmd(&["d_leaf"])));
+        commands.insert("B".to_string(), CommandSpec::Composite(composite_cmd(&["D"])));
+        commands.insert("C".to_string(), CommandSpec::Composite(composite_cmd(&["D"])));
+        commands.insert("A".to_string(), CommandSpec::Composite(composite_cmd(&["B", "C"])));
 
         let runner = test_runner(commands);
         let plan = runner
@@ -636,20 +543,11 @@ mod nested_composite_tests {
     fn expand_to_leaves_deep_cycle() {
         let mut commands = HashMap::new();
         commands.insert("leaf".to_string(), CommandSpec::Exec(echo_cmd("1")));
-        commands.insert(
-            "level2".to_string(),
-            CommandSpec::Composite(composite_cmd(&["level3"])),
-        );
-        commands.insert(
-            "level3".to_string(),
-            CommandSpec::Composite(composite_cmd(&["level2"])),
-        );
+        commands.insert("level2".to_string(), CommandSpec::Composite(composite_cmd(&["level3"])));
+        commands.insert("level3".to_string(), CommandSpec::Composite(composite_cmd(&["level2"])));
 
         let runner = test_runner(commands);
-        assert!(
-            runner.expand_to_leaves("level2").is_err(),
-            "deep cycle should return None"
-        );
+        assert!(runner.expand_to_leaves("level2").is_err(), "deep cycle should return None");
     }
 }
 
@@ -659,36 +557,18 @@ mod cycle_detection_tests {
     #[test]
     fn expand_to_leaves_cycle_2_nodes() {
         let mut commands = HashMap::new();
-        commands.insert(
-            "a".to_string(),
-            CommandSpec::Composite(composite_cmd(&["b"])),
-        );
-        commands.insert(
-            "b".to_string(),
-            CommandSpec::Composite(composite_cmd(&["a"])),
-        );
+        commands.insert("a".to_string(), CommandSpec::Composite(composite_cmd(&["b"])));
+        commands.insert("b".to_string(), CommandSpec::Composite(composite_cmd(&["a"])));
         let runner = test_runner(commands);
-        assert!(
-            runner.expand_to_leaves("a").is_err(),
-            "2-node cycle should return None"
-        );
+        assert!(runner.expand_to_leaves("a").is_err(), "2-node cycle should return None");
     }
 
     #[test]
     fn expand_to_leaves_cycle_3_nodes() {
         let mut commands = HashMap::new();
-        commands.insert(
-            "a".to_string(),
-            CommandSpec::Composite(composite_cmd(&["b"])),
-        );
-        commands.insert(
-            "b".to_string(),
-            CommandSpec::Composite(composite_cmd(&["c"])),
-        );
-        commands.insert(
-            "c".to_string(),
-            CommandSpec::Composite(composite_cmd(&["a"])),
-        );
+        commands.insert("a".to_string(), CommandSpec::Composite(composite_cmd(&["b"])));
+        commands.insert("b".to_string(), CommandSpec::Composite(composite_cmd(&["c"])));
+        commands.insert("c".to_string(), CommandSpec::Composite(composite_cmd(&["a"])));
         let runner = test_runner(commands);
         assert!(
             runner.expand_to_leaves("a").is_err(),
@@ -699,10 +579,8 @@ mod cycle_detection_tests {
     #[test]
     fn expand_to_leaves_self_reference() {
         let mut commands = HashMap::new();
-        commands.insert(
-            "self_ref".to_string(),
-            CommandSpec::Composite(composite_cmd(&["self_ref"])),
-        );
+        commands
+            .insert("self_ref".to_string(), CommandSpec::Composite(composite_cmd(&["self_ref"])));
         let runner = test_runner(commands);
         assert!(
             runner.expand_to_leaves("self_ref").is_err(),
@@ -726,10 +604,7 @@ mod depth_limit_tests {
                 CommandSpec::Composite(ops_core::config::CompositeCommandSpec::new([next_name])),
             );
         }
-        commands.insert(
-            format!("level_{depth}"),
-            CommandSpec::Exec(exec_spec("echo", &["leaf"])),
-        );
+        commands.insert(format!("level_{depth}"), CommandSpec::Exec(exec_spec("echo", &["leaf"])));
         commands
     }
 
@@ -763,12 +638,12 @@ mod depth_limit_tests {
         );
     }
 
-    /// PERF-3 / TASK-0766: pin the post-fold hot path. The pre-fix code paid
+    /// Pin the post-fold hot path. The pre-fix code paid
     /// two store traversals per node (`canonical_id` + `resolve`); folding
     /// them into one pass via `canonical_with_spec` cuts the lookups on every
     /// visit in half.
     ///
-    /// TEST-15 / TASK-1664: asserted by **counting traversals**, not by
+    /// Asserted by **counting traversals**, not by
     /// timing. The previous form ran 1k expansions against a two-second
     /// wall-clock budget, which failed at 9.8s under CPU contention — the
     /// normal state of a shared CI runner, and the reason this test could not
@@ -785,25 +660,18 @@ mod depth_limit_tests {
     fn expand_to_leaves_microbench_does_not_regress() {
         let mut commands = HashMap::new();
         for leaf in 0..10 {
-            commands.insert(
-                format!("leaf_{leaf}"),
-                CommandSpec::Exec(echo_cmd(&format!("{leaf}"))),
-            );
+            commands
+                .insert(format!("leaf_{leaf}"), CommandSpec::Exec(echo_cmd(&format!("{leaf}"))));
         }
         let leaf_names: Vec<String> = (0..10).map(|i| format!("leaf_{i}")).collect();
         let leaf_refs: Vec<&str> = leaf_names.iter().map(String::as_str).collect();
         for mid in 0..50 {
-            commands.insert(
-                format!("mid_{mid}"),
-                CommandSpec::Composite(composite_cmd(&leaf_refs)),
-            );
+            commands
+                .insert(format!("mid_{mid}"), CommandSpec::Composite(composite_cmd(&leaf_refs)));
         }
         let mid_names: Vec<String> = (0..50).map(|i| format!("mid_{i}")).collect();
         let mid_refs: Vec<&str> = mid_names.iter().map(String::as_str).collect();
-        commands.insert(
-            "root".to_string(),
-            CommandSpec::Composite(composite_cmd(&mid_refs)),
-        );
+        commands.insert("root".to_string(), CommandSpec::Composite(composite_cmd(&mid_refs)));
 
         let runner = test_runner(commands);
 
@@ -837,10 +705,7 @@ mod depth_limit_tests {
         // Canonicalized like ops-core's (test-only) `canonical_root` helper:
         // avoids the symlink-refusal path on hosts where the temp dir sits
         // behind a symlink.
-        let root = dir
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| dir.path().to_path_buf());
+        let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
         let _xdg = ops_core::test_utils::isolate_global_config(&root);
         std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
         std::fs::write(
@@ -852,9 +717,7 @@ mod depth_limit_tests {
         let config = ops_core::config::load_config_at(&root).expect("extend config must load");
         let runner = crate::command::CommandRunner::new(config, root);
 
-        let plan = runner
-            .expand_to_leaves("verify")
-            .expect("extended verify must expand");
+        let plan = runner.expand_to_leaves("verify").expect("extended verify must expand");
         assert_eq!(
             plan.last().map(ops_core::config::CommandId::as_str),
             Some("extra"),
@@ -879,14 +742,9 @@ mod after {
     }
 
     fn plan_of(steps: Vec<(&str, CommandSpec)>, names: &[&str]) -> CommandRunner {
-        let mut commands: HashMap<String, CommandSpec> = steps
-            .into_iter()
-            .map(|(name, spec)| (name.to_string(), spec))
-            .collect();
-        commands.insert(
-            "plan".to_string(),
-            CommandSpec::Composite(parallel_cmd(names)),
-        );
+        let mut commands: HashMap<String, CommandSpec> =
+            steps.into_iter().map(|(name, spec)| (name.to_string(), spec)).collect();
+        commands.insert("plan".to_string(), CommandSpec::Composite(parallel_cmd(names)));
         test_runner(commands)
     }
 
@@ -944,10 +802,7 @@ mod after {
         let err = runner.expand_to_plan("plan").unwrap_err();
         assert_eq!(
             err,
-            ExpandError::AfterLaterStage {
-                step: "a".to_string(),
-                after: "b".to_string(),
-            }
+            ExpandError::AfterLaterStage { step: "a".to_string(), after: "b".to_string() }
         );
     }
 
@@ -956,10 +811,7 @@ mod after {
     #[test]
     fn unknown_after_is_an_error_naming_both_commands() {
         let runner = plan_of(
-            vec![
-                ("a", exec_after(&["biuld"])),
-                ("b", CommandSpec::Exec(echo_cmd("b"))),
-            ],
+            vec![("a", exec_after(&["biuld"])), ("b", CommandSpec::Exec(echo_cmd("b")))],
             &["b"],
         );
         let err = runner.expand_to_plan("plan").unwrap_err();
@@ -978,27 +830,17 @@ mod after {
             ],
             &["a"],
         );
-        assert!(matches!(
-            runner.expand_to_plan("plan"),
-            Err(ExpandError::AfterComposite { .. })
-        ));
+        assert!(matches!(runner.expand_to_plan("plan"), Err(ExpandError::AfterComposite { .. })));
     }
 
     /// The loader rejects cycles among config commands; a runner built
     /// around it still refuses to schedule one, rather than hanging.
     #[test]
     fn cycle_reaching_the_runner_is_an_error() {
-        let runner = plan_of(
-            vec![("a", exec_after(&["b"])), ("b", exec_after(&["a"]))],
-            &["a", "b"],
-        );
+        let runner =
+            plan_of(vec![("a", exec_after(&["b"])), ("b", exec_after(&["a"]))], &["a", "b"]);
         let err = runner.expand_to_plan("plan").unwrap_err();
-        assert_eq!(
-            err,
-            ExpandError::AfterCycle {
-                steps: vec!["a".to_string(), "b".to_string()],
-            }
-        );
+        assert_eq!(err, ExpandError::AfterCycle { steps: vec!["a".to_string(), "b".to_string()] });
     }
 
     /// A sequential group keeps its list order: `after` has no effect there.
@@ -1007,10 +849,7 @@ mod after {
         let mut commands = HashMap::new();
         commands.insert("a".to_string(), exec_after(&["b"]));
         commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
-        commands.insert(
-            "seq".to_string(),
-            CommandSpec::Composite(composite_cmd(&["a", "b"])),
-        );
+        commands.insert("seq".to_string(), CommandSpec::Composite(composite_cmd(&["a", "b"])));
         let runner = test_runner(commands);
         let got = runner.expand_to_leaves("seq").expect("expands");
         assert_eq!(got, vec![CommandId::from("a"), CommandId::from("b")]);

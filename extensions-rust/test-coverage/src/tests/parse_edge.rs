@@ -89,11 +89,7 @@ fn drift_tracker_deduplicates_warnings_per_section_field_pair() {
         drift.warn_wrong_shape("count", &v, "an integer");
         drift.warn_wrong_shape("covered", &v, "an integer");
     }
-    assert_eq!(
-        warned.len(),
-        2,
-        "should have exactly 2 unique (section, field) pairs"
-    );
+    assert_eq!(warned.len(), 2, "should have exactly 2 unique (section, field) pairs");
 }
 
 /// `flatten_coverage_json` still produces correct output when fields are
@@ -177,8 +173,5 @@ fn flatten_coverage_json_missing_filename_skips_record() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["filename"], "src/main.rs");
     let total_lines: i64 = arr.iter().map(|r| r["lines_count"].as_i64().unwrap()).sum();
-    assert_eq!(
-        total_lines, 100,
-        "aggregate must exclude records without a filename"
-    );
+    assert_eq!(total_lines, 100, "aggregate must exclude records without a filename");
 }

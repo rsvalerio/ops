@@ -85,11 +85,8 @@ fn authority_has_userinfo(url: &str) -> bool {
 /// each `return`.
 fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
     /// (shorthand prefix, host) for npm hostname shortcuts.
-    const HOST_PREFIXES: &[(&str, &str)] = &[
-        ("github:", "github.com"),
-        ("gitlab:", "gitlab.com"),
-        ("bitbucket:", "bitbucket.org"),
-    ];
+    const HOST_PREFIXES: &[(&str, &str)] =
+        &[("github:", "github.com"), ("gitlab:", "gitlab.com"), ("bitbucket:", "bitbucket.org")];
 
     use std::borrow::Cow;
     if contains_control_chars(raw) {
@@ -105,10 +102,7 @@ fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
             return Cow::Owned(format!("https://{host}/{cleaned}"));
         }
     }
-    if let Some(rest) = s
-        .strip_prefix("git+ssh://")
-        .or_else(|| s.strip_prefix("ssh://"))
-    {
+    if let Some(rest) = s.strip_prefix("git+ssh://").or_else(|| s.strip_prefix("ssh://")) {
         return Cow::Owned(ssh_to_https(rest));
     }
     if let Some(rest) = s.strip_prefix("git+") {
@@ -156,8 +150,7 @@ fn is_bare_github_shorthand(s: &str) -> bool {
         return false;
     }
     let ident_ok = |seg: &str| {
-        seg.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+        seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
     };
     ident_ok(owner) && ident_ok(repo)
 }
@@ -306,10 +299,7 @@ mod tests {
 
     #[test]
     fn normalize_git_https_unchanged_path() {
-        assert_eq!(
-            normalize_repo_url("git+https://github.com/o/r.git"),
-            "https://github.com/o/r"
-        );
+        assert_eq!(normalize_repo_url("git+https://github.com/o/r.git"), "https://github.com/o/r");
     }
 
     #[test]
@@ -347,10 +337,7 @@ mod tests {
 
     #[test]
     fn normalize_ssh_with_numeric_port_keeps_port() {
-        assert_eq!(
-            normalize_repo_url("ssh://git@host:22/path.git"),
-            "https://host:22/path"
-        );
+        assert_eq!(normalize_repo_url("ssh://git@host:22/path.git"), "https://host:22/path");
     }
 
     /// A `directory` that escapes the repository root via `..` segments must
@@ -402,28 +389,19 @@ mod tests {
     /// renders an unclickable `git://` URL.
     #[test]
     fn normalize_git_plus_git_scheme_to_https() {
-        assert_eq!(
-            normalize_repo_url("git+git://github.com/o/r.git"),
-            "https://github.com/o/r"
-        );
+        assert_eq!(normalize_repo_url("git+git://github.com/o/r.git"), "https://github.com/o/r");
     }
 
     #[test]
     fn normalize_github_shorthand() {
-        assert_eq!(
-            normalize_repo_url("github:owner/repo"),
-            "https://github.com/owner/repo"
-        );
+        assert_eq!(normalize_repo_url("github:owner/repo"), "https://github.com/owner/repo");
     }
 
     /// Bare `owner/repo` npm shorthand is rewritten to a GitHub URL —
     /// otherwise the About card emits a non-URL link.
     #[test]
     fn normalize_bare_owner_repo_shorthand() {
-        assert_eq!(
-            normalize_repo_url("expressjs/express"),
-            "https://github.com/expressjs/express"
-        );
+        assert_eq!(normalize_repo_url("expressjs/express"), "https://github.com/expressjs/express");
     }
 
     /// The bare-shorthand branch routes through `scrub_path_segments` like
@@ -464,10 +442,7 @@ mod tests {
     fn normalize_drops_field_on_embedded_lf_in_shorthand() {
         let out = normalize_repo_url("github:owner/repo\nINJECT");
         assert!(!out.contains('\n'), "url still contains LF: {out:?}");
-        assert!(
-            out.is_empty(),
-            "field must be dropped on control byte: {out:?}"
-        );
+        assert!(out.is_empty(), "field must be dropped on control byte: {out:?}");
     }
 
     /// A CR inside a git+https URL (Object{url} shape) drops the field.
@@ -478,10 +453,7 @@ mod tests {
     fn normalize_drops_field_on_embedded_cr_in_git_https() {
         let out = normalize_repo_url("git+https://github.com/o/r\r.git");
         assert!(!out.contains('\r'), "url still contains CR: {out:?}");
-        assert!(
-            out.is_empty(),
-            "field must be dropped on control byte: {out:?}"
-        );
+        assert!(out.is_empty(), "field must be dropped on control byte: {out:?}");
     }
 
     /// ANSI escape (U+001B) bytes drop
@@ -492,10 +464,7 @@ mod tests {
     fn normalize_drops_field_on_embedded_ansi_escape() {
         let out = normalize_repo_url("https://github.com/o/\u{1b}[31mr");
         assert!(!out.contains('\u{1b}'), "url still contains ESC: {out:?}");
-        assert!(
-            out.is_empty(),
-            "field must be dropped on control byte: {out:?}"
-        );
+        assert!(out.is_empty(), "field must be dropped on control byte: {out:?}");
     }
 
     /// The Text shape
@@ -507,10 +476,7 @@ mod tests {
             !out.contains('\r') && !out.contains('\n'),
             "url still contains control chars: {out:?}"
         );
-        assert!(
-            out.is_empty(),
-            "field must be dropped on control byte: {out:?}"
-        );
+        assert!(out.is_empty(), "field must be dropped on control byte: {out:?}");
     }
 
     /// A tampered URL containing a control byte must not produce a
@@ -526,10 +492,7 @@ mod tests {
             "git+https://example.com/o\u{0c}/passwd",
         ] {
             let out = normalize_repo_url(raw);
-            assert!(
-                out.is_empty(),
-                "expected dropped URL for {raw:?}, got {out:?}"
-            );
+            assert!(out.is_empty(), "expected dropped URL for {raw:?}, got {out:?}");
         }
     }
 
@@ -674,10 +637,7 @@ mod tests {
     #[test]
     fn normalize_drops_userinfo_authority_in_clean_url() {
         assert_eq!(normalize_repo_url("https://github.com@evil.com/o/r"), "");
-        assert_eq!(
-            normalize_repo_url("https://github.com:secret@evil.com/o/r"),
-            ""
-        );
+        assert_eq!(normalize_repo_url("https://github.com:secret@evil.com/o/r"), "");
     }
 
     /// The `git://` branch rewrites through `scrub_authority_and_path`,
@@ -688,10 +648,7 @@ mod tests {
     #[test]
     fn normalize_drops_userinfo_authority_in_git_scheme_branches() {
         assert_eq!(normalize_repo_url("git://github.com@evil.com/o/r"), "");
-        assert_eq!(
-            normalize_repo_url("git+git://github.com@evil.com/o/r.git"),
-            ""
-        );
+        assert_eq!(normalize_repo_url("git+git://github.com@evil.com/o/r.git"), "");
     }
 
     /// An `@` in the **path** is legitimate (branch and
@@ -699,10 +656,7 @@ mod tests {
     /// (`host:22`) has no userinfo — both must keep round-tripping.
     #[test]
     fn normalize_keeps_port_and_path_ats() {
-        assert_eq!(
-            normalize_repo_url("https://host:22/owner/repo"),
-            "https://host:22/owner/repo"
-        );
+        assert_eq!(normalize_repo_url("https://host:22/owner/repo"), "https://host:22/owner/repo");
         assert_eq!(
             normalize_repo_url("https://github.com/o/r/tree/HEAD/user@example.com"),
             "https://github.com/o/r/tree/HEAD/user@example.com"

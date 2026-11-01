@@ -46,27 +46,20 @@ fn boxed_top_border_spans_columns() {
     let theme = boxed_theme();
     let ids = vec!["build".to_string(), "test".to_string()];
     let top = theme
-        .box_top_border(BoxSnapshot {
-            command_ids: &ids,
-            ..snap(2, 5, 12.4, true, 60)
-        })
+        .box_top_border(BoxSnapshot { command_ids: &ids, ..snap(2, 5, 12.4, true, 60) })
         .expect("boxed theme returns top");
     let plain = strip_ansi(&top);
     assert_eq!(ops_core::output::display_width(&plain), 60, "got: {top}");
     assert!(plain.starts_with("╭─"), "top corner: {plain}");
     assert!(plain.ends_with("╮"), "top corner end: {plain}");
-    assert!(
-        plain.contains("Running: build, test"),
-        "contains command IDs: {plain}"
-    );
+    assert!(plain.contains("Running: build, test"), "contains command IDs: {plain}");
 }
 
 #[test]
 fn boxed_bottom_border_shows_done_when_success() {
     let theme = boxed_theme();
-    let bottom = theme
-        .box_bottom_border(snap(5, 5, 94.0, true, 60))
-        .expect("boxed theme returns bottom");
+    let bottom =
+        theme.box_bottom_border(snap(5, 5, 94.0, true, 60)).expect("boxed theme returns bottom");
     let plain = strip_ansi(&bottom);
     assert!(plain.contains("Done 5/5"), "got: {plain}");
     assert!(plain.starts_with("╰─"));
@@ -79,27 +72,17 @@ fn boxed_bottom_border_shows_breakdown_when_not_success() {
     // breakdown instead of conflating terminal count with success count.
     let theme = boxed_theme();
     let bottom = theme
-        .box_bottom_border(BoxSnapshot {
-            failed: 1,
-            skipped: 1,
-            ..snap(3, 5, 2.0, false, 80)
-        })
+        .box_bottom_border(BoxSnapshot { failed: 1, skipped: 1, ..snap(3, 5, 2.0, false, 80) })
         .expect("boxed theme returns bottom");
     let plain = strip_ansi(&bottom);
-    assert!(
-        plain.contains("1 succeeded, 1 skipped, 1 failed of 5"),
-        "got: {plain}"
-    );
+    assert!(plain.contains("1 succeeded, 1 skipped, 1 failed of 5"), "got: {plain}");
 }
 
 #[test]
 fn boxed_top_border_lists_command_ids_when_provided() {
     let theme = boxed_theme();
     let ids = vec!["build".to_string(), "test".to_string()];
-    let s = BoxSnapshot {
-        command_ids: &ids,
-        ..snap(0, 2, 0.0, true, 60)
-    };
+    let s = BoxSnapshot { command_ids: &ids, ..snap(0, 2, 0.0, true, 60) };
     let top = strip_ansi(&theme.box_top_border(s).expect("top"));
     assert!(top.contains("Running: build, test"), "got: {top}");
 }
@@ -125,10 +108,7 @@ fn boxed_step_with_duration_matches_border_width() {
     let ids = vec!["build".to_string()];
     let top = strip_ansi(
         &theme
-            .box_top_border(BoxSnapshot {
-                command_ids: &ids,
-                ..snap(1, 1, 1.23, true, columns)
-            })
+            .box_top_border(BoxSnapshot { command_ids: &ids, ..snap(1, 1, 1.23, true, columns) })
             .unwrap(),
     );
     assert_eq!(
@@ -145,11 +125,7 @@ fn boxed_error_detail_has_right_border() {
     let lines = theme.render_error_detail(&detail, 60);
     for line in &lines {
         let plain = strip_ansi(line);
-        assert_eq!(
-            ops_core::output::display_width(&plain),
-            60,
-            "error detail line width: {plain}"
-        );
+        assert_eq!(ops_core::output::display_width(&plain), 60, "error detail line width: {plain}");
         assert!(plain.ends_with(" │"), "right border: {plain}");
     }
 }
@@ -176,10 +152,7 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
     let plain_top = strip_ansi(&lines[0]);
     let plain_mid = strip_ansi(&lines[1]);
     assert!(plain_top.starts_with("│      ├─"), "got: {plain_top}");
-    assert!(
-        plain_mid.starts_with("│      │ exit status: 1"),
-        "got: {plain_mid}"
-    );
+    assert!(plain_mid.starts_with("│      │ exit status: 1"), "got: {plain_mid}");
 }
 
 /// Pin gutter alignment for two `step_indent` widths
@@ -207,18 +180,12 @@ fn boxed_error_indent_tracks_step_indent_width() {
     // step_indent width 0 (existing baseline).
     let theme0 = theme_with_step_indent("");
     let plain0 = strip_ansi(&theme0.render_error_detail(&detail, 80)[0]);
-    let count0 = plain0
-        .strip_prefix('│')
-        .and_then(|s| s.find('├'))
-        .expect("├ glyph in output");
+    let count0 = plain0.strip_prefix('│').and_then(|s| s.find('├')).expect("├ glyph in output");
 
     // step_indent width 2: gutter must shift right by exactly 2 columns.
     let theme2 = theme_with_step_indent("  ");
     let plain2 = strip_ansi(&theme2.render_error_detail(&detail, 80)[0]);
-    let count2 = plain2
-        .strip_prefix('│')
-        .and_then(|s| s.find('├'))
-        .expect("├ glyph in output");
+    let count2 = plain2.strip_prefix('│').and_then(|s| s.find('├')).expect("├ glyph in output");
 
     assert_eq!(
         count2,
@@ -266,11 +233,7 @@ fn wrap_step_line_reserves_seven_columns_and_pads_to_width() {
     assert_eq!(theme.step_column_reserve(), 7);
     let wrapped = theme.wrap_step_line("  ✓ cargo build 1.23s", "█", 60);
     let plain = strip_ansi(&wrapped);
-    assert_eq!(
-        ops_core::output::display_width(&plain),
-        60,
-        "wrap width: {plain}"
-    );
+    assert_eq!(ops_core::output::display_width(&plain), 60, "wrap width: {plain}");
     assert!(plain.starts_with("│ █  "), "prefix: {plain}");
     assert!(plain.ends_with(" │"), "suffix: {plain}");
 }

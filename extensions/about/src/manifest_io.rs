@@ -104,10 +104,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = dir.path().join("a.txt");
         std::fs::write(&p, "hello").expect("write");
-        assert_eq!(
-            read_optional_text(&p, dir.path(), "test").as_deref(),
-            Some("hello")
-        );
+        assert_eq!(read_optional_text(&p, dir.path(), "test").as_deref(), Some("hello"));
     }
 
     #[cfg(unix)]
@@ -146,7 +143,7 @@ mod tests {
         assert_eq!(got.len(), at_cap);
     }
 
-    /// SEC-14 / TASK-2433: a root-level manifest that is itself a symlink
+    /// a root-level manifest that is itself a symlink
     /// pointing outside the workspace root must be refused (with a warn),
     /// not read and surfaced in `ops about` output.
     #[cfg(unix)]
@@ -176,10 +173,7 @@ mod tests {
         let link = dir.path().join("a.txt");
         std::os::unix::fs::symlink(dir.path().join("real.txt"), &link).expect("symlink");
 
-        assert_eq!(
-            read_optional_text(&link, dir.path(), "test").as_deref(),
-            Some("hello")
-        );
+        assert_eq!(read_optional_text(&link, dir.path(), "test").as_deref(), Some("hello"));
     }
 
     /// A FIFO named like a manifest must be rejected promptly instead of
@@ -190,10 +184,7 @@ mod tests {
     fn fifo_returns_none_without_blocking() {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = dir.path().join("package.json");
-        let status = std::process::Command::new("mkfifo")
-            .arg(&p)
-            .status()
-            .expect("run mkfifo");
+        let status = std::process::Command::new("mkfifo").arg(&p).status().expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let root = dir.path().to_path_buf();
@@ -220,10 +211,7 @@ mod tests {
     fn io_error_debug_escapes_control_characters() {
         let e = std::io::Error::other("rogue\nINJECTED line\u{1b}[31m");
         let rendered = format!("{e:?}");
-        assert!(
-            !rendered.contains('\n'),
-            "raw newline leaked into Debug rendering: {rendered}"
-        );
+        assert!(!rendered.contains('\n'), "raw newline leaked into Debug rendering: {rendered}");
         assert!(
             !rendered.contains('\u{1b}'),
             "raw ANSI ESC leaked into Debug rendering: {rendered}"
@@ -238,17 +226,8 @@ mod tests {
     fn path_display_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc");
         let rendered = format!("{:?}", p.display());
-        assert!(
-            !rendered.contains('\n'),
-            "raw newline leaked into log value: {rendered}"
-        );
-        assert!(
-            !rendered.contains('\u{1b}'),
-            "raw ANSI ESC leaked into log value: {rendered}"
-        );
-        assert!(
-            rendered.contains("\\n"),
-            "expected escaped newline in {rendered}"
-        );
+        assert!(!rendered.contains('\n'), "raw newline leaked into log value: {rendered}");
+        assert!(!rendered.contains('\u{1b}'), "raw ANSI ESC leaked into log value: {rendered}");
+        assert!(rendered.contains("\\n"), "expected escaped newline in {rendered}");
     }
 }

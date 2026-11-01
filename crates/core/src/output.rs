@@ -141,7 +141,7 @@ const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
 
 /// Collect up to `n` tail line ranges, walking backwards
 /// from the end of `buf`. Returns the number of backwards line scans
-/// performed (asserted by the structural PERF-1 regression test).
+/// performed (asserted by the structural regression test).
 fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
     let mut tail_end = buf.len();
     let mut line_scans = 0usize;
@@ -223,11 +223,7 @@ impl TailRanges {
         } else {
             Vec::new()
         };
-        Self {
-            stack: [(0, 0); TAIL_STACK_CAP],
-            stack_len: 0,
-            spill,
-        }
+        Self { stack: [(0, 0); TAIL_STACK_CAP], stack_len: 0, spill }
     }
 
     const fn len(&self) -> usize {
@@ -271,10 +267,7 @@ impl TailRanges {
     }
 
     fn iter(&self) -> impl Iterator<Item = &(usize, usize)> {
-        self.spill
-            .iter()
-            .rev()
-            .chain(self.stack.iter().take(self.stack_len))
+        self.spill.iter().rev().chain(self.stack.iter().take(self.stack_len))
     }
 }
 
@@ -312,11 +305,7 @@ impl StepLine {
     /// initialization, which is forbidden under `#[non_exhaustive]`.
     #[must_use]
     pub fn new(status: StepStatus, label: impl Into<String>, elapsed: Option<f64>) -> Self {
-        Self {
-            status,
-            label: label.into(),
-            elapsed,
-        }
+        Self { status, label: label.into(), elapsed }
     }
 }
 
@@ -339,10 +328,7 @@ impl ErrorDetail {
     /// Constructor used in place of struct-literal initialization.
     #[must_use]
     pub fn new(message: impl Into<String>, stderr_tail: Vec<String>) -> Self {
-        Self {
-            message: message.into(),
-            stderr_tail,
-        }
+        Self { message: message.into(), stderr_tail }
     }
 }
 
@@ -434,18 +420,12 @@ mod tests {
     #[test]
     fn display_width_zero_width_joiner() {
         let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
-        assert!(
-            display_width(family) >= 2,
-            "family emoji should have display width"
-        );
+        assert!(display_width(family) >= 2, "family emoji should have display width");
     }
 
     #[test]
     fn display_width_control_chars() {
-        assert!(
-            display_width("\x00\x01\x02") > 0,
-            "control chars are counted by unicode-width"
-        );
+        assert!(display_width("\x00\x01\x02") > 0, "control chars are counted by unicode-width");
     }
 
     #[test]
@@ -455,7 +435,7 @@ mod tests {
 
     // -- Tests for format_error_tail --
 
-    /// PERF-3 / TASK-1440: repeated `detect_terminal_width` calls must not
+    /// Repeated `detect_terminal_width` calls must not
     /// re-invoke the underlying `terminal_size` ioctl. Probe counter
     /// advances by at most one across N calls (zero when another test in
     /// the process already primed the `OnceLock`, one when this is first).
@@ -487,7 +467,7 @@ mod tests {
         assert_eq!(result, "line1\nline2");
     }
 
-    /// PATTERN-1 / TASK-1825: `n = 33` is the first value that overflows the
+    /// `n = 33` is the first value that overflows the
     /// inline `TAIL_STACK_CAP` array. The overflow branch used to evict the
     /// *newest* stack entry into the front of the spill, so the rendered tail
     /// opened with the two newest lines.
@@ -500,7 +480,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    /// PATTERN-1 / TASK-1825: the same property well past the cap, where the
+    /// The same property well past the cap, where the
     /// old branch migrated one further line per push.
     #[test]
     fn format_error_tail_preserves_buffer_order_well_past_cap() {
@@ -511,7 +491,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    /// PATTERN-1 / TASK-1825 (AC#3): the oversized path appends to the spill
+    /// The oversized path appends to the spill
     /// instead of front-inserting, so the array is left untouched once full
     /// and each push is O(1). Asserting the split — exactly
     /// `TAIL_STACK_CAP` inline entries and the remainder in the spill —
@@ -544,12 +524,12 @@ mod tests {
         assert!(result.contains("line3"));
     }
 
-    /// PERF-1 (TASK-0733): a multi-MiB stderr buffer must not be fully
+    /// a multi-MiB stderr buffer must not be fully
     /// decoded just to surface the last 5 lines. Pre-fix this allocated the
     /// full buffer via `String::from_utf8_lossy(stderr).into_owned()` —
     /// noticeable on failed builds and easy to regress under refactor.
     ///
-    /// TEST-15 / TASK-1029: the original test asserted a wall-clock budget
+    /// The original test asserted a wall-clock budget
     /// of 50 ms which flaked on loaded CI hosts. The contract is now
     /// expressed structurally: the number of backwards line scans must be
     /// exactly `n`, independent of the input buffer size, and the decoded
@@ -577,15 +557,8 @@ mod tests {
         // proves we did not allocate a full-buffer decode. Last 5 lines
         // (`line 199995`..`line 199999` joined by `\n`) are well under 100
         // bytes; the input is ~2.2 MiB.
-        assert!(
-            tail.len() < 1024,
-            "tail length {} should be O(n*line) not O(buffer)",
-            tail.len()
-        );
-        assert!(
-            buf_len > 1_000_000,
-            "sanity: input buffer should be multi-MiB, got {buf_len}"
-        );
+        assert!(tail.len() < 1024, "tail length {} should be O(n*line) not O(buffer)", tail.len());
+        assert!(buf_len > 1_000_000, "sanity: input buffer should be multi-MiB, got {buf_len}");
     }
 
     #[test]
@@ -615,10 +588,7 @@ mod tests {
         // Buffer that ends in a bare `\r` (no following `\n`).
         let stderr = b"line1\nline2\r";
         let result = format_error_tail(stderr, 5);
-        assert!(
-            !result.contains('\r'),
-            "rendered tail must not contain a raw CR; got {result:?}"
-        );
+        assert!(!result.contains('\r'), "rendered tail must not contain a raw CR; got {result:?}");
         assert_eq!(result, "line1\nline2");
     }
 
@@ -627,10 +597,7 @@ mod tests {
         // The ACs require b"\rfoo" to render without a raw \r.
         let stderr = b"\rfoo";
         let result = format_error_tail(stderr, 5);
-        assert!(
-            !result.contains('\r'),
-            "rendered tail must not contain a raw CR; got {result:?}"
-        );
+        assert!(!result.contains('\r'), "rendered tail must not contain a raw CR; got {result:?}");
         assert!(result.contains("foo"));
     }
 
@@ -640,10 +607,7 @@ mod tests {
         // move the cursor to column 0 in operator terminals.
         let stderr = b"first\nbar\rbaz\n";
         let result = format_error_tail(stderr, 5);
-        assert!(
-            !result.contains('\r'),
-            "rendered tail must not contain a raw CR; got {result:?}"
-        );
+        assert!(!result.contains('\r'), "rendered tail must not contain a raw CR; got {result:?}");
     }
 
     #[test]
@@ -652,10 +616,7 @@ mod tests {
         // not as a literal CR.
         let stderr = b"\r";
         let result = format_error_tail(stderr, 5);
-        assert!(
-            !result.contains('\r'),
-            "rendered tail must not contain a raw CR; got {result:?}"
-        );
+        assert!(!result.contains('\r'), "rendered tail must not contain a raw CR; got {result:?}");
         assert!(result.is_empty());
     }
 }

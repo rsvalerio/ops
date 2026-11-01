@@ -1,10 +1,10 @@
 ---
 id: TASK-2648
 title: 'ops foundation fails on the ops repo itself: rustfmt.toml missing'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 00:09'
-updated_date: '2026-11-01 11:04'
+updated_date: '2026-11-01 13:55'
 labels:
   - code-review-rust
   - config
@@ -31,7 +31,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops foundation exits 0 on this repo, by adopting rustfmt.toml or a recorded waiver
+- [x] #1 ops foundation exits 0 on this repo, by adopting rustfmt.toml or a recorded waiver
+
 <!-- AC:END -->
 
 ## Implementation Notes

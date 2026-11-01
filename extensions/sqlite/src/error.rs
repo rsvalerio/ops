@@ -11,7 +11,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum DbError {
-    /// ERR-5 / TASK-1214: `PoisonError`'s Display embeds the panic payload from
+    /// `PoisonError`'s Display embeds the panic payload from
     /// arbitrary user-supplied callbacks, which can contain newlines, ANSI
     /// escapes, or other operator-controlled bytes. Rendering via `{0:?}`
     /// (Debug) escapes control characters (`\n`, `\u{1b}`, …) so the captured
@@ -62,7 +62,7 @@ pub enum DbError {
     #[error("path is not valid UTF-8 (cannot persist to data_sources): {0:?}")]
     NonUtf8Path(std::ffi::OsString),
 
-    /// READ-5 / TASK-1867: the ingest pipeline stages JSON next to the
+    /// The ingest pipeline stages JSON next to the
     /// database file, so it needs a real filesystem path. `:memory:` is a
     /// SQLite connection string, not a path — appending `.ingest` to it
     /// would produce the *relative* `:memory:.ingest`, which the pipeline
@@ -108,10 +108,7 @@ impl DbError {
     /// underlying `rusqlite` error.
     #[must_use = "return the constructed error; building it reports nothing"]
     pub fn query_failed(context: impl Into<String>, source: rusqlite::Error) -> Self {
-        Self::QueryFailed {
-            context: context.into(),
-            source,
-        }
+        Self::QueryFailed { context: context.into(), source }
     }
 }
 
@@ -144,13 +141,7 @@ impl std::error::Error for IoContext {
 /// that branch on `NotFound` and friends still can, and exposes `source`
 /// itself through [`std::error::Error::source`].
 pub fn io_context(context: impl Into<String>, source: std::io::Error) -> std::io::Error {
-    std::io::Error::new(
-        source.kind(),
-        IoContext {
-            context: context.into(),
-            source,
-        },
-    )
+    std::io::Error::new(source.kind(), IoContext { context: context.into(), source })
 }
 
 /// Result alias for database operations.
@@ -167,7 +158,7 @@ mod tests {
         assert!(err.to_string().contains("test panic"));
     }
 
-    /// ERR-5 / TASK-1214: a poisoned-mutex payload containing newlines and
+    /// a poisoned-mutex payload containing newlines and
     /// ANSI escapes (i.e. arbitrary user-supplied panic content) must not
     /// be forwarded verbatim into the Display body. Debug-formatting the
     /// captured string escapes the control bytes so the rendered error is
@@ -187,14 +178,8 @@ mod tests {
         );
         // Escaped form should still carry the original substrings so the
         // operator can recover the panic payload by reading the log.
-        assert!(
-            rendered.contains("\\n"),
-            "expected escaped newline; got: {rendered:?}"
-        );
-        assert!(
-            rendered.contains("FAKE ERROR"),
-            "payload text preserved; got: {rendered:?}"
-        );
+        assert!(rendered.contains("\\n"), "expected escaped newline; got: {rendered:?}");
+        assert!(rendered.contains("FAKE ERROR"), "payload text preserved; got: {rendered:?}");
     }
 
     /// Render `err` the way anyhow's `{:#}` does: every link of the source
@@ -213,7 +198,7 @@ mod tests {
         assert_eq!(chain(db_err), format!("JSON serialization failed: {cause}"));
     }
 
-    /// ERR-9: a variant's message names its own layer and leaves the cause to
+    /// a variant's message names its own layer and leaves the cause to
     /// the source chain, so a chain-walking printer says each thing once.
     #[test]
     fn db_error_chain_names_each_cause_exactly_once() {
@@ -222,21 +207,15 @@ mod tests {
             chain(DbError::Sqlite(sqlite())),
             chain(DbError::query_failed("test_op", sqlite())),
             chain(DbError::Io(std::io::Error::other("needle"))),
-            chain(DbError::SqlValidation(
-                crate::sql::SqlError::InvalidIdentifier("needle".into()),
-            )),
+            chain(DbError::SqlValidation(crate::sql::SqlError::InvalidIdentifier("needle".into()))),
             chain(DbError::External(anyhow::anyhow!("needle"))),
         ];
         for line in rendered {
-            assert_eq!(
-                line.matches("needle").count(),
-                1,
-                "cause must appear exactly once: {line}"
-            );
+            assert_eq!(line.matches("needle").count(), 1, "cause must appear exactly once: {line}");
         }
     }
 
-    /// ERR-13: `io_context` names the path, keeps the kind, and keeps the
+    /// `io_context` names the path, keeps the kind, and keeps the
     /// original error reachable as the source.
     #[test]
     fn io_context_names_the_path_and_keeps_the_original_error_as_source() {
@@ -247,10 +226,7 @@ mod tests {
         let wrapped = io_context("creating /some/dir", original);
         assert_eq!(wrapped.kind(), std::io::ErrorKind::PermissionDenied);
         assert_eq!(wrapped.to_string(), "creating /some/dir");
-        assert_eq!(
-            wrapped.source().map(ToString::to_string).as_deref(),
-            Some(cause.as_str())
-        );
+        assert_eq!(wrapped.source().map(ToString::to_string).as_deref(), Some(cause.as_str()));
         assert_eq!(
             chain(DbError::Io(wrapped)),
             format!("filesystem operation failed: creating /some/dir: {cause}")
@@ -267,10 +243,8 @@ mod tests {
 
     #[test]
     fn db_error_query_failed_context() {
-        let err = DbError::query_failed(
-            "test_op",
-            rusqlite::Error::InvalidParameterName("test".into()),
-        );
+        let err =
+            DbError::query_failed("test_op", rusqlite::Error::InvalidParameterName("test".into()));
         assert!(err.to_string().contains("test_op"));
     }
 }

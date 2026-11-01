@@ -92,10 +92,7 @@ the body
         let mut out = Vec::new();
         run_view(
             &store,
-            &ViewOptions {
-                task_id: "TASK-0001".to_string(),
-                format: OutputFormat::Plain,
-            },
+            &ViewOptions { task_id: "TASK-0001".to_string(), format: OutputFormat::Plain },
             dir.path(),
             &mut out,
         )
@@ -111,10 +108,7 @@ the body
         let mut out = Vec::new();
         run_view(
             &store,
-            &ViewOptions {
-                task_id: "task-0001".to_string(),
-                format: OutputFormat::Json,
-            },
+            &ViewOptions { task_id: "task-0001".to_string(), format: OutputFormat::Json },
             dir.path(),
             &mut out,
         )
@@ -130,17 +124,11 @@ the body
         let mut out = Vec::new();
         let err = run_view(
             &store,
-            &ViewOptions {
-                task_id: "TASK-4242".to_string(),
-                format: OutputFormat::Plain,
-            },
+            &ViewOptions { task_id: "TASK-4242".to_string(), format: OutputFormat::Plain },
             dir.path(),
             &mut out,
         )
         .expect_err("must fail");
-        assert!(
-            err.to_string().contains("TASK-4242"),
-            "error names the id, got: {err:#}"
-        );
+        assert!(err.to_string().contains("TASK-4242"), "error names the id, got: {err:#}");
     }
 }

@@ -20,12 +20,8 @@ fn has_high_entropy_rejects_simple_strings() {
 
 #[test]
 fn looks_like_jwt_detects_jwt_format() {
-    assert!(looks_like_jwt(
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature"
-    ));
-    assert!(looks_like_jwt(
-        "eyJzdWIiOiIxMjM0In0.eyJuYW1lIjoiSm9obiJ9.sig"
-    ));
+    assert!(looks_like_jwt("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature"));
+    assert!(looks_like_jwt("eyJzdWIiOiIxMjM0In0.eyJuYW1lIjoiSm9obiJ9.sig"));
 }
 
 #[test]
@@ -36,12 +32,8 @@ fn looks_like_jwt_rejects_non_jwt() {
 
 #[test]
 fn looks_like_aws_key_detects_40_char_keys() {
-    assert!(looks_like_aws_key(
-        "AKIAIOSFODNN7EXAMPLE12345678901234567890"
-    ));
-    assert!(looks_like_aws_key(
-        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-    ));
+    assert!(looks_like_aws_key("AKIAIOSFODNN7EXAMPLE12345678901234567890"));
+    assert!(looks_like_aws_key("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"));
 }
 
 #[test]
@@ -70,15 +62,9 @@ fn looks_like_uuid_rejects_wrong_segment_lengths() {
 
 #[test]
 fn looks_like_secret_value_combines_all_checks() {
-    assert!(looks_like_secret_value(
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature"
-    ));
-    assert!(looks_like_secret_value(
-        "550e8400-e29b-41d4-a716-446655440000"
-    ));
-    assert!(looks_like_secret_value(
-        "AKIAIOSFODNN7EXAMPLE12345678901234567890"
-    ));
+    assert!(looks_like_secret_value("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature"));
+    assert!(looks_like_secret_value("550e8400-e29b-41d4-a716-446655440000"));
+    assert!(looks_like_secret_value("AKIAIOSFODNN7EXAMPLE12345678901234567890"));
     assert!(looks_like_secret_value("AbCdEfGh123456789XyZ12345"));
 }
 

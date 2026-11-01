@@ -43,11 +43,7 @@ pub(super) fn resolve_identity_fields(
     let authors = pkg
         .and_then(|p| p.authors.value())
         .cloned()
-        .or_else(|| {
-            ws_pkg
-                .filter(|wp| !wp.authors.is_empty())
-                .map(|wp| wp.authors.clone())
-        })
+        .or_else(|| ws_pkg.filter(|wp| !wp.authors.is_empty()).map(|wp| wp.authors.clone()))
         .unwrap_or_default();
 
     ResolvedFields {
@@ -86,12 +82,8 @@ description = "ws desc"
         );
         let pkg = manifest.package.as_ref();
         let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
-        let result = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.description.as_str(),
-            |wp| wp.description.as_deref(),
-        );
+        let result =
+            resolve_field(pkg, ws_pkg, |p| p.description.as_str(), |wp| wp.description.as_deref());
         assert_eq!(result.as_deref(), Some("pkg desc"));
     }
 

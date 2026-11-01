@@ -192,10 +192,7 @@ fn format_report_shows_unused_license_allowances_in_the_license_row() {
         ..Default::default()
     };
     let output = render(&report);
-    let row = output
-        .lines()
-        .find(|l| l.contains("License Issues"))
-        .expect("license row");
+    let row = output.lines().find(|l| l.contains("License Issues")).expect("license row");
     assert!(row.contains("1 warning"), "got: {row}");
     assert!(output.contains("0BSD"));
     assert!(output.contains("license was not encountered"));
@@ -409,10 +406,7 @@ fn format_report_unused_dependencies_lists_package_dep_and_manifest() {
 
 #[test]
 fn format_report_unused_not_installed_renders_skipped_with_install_hint() {
-    let report = DepsReport {
-        unused: UnusedDepsResult::NotInstalled,
-        ..Default::default()
-    };
+    let report = DepsReport { unused: UnusedDepsResult::NotInstalled, ..Default::default() };
     let output = render(&report);
     assert!(output.contains("Skipped"), "{output}");
     assert!(output.contains("cargo install cargo-machete"), "{output}");

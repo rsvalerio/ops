@@ -60,10 +60,7 @@ pub fn run_wave_create<W: Write>(
     opts: &WaveCreateOptions,
     out: &mut W,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !opts.title.trim().is_empty(),
-        "wave create needs a non-blank title"
-    );
+    anyhow::ensure!(!opts.title.trim().is_empty(), "wave create needs a non-blank title");
     anyhow::ensure!(
         !opts.member_status.trim().is_empty(),
         "wave create needs a non-blank member status"
@@ -75,18 +72,11 @@ pub fn run_wave_create<W: Write>(
     let members = resolve_members(entries, &wanted, &opts.marker)?;
     let stamp = UtcStamp::now()?;
 
-    let member_ids: Vec<String> = members
-        .iter()
-        .map(|m| m.doc.frontmatter.id.clone())
-        .collect();
+    let member_ids: Vec<String> = members.iter().map(|m| m.doc.frontmatter.id.clone()).collect();
     let parent = CreateOptions {
         title: opts.title.clone(),
         description: opts.description.clone(),
-        status: Some(
-            opts.status
-                .clone()
-                .unwrap_or_else(|| DEFAULT_WAVE_STATUS.to_string()),
-        ),
+        status: Some(opts.status.clone().unwrap_or_else(|| DEFAULT_WAVE_STATUS.to_string())),
         labels: vec![opts.marker.clone()],
         priority: opts.priority.clone(),
         plan: opts.plan.clone(),
@@ -147,18 +137,14 @@ fn resolve_members(
     let mut problems = Vec::new();
     for id in wanted {
         let slot = pool.iter_mut().find(|slot| {
-            slot.as_ref()
-                .is_some_and(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(id))
+            slot.as_ref().is_some_and(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(id))
         });
         let Some(entry) = slot.and_then(Option::take) else {
             problems.push(format!("{id}: not found in tasks/"));
             continue;
         };
         let fm = &entry.doc.frontmatter;
-        if let Some(parent) = fm
-            .extra_scalar("parent_task_id")
-            .filter(|p| !p.trim().is_empty())
-        {
+        if let Some(parent) = fm.extra_scalar("parent_task_id").filter(|p| !p.trim().is_empty()) {
             problems.push(format!("{}: already a member of {parent}", fm.id));
             continue;
         }
@@ -169,10 +155,7 @@ fn resolve_members(
         found.push(entry);
     }
     if !problems.is_empty() {
-        anyhow::bail!(
-            "wave create refused, nothing written:\n  {}",
-            problems.join("\n  ")
-        );
+        anyhow::bail!("wave create refused, nothing written:\n  {}", problems.join("\n  "));
     }
     Ok(found)
 }
@@ -246,23 +229,14 @@ mod tests {
 
         let wave = doc_of(&dir, "task-0003 - code-review-plan-wave1.md");
         assert_eq!(wave.frontmatter.labels, vec![DEFAULT_WAVE_MARKER]);
-        assert_eq!(
-            wave.frontmatter.dependencies,
-            vec!["TASK-0001", "TASK-0002"]
-        );
+        assert_eq!(wave.frontmatter.dependencies, vec!["TASK-0001", "TASK-0002"]);
         assert_eq!(wave.frontmatter.status, DEFAULT_WAVE_STATUS);
 
         for name in ["task-0001 - a.md", "task-0002 - b.md"] {
             let doc = doc_of(&dir, name);
-            assert_eq!(
-                doc.frontmatter.extra_scalar("parent_task_id"),
-                Some("TASK-0003")
-            );
+            assert_eq!(doc.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0003"));
             assert_eq!(doc.frontmatter.status, "To Do");
-            assert!(
-                doc.frontmatter.updated_date.is_some(),
-                "updated_date bumped"
-            );
+            assert!(doc.frontmatter.updated_date.is_some(), "updated_date bumped");
         }
     }
 
@@ -270,10 +244,7 @@ mod tests {
     fn any_bad_member_refuses_before_writing_anything() {
         let seeded = [
             ("task-0001 - a.md", member("TASK-0001", "")),
-            (
-                "task-0002 - b.md",
-                member("TASK-0002", "parent_task_id: TASK-0009\n"),
-            ),
+            ("task-0002 - b.md", member("TASK-0002", "parent_task_id: TASK-0009\n")),
             (
                 "task-0003 - w.md",
                 member("TASK-0003", "").replace("labels: []", "labels:\n  - code-review-wave"),
@@ -290,10 +261,7 @@ mod tests {
         )
         .expect_err("must refuse");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("TASK-0002: already a member of TASK-0009"),
-            "{msg}"
-        );
+        assert!(msg.contains("TASK-0002: already a member of TASK-0009"), "{msg}");
         assert!(msg.contains("TASK-0003: is itself a wave"), "{msg}");
         assert!(msg.contains("TASK-0042: not found"), "{msg}");
         assert!(out.is_empty(), "nothing printed");
@@ -308,13 +276,9 @@ mod tests {
     #[test]
     fn no_members_is_refused() {
         let (dir, store) = scratch(&[]);
-        let err = run_wave_create(
-            &store,
-            &BacklogConfig::default(),
-            &opts(&[" ", ""]),
-            &mut Vec::new(),
-        )
-        .expect_err("must refuse");
+        let err =
+            run_wave_create(&store, &BacklogConfig::default(), &opts(&[" ", ""]), &mut Vec::new())
+                .expect_err("must refuse");
         assert!(format!("{err:#}").contains("at least one member"));
         assert!(file_names(&dir).is_empty());
     }

@@ -13,11 +13,9 @@ use crate::{
 /// Seed `metadata_raw` with verbatim JSON blob rows.
 fn seed_raw(db: &ops_sqlite::Sqlite, rows: &[&str]) {
     let conn = db.lock().expect("lock");
-    conn.execute_batch("CREATE TABLE metadata_raw (json TEXT NOT NULL)")
-        .expect("create");
+    conn.execute_batch("CREATE TABLE metadata_raw (json TEXT NOT NULL)").expect("create");
     for row in rows {
-        conn.execute("INSERT INTO metadata_raw VALUES (?1)", [row])
-            .expect("seed row");
+        conn.execute("INSERT INTO metadata_raw VALUES (?1)", [row]).expect("seed row");
     }
     drop(conn);
 }
@@ -30,16 +28,10 @@ fn seed_raw(db: &ops_sqlite::Sqlite, rows: &[&str]) {
 #[test]
 fn query_metadata_raw_errors_on_multiple_rows() {
     let db = ops_sqlite::Sqlite::open_in_memory().expect("open in-memory");
-    seed_raw(
-        &db,
-        &[r#"{"workspace_root":"/a"}"#, r#"{"workspace_root":"/b"}"#],
-    );
+    seed_raw(&db, &[r#"{"workspace_root":"/a"}"#, r#"{"workspace_root":"/b"}"#]);
     let err = query_metadata_raw(&db).expect_err("multi-row must fail");
     let msg = format!("{err:#}");
-    assert!(
-        msg.contains("exactly one row") || msg.contains("found 2"),
-        "got: {msg}"
-    );
+    assert!(msg.contains("exactly one row") || msg.contains("found 2"), "got: {msg}");
 }
 
 /// Companion to the multi-row test — single-row
@@ -65,10 +57,7 @@ fn query_metadata_raw_errors_when_payload_exceeds_cap() {
     );
     let err = query_metadata_raw_with_cap(&db, 32).expect_err("oversized must fail");
     let msg = format!("{err:#}");
-    assert!(
-        msg.contains("exceeds") && msg.contains("byte cap"),
-        "got: {msg}"
-    );
+    assert!(msg.contains("exceeds") && msg.contains("byte cap"), "got: {msg}");
     assert!(msg.contains(METADATA_MAX_BYTES_ENV), "got: {msg}");
 }
 
@@ -95,9 +84,7 @@ fn cap_guard_sql_nulls_the_payload_over_cap_before_it_crosses_ffi() {
     let rows: Vec<(i64, Option<String>)> = {
         let mut stmt = conn.prepare(&sql).expect("prepare cap-guard SQL");
         let mapped = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
-            })
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)))
             .expect("query cap-guard SQL");
         mapped.collect::<Result<Vec<_>, _>>().expect("collect rows")
     };
@@ -106,10 +93,7 @@ fn cap_guard_sql_nulls_the_payload_over_cap_before_it_crosses_ffi() {
     // Over-cap row: the payload must be NULL — a materialise-then-check
     // implementation cannot produce this shape, and the error it renders is
     // byte-identical (see doc comment).
-    let over_row = rows
-        .iter()
-        .find(|(len, _)| *len > 40)
-        .expect("over-cap row present");
+    let over_row = rows.iter().find(|(len, _)| *len > 40).expect("over-cap row present");
     assert!(
         over_row.1.is_none(),
         "over-cap payload must be NULL at the FFI boundary, got: {:?}",
@@ -123,14 +107,8 @@ fn cap_guard_sql_nulls_the_payload_over_cap_before_it_crosses_ffi() {
     );
 
     // Under-cap row: the payload arrives intact (the CASE's ELSE branch).
-    let under_row = rows
-        .iter()
-        .find(|(len, _)| *len <= 40)
-        .expect("under-cap row present");
-    let text = under_row
-        .1
-        .as_deref()
-        .expect("under-cap payload must not be nulled");
+    let under_row = rows.iter().find(|(len, _)| *len <= 40).expect("under-cap row present");
+    let text = under_row.1.as_deref().expect("under-cap payload must not be nulled");
     assert!(
         text.contains(r#""payload":"ok""#) || text.contains(r#""payload": "ok""#),
         "under-cap payload must carry the row's JSON text, got: {text}"
@@ -171,10 +149,7 @@ mod max_bytes_env {
     fn unset_env_resolves_to_default_without_warning() {
         let (resolved, logs) = resolve_capturing_warns(None);
         assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
-        assert!(
-            logs.is_empty(),
-            "an unset knob is not a misconfiguration: {logs}"
-        );
+        assert!(logs.is_empty(), "an unset knob is not a misconfiguration: {logs}");
     }
 
     #[test]
@@ -188,52 +163,31 @@ mod max_bytes_env {
     fn surrounding_whitespace_is_tolerated() {
         let (resolved, logs) = resolve_capturing_warns(Some(" 1048576\n"));
         assert_eq!(resolved, 1_048_576);
-        assert!(
-            logs.is_empty(),
-            "a trailing newline must not silently drop the knob: {logs}"
-        );
+        assert!(logs.is_empty(), "a trailing newline must not silently drop the knob: {logs}");
     }
 
     #[test]
     fn malformed_value_warns_and_falls_back() {
         let (resolved, logs) = resolve_capturing_warns(Some("64MB"));
         assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
-        assert!(
-            logs.contains(METADATA_MAX_BYTES_ENV),
-            "warn must name the variable: {logs}"
-        );
-        assert!(
-            logs.contains("64MB"),
-            "warn must name the offending value: {logs}"
-        );
+        assert!(logs.contains(METADATA_MAX_BYTES_ENV), "warn must name the variable: {logs}");
+        assert!(logs.contains("64MB"), "warn must name the offending value: {logs}");
     }
 
     #[test]
     fn negative_value_warns_and_falls_back() {
         let (resolved, logs) = resolve_capturing_warns(Some("-1"));
         assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
-        assert!(
-            logs.contains(METADATA_MAX_BYTES_ENV),
-            "warn must name the variable: {logs}"
-        );
-        assert!(
-            logs.contains("-1"),
-            "warn must name the offending value: {logs}"
-        );
+        assert!(logs.contains(METADATA_MAX_BYTES_ENV), "warn must name the variable: {logs}");
+        assert!(logs.contains("-1"), "warn must name the offending value: {logs}");
     }
 
     #[test]
     fn zero_warns_and_falls_back() {
         let (resolved, logs) = resolve_capturing_warns(Some("0"));
         assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
-        assert!(
-            logs.contains(METADATA_MAX_BYTES_ENV),
-            "warn must name the variable: {logs}"
-        );
-        assert!(
-            logs.contains("zero byte cap"),
-            "warn must explain the rejection: {logs}"
-        );
+        assert!(logs.contains(METADATA_MAX_BYTES_ENV), "warn must name the variable: {logs}");
+        assert!(logs.contains("zero byte cap"), "warn must explain the rejection: {logs}");
     }
 
     #[test]
@@ -243,14 +197,8 @@ mod max_bytes_env {
             resolved, METADATA_MAX_BYTES_CEILING,
             "an unbounded knob would silently disable the payload guard"
         );
-        assert!(
-            logs.contains(METADATA_MAX_BYTES_ENV),
-            "warn must name the variable: {logs}"
-        );
-        assert!(
-            logs.contains("clamping"),
-            "warn must say the value was clamped: {logs}"
-        );
+        assert!(logs.contains(METADATA_MAX_BYTES_ENV), "warn must name the variable: {logs}");
+        assert!(logs.contains("clamping"), "warn must say the value was clamped: {logs}");
     }
 
     #[test]

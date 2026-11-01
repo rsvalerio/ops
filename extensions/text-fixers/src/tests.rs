@@ -56,10 +56,7 @@ fn trailing_whitespace_rewrites_dirty_files() {
     assert_eq!(report.files_changed, vec![PathBuf::from("a.txt")]);
     assert_eq!(report.files_skipped, 1, "the binary file is a skip");
     assert!(!report.failed());
-    assert_eq!(
-        std::fs::read(root.join("a.txt")).unwrap(),
-        b"hello\nworld\n"
-    );
+    assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"hello\nworld\n");
     assert_eq!(std::fs::read(root.join("clean.txt")).unwrap(), b"clean\n");
     assert_eq!(
         std::fs::read(root.join("bin.dat")).unwrap(),
@@ -85,17 +82,11 @@ fn check_mode_reports_without_writing() {
 
     assert_eq!(tw.files_changed, vec![PathBuf::from("a.txt")]);
     assert_eq!(eof.files_changed, vec![PathBuf::from("a.txt")]);
-    assert!(
-        tw.changed() && eof.changed(),
-        "a dirty tree must fail the check"
-    );
+    assert!(tw.changed() && eof.changed(), "a dirty tree must fail the check");
     assert!(tw.check_only && eof.check_only);
     assert_eq!(snapshot(root), before, "check mode must not write");
     let out = String::from_utf8(buf).unwrap();
-    assert!(
-        out.contains("trailing-whitespace: would fix a.txt"),
-        "{out}"
-    );
+    assert!(out.contains("trailing-whitespace: would fix a.txt"), "{out}");
     assert!(!out.contains(": fixed "), "{out}");
 }
 
@@ -159,10 +150,7 @@ fn a_file_whose_write_fails_is_counted_once() {
     let report = run_trailing_whitespace(&opts(root), &mut buf).unwrap();
 
     assert_eq!(report.files_failed.len(), 1, "the write must fail");
-    assert_eq!(
-        report.files_scanned, 0,
-        "a failed file is not also a scanned file"
-    );
+    assert_eq!(report.files_scanned, 0, "a failed file is not also a scanned file");
     let discovered = discovery::discover(root, false).unwrap().files.len();
     assert_eq!(
         report.files_scanned + report.files_skipped + report.files_failed.len(),
@@ -198,11 +186,7 @@ fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
     assert!(!r1.changed(), "trailing-whitespace is not idempotent");
     assert!(!r2.changed(), "end-of-file-fixer is not idempotent");
     assert!(!r1.failed() && !r2.failed());
-    assert_eq!(
-        snapshot(root),
-        after_first,
-        "the tree must be byte-identical after a second pass"
-    );
+    assert_eq!(snapshot(root), after_first, "the tree must be byte-identical after a second pass");
 }
 
 #[test]
@@ -261,10 +245,7 @@ fn a_file_over_the_cap_is_skipped_reported_and_counted() {
     assert_eq!(report.files_skipped, 1);
     assert_eq!(report.files_scanned, 0);
     let out = String::from_utf8(buf).unwrap();
-    assert!(
-        out.contains("big.txt"),
-        "the skip must name the file: {out}"
-    );
+    assert!(out.contains("big.txt"), "the skip must name the file: {out}");
     assert!(out.contains("exceeds cap"), "{out}");
     assert_eq!(std::fs::read(&path).unwrap(), b"trailing space   \n");
 }
@@ -286,11 +267,7 @@ fn file_mode_survives_the_rewrite() {
     assert!(report.changed());
     assert_eq!(std::fs::read(&path).unwrap(), b"hello\n");
     let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-    assert_eq!(
-        mode & 0o777,
-        0o640,
-        "the temp-file-and-rename rewrite must preserve the mode"
-    );
+    assert_eq!(mode & 0o777, 0o640, "the temp-file-and-rename rewrite must preserve the mode");
 }
 
 #[cfg(unix)]
@@ -314,10 +291,7 @@ fn a_read_only_target_is_still_rewritten_with_its_mode_intact() {
     assert!(!report.failed());
     assert_eq!(report.files_changed, vec![PathBuf::from("ro.txt")]);
     assert_eq!(std::fs::read(&path).unwrap(), b"hello\n");
-    assert_eq!(
-        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-        0o444
-    );
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o444);
 }
 
 #[test]
@@ -343,16 +317,10 @@ fn a_failing_write_names_the_path_keeps_going_and_leaves_the_file_intact() {
 
     assert!(report.failed(), "an unwritable file must fail the run");
     let failure = &report.files_failed[0];
-    assert!(
-        failure.path.ends_with("blocked.txt"),
-        "the failure must name the path: {failure:?}"
-    );
+    assert!(failure.path.ends_with("blocked.txt"), "the failure must name the path: {failure:?}");
     assert!(matches!(failure.kind, FailureKind::Write(_)));
     let out = String::from_utf8(buf).unwrap();
-    assert!(
-        out.contains("blocked.txt"),
-        "the rendered line must name the path: {out}"
-    );
+    assert!(out.contains("blocked.txt"), "the rendered line must name the path: {out}");
 
     assert_eq!(
         std::fs::read(locked_dir.join("blocked.txt")).unwrap(),
@@ -386,10 +354,7 @@ fn an_unreadable_file_is_reported_rather_than_making_the_run_look_clean() {
     let report = run_trailing_whitespace(&opts(root), &mut buf).unwrap();
     drop(guard);
 
-    assert!(
-        report.failed(),
-        "exit zero must not mean 'clean' for a file that was never read"
-    );
+    assert!(report.failed(), "exit zero must not mean 'clean' for a file that was never read");
     assert!(!report.changed());
     assert_eq!(report.files_scanned, 0);
     let failure = &report.files_failed[0];
@@ -509,10 +474,7 @@ fn a_walk_error_reaches_the_report_and_the_summary() {
         "the traversal error must be recorded, not just printed"
     );
     assert!(!report.changed(), "nothing was rewritten");
-    assert!(
-        report.failed(),
-        "a run that never saw part of the tree must not exit clean"
-    );
+    assert!(report.failed(), "a run that never saw part of the tree must not exit clean");
 
     let mut summary = Vec::new();
     write_summary(&report, "trailing-whitespace", &mut summary).unwrap();
@@ -526,10 +488,7 @@ fn a_walk_error_reaches_the_report_and_the_summary() {
 #[test]
 fn extension_constants_kebab_case() {
     for n in ["trailing-whitespace", "end-of-file-fixer", NAME, SHORTNAME] {
-        assert!(
-            n.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
-            "must be kebab-case: {n}"
-        );
+        assert!(n.chars().all(|c| c.is_ascii_lowercase() || c == '-'), "must be kebab-case: {n}");
     }
 }
 
@@ -576,9 +535,6 @@ fn registered_check_twins_pass_check_and_are_not_exclusive() {
         };
         assert!(Path::new(&exec.program).is_absolute());
         assert_eq!(exec.display_cmd(), format!("ops {fixer} --check"));
-        assert!(
-            !exec.exclusive,
-            "{id} never writes and must not serialize the plan"
-        );
+        assert!(!exec.exclusive, "{id} never writes and must not serialize the plan");
     }
 }

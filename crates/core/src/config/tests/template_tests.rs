@@ -58,19 +58,13 @@ fn init_template_without_stack_omits_stack_commands() {
     let sections = InitSections::from_flags(true, true, true);
     let content = init_template(&crate::test_utils::canonical_root(&dir), &sections)
         .expect("init_template must succeed");
-    assert!(
-        content.contains("[output]"),
-        "init template must include base [output]"
-    );
+    assert!(content.contains("[output]"), "init template must include base [output]");
     // No stack detected, so no stack-specific commands; base has no commands.
     let config: Config = toml::from_str(&content).expect("init template must deserialize");
-    assert!(
-        config.commands.is_empty(),
-        "init without detected stack should have no commands"
-    );
+    assert!(config.commands.is_empty(), "init without detected stack should have no commands");
 }
 
-/// READ-5 / TASK-1416: `OutputConfig::resolve_columns` memoises the auto
+/// `OutputConfig::resolve_columns` memoises the auto
 /// probe behind a `OnceLock<u16>`. Repeat calls with the AUTO sentinel
 /// must return the same width — SIGWINCH within a single `ops <cmd>` is
 /// not observed by design, matching the `TMPDIR_DISPLAY` /
@@ -90,7 +84,7 @@ fn resolve_columns_memoises_auto_probe() {
     }
 }
 
-/// READ-5 / TASK-1416: a pinned `columns` value bypasses the cache and is
+/// a pinned `columns` value bypasses the cache and is
 /// returned verbatim — the memoisation only applies to the AUTO sentinel.
 #[test]
 fn resolve_columns_pinned_value_is_not_cached() {
@@ -112,10 +106,7 @@ fn init_template_always_includes_backlog() {
     let sections = InitSections::from_flags(false, false, false);
     let content = init_template(&crate::test_utils::canonical_root(&dir), &sections)
         .expect("init_template must succeed");
-    assert!(
-        content.contains("[backlog]"),
-        "template must include [backlog], got:\n{content}"
-    );
+    assert!(content.contains("[backlog]"), "template must include [backlog], got:\n{content}");
     assert!(content.contains("default_status = \"Triage\""));
     assert!(content.contains("backlog_directory = \".backlog\""));
 }

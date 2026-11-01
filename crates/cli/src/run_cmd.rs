@@ -198,13 +198,12 @@ where
 {
     use anyhow::Context as _;
     let rt = match kind {
-        RuntimeKind::Sequential => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build(),
+        RuntimeKind::Sequential => {
+            tokio::runtime::Builder::new_current_thread().enable_all().build()
+        }
         RuntimeKind::MultiThread => tokio::runtime::Runtime::new(),
     };
-    rt.context("failed to start tokio runtime for command execution")?
-        .block_on(f)
+    rt.context("failed to start tokio runtime for command execution")?.block_on(f)
 }
 
 fn run_commands(
@@ -212,14 +211,7 @@ fn run_commands(
     names: &[&str],
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
-    let RunOptions {
-        dry_run,
-        verbose,
-        tap,
-        junit,
-        raw,
-        cwd_escape_policy,
-    } = opts;
+    let RunOptions { dry_run, verbose, tap, junit, raw, cwd_escape_policy } = opts;
     let runner = build_runner(config, cwd_escape_policy)?;
 
     // A command's own `raw = true` promotes the whole invocation to raw
@@ -332,9 +324,7 @@ async fn run_name_plans(
             "running named command plan"
         );
     }
-    runner
-        .run_named_plans(plans.iter().map(|p| &p.plan), raw, on_event)
-        .await
+    runner.run_named_plans(plans.iter().map(|p| &p.plan), raw, on_event).await
 }
 
 /// One display lifecycle for the whole named sequence.
@@ -651,10 +641,7 @@ const SIGTERM_SIGNO: i32 = 15;
 /// Map a shutdown signal to the shell convention of `128 + signo`
 /// (130 for SIGINT, 143 for SIGTERM).
 fn exit_code_for_signal(signo: i32) -> u8 {
-    u8::try_from(signo)
-        .ok()
-        .and_then(|s: u8| s.checked_add(128))
-        .unwrap_or(SIGINT_EXIT)
+    u8::try_from(signo).ok().and_then(|s: u8| s.checked_add(128)).unwrap_or(SIGINT_EXIT)
 }
 
 /// Turn an interrupted run into the error `main` renders, carrying the
@@ -709,12 +696,10 @@ fn run_commands_with_display(
     // SIGTERM/SIGINT drops it and the runner's own cancellation path
     // (process-group teardown) runs.
     let outcome = run_with_runtime_kind(kind, async {
-        Ok(
-            run_until_signal(run_named_sequence_lifecycle(runner, plans, &mut |event| {
-                display.handle_event(event);
-            }))
-            .await,
-        )
+        Ok(run_until_signal(run_named_sequence_lifecycle(runner, plans, &mut |event| {
+            display.handle_event(event);
+        }))
+        .await)
     })?;
     // Restore the terminal on *both* paths — on the signal path this is the
     // destructor that would otherwise never have run.

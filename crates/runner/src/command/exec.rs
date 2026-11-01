@@ -2,7 +2,7 @@
 //! capturing output,
 //! emitting [`RunnerEvent`]s, and applying timeouts.
 //!
-//! # Stdin: captured steps are non-interactive (ASYNC-6 / TASK-1918)
+//! # Stdin: captured steps are non-interactive
 //!
 //! Captured steps ([`exec_command`], via `spawn_capped`) are spawned with
 //! `stdin` set to [`Stdio::null()`]. A captured child therefore reads EOF
@@ -26,7 +26,7 @@
 //! - Users should only run `cargo ops` in directories they trust
 //! - This is documented in `config::load_config` and the README's Security section
 //!
-//! ## Environment Variables (SEC-002, SEC-003)
+//! ## Environment Variables
 //!
 //! **WARNING: Do NOT store secrets in `.ops.toml` files.**
 //!
@@ -101,7 +101,7 @@ where
     (result, start.elapsed())
 }
 
-/// PERF-1 / TASK-0764: read up to `cap` bytes from `reader` into a `Vec`,
+/// Read up to `cap` bytes from `reader` into a `Vec`,
 /// then drain the rest into a sink, counting the dropped bytes. Bounds peak
 /// memory near `cap` even if the child writes orders of magnitude more.
 async fn read_capped<R: AsyncRead + Unpin>(
@@ -123,7 +123,7 @@ async fn read_capped<R: AsyncRead + Unpin>(
 /// Outcome of one drain task: the join result wrapping the read result.
 type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
 
-/// CONC-9 / TASK-1919: how long the post-exit pipe drain may run before the
+/// How long the post-exit pipe drain may run before the
 /// step is assumed to be held open by an orphan.
 ///
 /// `child.wait()` returning does **not** close the capture pipes: any
@@ -137,7 +137,7 @@ type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinErr
 /// Generous on purpose: a healthy step drains in microseconds, so this is
 /// only ever paid by a step that is already misbehaving.
 ///
-/// CONC-9 / TASK-2022: this deadline can now terminate a descendant
+/// This deadline can now terminate a descendant
 /// process, which makes it the highest-consequence default in the module —
 /// a step that deliberately leaves a grandchild streaming to the inherited
 /// pipe has its capture truncated and that grandchild killed. Operators
@@ -160,7 +160,7 @@ const DRAIN_GRACE_ENV: &str = "OPS_OUTPUT_DRAIN_GRACE_SECS";
 /// pre-TASK-1919 hang by setting an arbitrarily large value.
 const MAX_POST_EXIT_DRAIN_GRACE_SECS: u64 = 3600;
 
-/// PERF-3: resolved once per process, mirroring `output_byte_cap`'s
+/// Resolved once per process, mirroring `output_byte_cap`'s
 /// `OnceLock` contract — the value is process-global and constant for a
 /// run, and the drain path runs under every parallel step.
 static POST_EXIT_DRAIN_GRACE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
@@ -189,7 +189,7 @@ fn post_exit_drain_grace() -> Duration {
 /// Second, short deadline applied after the orphan holding the pipes has
 /// been `SIGKILL`ed: the read side should observe EOF essentially at once.
 ///
-/// CONC-9 / TASK-2022: deliberately *not* operator-tunable, unlike
+/// Deliberately *not* operator-tunable, unlike
 /// [`DEFAULT_POST_EXIT_DRAIN_GRACE_SECS`]. This is not a wait on a workload
 /// — the process holding the write end has already been `SIGKILL`ed, so the
 /// only thing outstanding is the kernel closing its descriptors. There is no
@@ -239,12 +239,12 @@ fn missing_drain() -> std::io::Error {
     std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
 }
 
-/// PERF-1 / TASK-0764: spawn `cmd` with piped stdio, stream both pipes through
+/// Spawn `cmd` with piped stdio, stream both pipes through
 /// `read_capped`, and assemble a `CommandOutput`. Replaces `cmd.output()` so
 /// runaway children cannot peak the runner's RSS at the full output size — the
 /// excess bytes are sinked, not buffered.
 ///
-/// CONC-9 / TASK-1919: the child is also spawned as its own process-group
+/// The child is also spawned as its own process-group
 /// leader and owned by a [`ChildGroup`] guard, so a cancelled step (timeout
 /// or `fail_fast`) tears down the child's whole descendant tree rather than
 /// only its root, and the post-exit drain is bounded by
@@ -265,9 +265,7 @@ async fn spawn_capped(
     // which lands in the captured stderr the display already renders.
     // Interactive steps must use `--raw` ([`exec_command_raw`]), which keeps
     // `Stdio::inherit()` deliberately.
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // CONC-9 / TASK-1919: make the child its own process-group leader so
     // cancellation can address the tree it forks, not just the leader.
     configure_process_group(cmd);
@@ -360,12 +358,10 @@ async fn spawn_capped(
     // deliberately backgrounded by the step and closed its pipes, so it is
     // not the runner's to signal.
     group.disarm();
-    let (stdout_bytes, stdout_dropped) = stdout_result
-        .ok_or_else(missing_drain)?
-        .map_err(join_to_io)??;
-    let (stderr_bytes, stderr_dropped) = stderr_result
-        .ok_or_else(missing_drain)?
-        .map_err(join_to_io)??;
+    let (stdout_bytes, stdout_dropped) =
+        stdout_result.ok_or_else(missing_drain)?.map_err(join_to_io)??;
+    let (stderr_bytes, stderr_dropped) =
+        stderr_result.ok_or_else(missing_drain)?.map_err(join_to_io)??;
     Ok(CommandOutput::from_streamed(
         status,
         stdout_bytes,
@@ -375,7 +371,7 @@ async fn spawn_capped(
     ))
 }
 
-/// PERF-1 / TASK-0764 test shim: expose `spawn_capped` for the streaming-cap
+/// Test shim: expose `spawn_capped` for the streaming-cap
 /// regression test.
 #[cfg(test)]
 pub async fn spawn_capped_for_test(
@@ -408,8 +404,8 @@ fn redact_spawn_error(program: &str, e: &std::io::Error) -> String {
     format!("failed to spawn `{program}`: {kind:?}", kind = e.kind())
 }
 
-/// DUP-3 / TASK-0305: log the full spawn error at debug (for operators
-/// chasing SEC-22 leaks) and return the redacted user-facing message.
+/// Log the full spawn error at debug (for operators
+/// chasing redaction leaks) and return the redacted user-facing message.
 ///
 /// Both `exec_command` and `exec_command_raw` need exactly this pair on
 /// every spawn failure; centralising it removes the drift risk if redaction
@@ -424,14 +420,14 @@ fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'stat
 
 /// Emit `StepOutput` events for captured stdout and stderr.
 ///
-/// PERF-3 / TASK-0732: each capture buffer is wrapped in a single
+/// Each capture buffer is wrapped in a single
 /// `Arc<str>` and per-line events carry an [`super::events::OutputLine`] view onto a byte
 /// sub-range of that shared buffer. A noisy step that previously paid one
 /// heap allocation per line via `line.to_string()` now pays one per buffer;
 /// the per-line event emission is just an `Arc::clone` (atomic refcount
 /// increment).
 ///
-/// PERF-3 / TASK-0838 — allocation accounting (be explicit, not aspirational):
+/// Allocation accounting (be explicit, not aspirational):
 /// `Arc::<str>::from(&str)` allocates a fresh `Arc<str>` *and* memcpys the
 /// `&str` contents into it. Per stream that is one allocation + one
 /// `output.len()` byte copy on top of the existing `CommandOutput.{stdout,
@@ -468,19 +464,13 @@ fn output_line_events<'a>(
     stdout: &'a Arc<str>,
     stderr: &'a Arc<str>,
 ) -> impl Iterator<Item = RunnerEvent> + 'a {
-    [(stdout, false), (stderr, true)]
-        .into_iter()
-        .flat_map(move |(buf, is_stderr)| {
-            LineRanges {
-                bytes: buf.as_bytes(),
-                start: 0,
-            }
-            .map(move |range| RunnerEvent::StepOutput {
-                id: id.into(),
-                line: crate::command::OutputLine::slice(Arc::clone(buf), range),
-                stderr: is_stderr,
-            })
+    [(stdout, false), (stderr, true)].into_iter().flat_map(move |(buf, is_stderr)| {
+        LineRanges { bytes: buf.as_bytes(), start: 0 }.map(move |range| RunnerEvent::StepOutput {
+            id: id.into(),
+            line: crate::command::OutputLine::slice(Arc::clone(buf), range),
+            stderr: is_stderr,
         })
+    })
 }
 
 /// Byte ranges of the lines in a capture buffer, excluding the terminator.
@@ -505,10 +495,7 @@ impl Iterator for LineRanges<'_> {
             // newline index so `end + 1 <= bytes.len()`.
             let end = start.saturating_add(off);
             let trimmed_end = if end > start
-                && self
-                    .bytes
-                    .get(end.saturating_sub(1))
-                    .is_some_and(|b| *b == b'\r')
+                && self.bytes.get(end.saturating_sub(1)).is_some_and(|b| *b == b'\r')
             {
                 end.saturating_sub(1)
             } else {
@@ -553,11 +540,7 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
         duration,
         stdout: output.stdout,
         stderr: output.stderr,
-        message: if output.success {
-            None
-        } else {
-            Some(output.status_message)
-        },
+        message: if output.success { None } else { Some(output.status_message) },
     }
 }
 
@@ -609,7 +592,7 @@ async fn capture(
     (captured, duration)
 }
 
-/// ASYNC-6 / TASK-0159: no pre-spawn retries.
+/// no pre-spawn retries.
 ///
 /// Transient spawn failures (EAGAIN under fork load, temporary PATH
 /// resolution hiccups, NFS `current_dir` hiccups) are reported directly
@@ -623,7 +606,7 @@ async fn capture(
 ///   boundary between "pre-spawn" and "post-spawn" is not visible from
 ///   outside the tokio runtime, so we cannot safely distinguish.
 /// - The existing error message already surfaces the underlying
-///   `io::ErrorKind` via `SEC-22` redaction, so users can opt in to
+///   `io::ErrorKind` via redaction, so users can opt in to
 ///   external retry logic at the CI level where context is richer.
 ///
 /// Revisit if CI flakiness metrics ever point to transient spawn errors as
@@ -637,10 +620,7 @@ pub async fn exec_command(
     emit: &mut impl FnMut(RunnerEvent),
 ) -> StepResult {
     let display_cmd = Some(spec.display_cmd().into_owned());
-    emit(RunnerEvent::StepStarted {
-        id: id.into(),
-        display_cmd: display_cmd.clone(),
-    });
+    emit(RunnerEvent::StepStarted { id: id.into(), display_cmd: display_cmd.clone() });
 
     let (captured, duration) = capture(spec, env).await;
     let output = match captured {
@@ -661,16 +641,10 @@ pub async fn exec_command(
     // `Arc::clone` (refcount bump), not a fresh `Arc::from(&str)` per call.
     // The original `output.stdout`/`output.stderr` `String`s remain owned
     // and are moved into `StepResult` by `build_step_result` below.
-    let stdout_arc: Arc<str> = if output.stdout.is_empty() {
-        Arc::from("")
-    } else {
-        Arc::from(output.stdout.as_str())
-    };
-    let stderr_arc: Arc<str> = if output.stderr.is_empty() {
-        Arc::from("")
-    } else {
-        Arc::from(output.stderr.as_str())
-    };
+    let stdout_arc: Arc<str> =
+        if output.stdout.is_empty() { Arc::from("") } else { Arc::from(output.stdout.as_str()) };
+    let stderr_arc: Arc<str> =
+        if output.stderr.is_empty() { Arc::from("") } else { Arc::from(output.stderr.as_str()) };
     emit_output_events(id, &stdout_arc, &stderr_arc, emit);
     emit_step_completion(id, duration, &output, display_cmd, emit);
     build_step_result(id, duration, output)
@@ -738,7 +712,7 @@ pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecE
     }
 }
 
-/// FN-3 / TASK-2078: the runner-scoped execution handles every spawn path
+/// The runner-scoped execution handles every spawn path
 /// shares — sequential (`run_exec`), raw (`run_plan_raw`), and parallel
 /// ([`ExecTaskCtx`]) alike. Adding a runner-scoped handle (the next
 /// `workspace_cache`-style addition) touches this one struct and every
@@ -748,11 +722,11 @@ pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecE
 pub struct ExecEnv {
     pub cwd: Arc<PathBuf>,
     pub vars: Arc<Variables>,
-    /// SEC-14 / TASK-0886: cwd-escape policy threaded down from
+    /// Cwd-escape policy threaded down from
     /// `CommandRunner` so every spawn shares the same fail-closed
     /// guarantee.
     pub policy: CwdEscapePolicy,
-    /// ARCH-9 / TASK-1126: runner-scoped workspace canonicalize cache so
+    /// Runner-scoped workspace canonicalize cache so
     /// spawns share the same cache that
     /// `CommandRunner::invalidate_workspace_cache` mutates. Previously the
     /// spawn path read a process-global static, which made the public
@@ -760,18 +734,18 @@ pub struct ExecEnv {
     pub workspace_cache: Arc<WorkspaceCanonicalCache>,
 }
 
-/// FN-9 / TASK-0778: shared infrastructure passed to every parallel task.
+/// Shared infrastructure passed to every parallel task.
 ///
 /// Groups [`ExecEnv`] with the parallel-only handles — the outbound event
 /// `tx` and the `abort` signal — so each parallel spawn site clones the
 /// bag once via `Clone` rather than threading positional arguments
 /// through `spawn_parallel_tasks`. The struct uses `Arc`/`Sender`
 /// semantics so cloning is a refcount bump per field — the parallel hot
-/// path retains the allocation profile that TASK-0462 established.
+/// path retains its established allocation profile.
 ///
 /// # Stability contract
 ///
-/// API / TASK-1233: `ExecTaskCtx` is `#[non_exhaustive]` (matching the
+/// `ExecTaskCtx` is `#[non_exhaustive]` (matching the
 /// runner's other public bag types like `RunnerEvent` and `StepResult`)
 /// so adding a new runner-scoped handle (e.g. per-task telemetry, a
 /// cancellation token, an execution budget) is *not* a `SemVer` break for
@@ -791,7 +765,7 @@ pub struct ExecTaskCtx {
 #[allow(dead_code)]
 impl ExecTaskCtx {
     /// Construct an [`ExecTaskCtx`] from its current required handles.
-    /// API / TASK-1233: prefer this over struct-literal construction so
+    /// Prefer this over struct-literal construction so
     /// future additive fields (per-task telemetry, cancellation token,
     /// execution budget) can land without churning every embedder's
     /// call site.
@@ -816,7 +790,7 @@ async fn send_unless_aborted(
     }
 }
 
-/// CONC-9 / TASK-0459+0571: forward a terminal event (`StepFinished` /
+/// Forward a terminal event (`StepFinished` /
 /// `StepFailed` / `StepSkipped`) on `tx`, dropping it if abort fires first so
 /// `fail_fast` can stop a sibling task without blocking on a full bounded
 /// channel.
@@ -855,12 +829,7 @@ pub async fn exec_standalone(
         // still `StepSkipped` so the row renders identically — the
         // distinction is internal to the result type.
         let display_cmd = Some(spec.display_cmd().into_owned());
-        let _ = tx
-            .send(RunnerEvent::StepSkipped {
-                id: id.clone(),
-                display_cmd,
-            })
-            .await;
+        let _ = tx.send(RunnerEvent::StepSkipped { id: id.clone(), display_cmd }).await;
         return StepResult::cancelled(id);
     }
     let display_cmd = Some(spec.display_cmd().into_owned());
@@ -869,10 +838,7 @@ pub async fn exec_standalone(
     // condition.
     send_unless_aborted(
         &tx,
-        RunnerEvent::StepStarted {
-            id: id.clone(),
-            display_cmd: display_cmd.clone(),
-        },
+        RunnerEvent::StepStarted { id: id.clone(), display_cmd: display_cmd.clone() },
         &abort,
     )
     .await;
@@ -921,10 +887,8 @@ pub async fn exec_standalone(
     // closed, or abort with a full channel), log a structured warning so the
     // count survives in the log instead of being silently lost.
     if dropped_outputs > 0 {
-        let dropped = RunnerEvent::StepOutputDropped {
-            id: id.clone(),
-            dropped_count: dropped_outputs,
-        };
+        let dropped =
+            RunnerEvent::StepOutputDropped { id: id.clone(), dropped_count: dropped_outputs };
         if !send_unless_aborted(&tx, dropped, &abort).await {
             tracing::warn!(
                 step_id = ?id.as_str(),
@@ -996,9 +960,7 @@ mod drain_grace_knob_tests {
     /// `resolve_env_usize` directly, the way the `OPS_MAX_PARALLEL` tests do.
     fn resolve(value: Option<&str>) -> usize {
         let (default, ceiling) = drain_grace_bounds();
-        with_env(value, || {
-            resolve_env_usize(DRAIN_GRACE_ENV, default, ceiling)
-        })
+        with_env(value, || resolve_env_usize(DRAIN_GRACE_ENV, default, ceiling))
     }
 
     #[test]
@@ -1013,7 +975,7 @@ mod drain_grace_knob_tests {
         assert_eq!(resolve(Some("30")), 30);
     }
 
-    /// CONC-9 / TASK-2022 AC #2: an unparseable or zero value falls back to
+    /// an unparseable or zero value falls back to
     /// the default rather than silently disabling the deadline.
     #[test]
     #[serial_test::serial(env_output_cap)]
@@ -1038,7 +1000,7 @@ mod drain_grace_knob_tests {
 
 #[cfg(test)]
 mod spawn_error_log_format_tests {
-    /// SEC-21 / TASK-1127: `log_and_redact_spawn_error` formats `program`
+    /// `log_and_redact_spawn_error` formats `program`
     /// (the raw `.ops.toml`-supplied program string) via the `?` (Debug)
     /// formatter so embedded newlines / ANSI escapes cannot forge log
     /// records or repaint operator terminals. Pin the value-level escape
@@ -1053,7 +1015,7 @@ mod spawn_error_log_format_tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// SEC-21 / TASK-2020: `.ops.toml` table keys and `aliases` entries
+    /// `.ops.toml` table keys and `aliases` entries
     /// become `CommandId`s and reach `tracing` fields across the crate.
     /// They are rendered with the `?` (Debug) formatter applied to
     /// `as_str()`, which escapes embedded newlines / ANSI escapes — so a
@@ -1068,10 +1030,7 @@ mod spawn_error_log_format_tests {
         assert!(!rendered.contains('\n'), "got: {rendered}");
         assert!(!rendered.contains('\u{1b}'), "got: {rendered}");
         assert!(rendered.contains("\\n"), "got: {rendered}");
-        assert!(
-            rendered.starts_with('"') && rendered.ends_with('"'),
-            "got: {rendered}"
-        );
+        assert!(rendered.starts_with('"') && rendered.ends_with('"'), "got: {rendered}");
         assert!(!rendered.contains("CommandId"), "got: {rendered}");
 
         // The Display rendering this replaced would not have escaped.

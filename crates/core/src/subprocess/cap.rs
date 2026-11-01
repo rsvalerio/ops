@@ -51,7 +51,7 @@ pub const MAX_TIMEOUT_SECS: u64 = 3600;
 /// unparseable / `> BYTE_CAP_ENV_MAX` matrix and the one-shot
 /// `tracing::warn!` discipline stay aligned with `manifest_max_bytes` and
 /// `ops_toml_max_bytes`. Without the shared helper an
-/// `OPS_OUTPUT_BYTE_CAP=18446744073709551615` silently disabled the SEC-33
+/// `OPS_OUTPUT_BYTE_CAP=18446744073709551615` silently disabled the
 /// cap for subprocess capture — exactly the failure mode the upper-bound
 /// clamp was added to prevent.
 pub(super) fn output_byte_cap() -> usize {
@@ -129,7 +129,7 @@ pub fn default_timeout(op_default: Duration) -> Duration {
 mod tests {
     use super::*;
 
-    /// ASYNC-6 / TASK-0304 + PERF-3 / TASK-1218: the matrix tests now
+    /// The matrix tests now
     /// exercise the pure [`parse_subprocess_timeout`] helper directly. The
     /// public [`default_timeout`] memoises via `cached_subprocess_timeout`,
     /// so a serial-mutating test would either be the first to populate the
@@ -172,11 +172,11 @@ mod tests {
         }
     }
 
-    /// ARCH-11 / TASK-1463: `output_byte_cap` must route through the shared
+    /// `output_byte_cap` must route through the shared
     /// `cached_byte_cap_env` parser so an
     /// `OPS_OUTPUT_BYTE_CAP=18446744073709551615` clamps to
     /// `text::BYTE_CAP_ENV_MAX` (1 GiB) rather than silently disabling the
-    /// SEC-33 cap for subprocess capture. The production `OnceLock` is
+    /// cap for subprocess capture. The production `OnceLock` is
     /// process-global, so the test drives a fresh local slot through the
     /// shared parser to pin the clamp without poisoning the production
     /// cache.

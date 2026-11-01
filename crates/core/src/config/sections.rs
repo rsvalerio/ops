@@ -160,7 +160,7 @@ pub struct BacklogSection {
     /// terminal status cleanup moves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub statuses: Option<Vec<String>>,
-    /// Zero-padding width of the numeric id part (`TASK-0001`).
+    /// Zero-padding width of the numeric id part.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zero_padded_ids: Option<usize>,
     /// Task id prefix.
@@ -211,10 +211,7 @@ pub struct OutputConfig {
     pub theme: String,
     /// Line width in columns for step lines (command + spacer + time). No runtime change.
     /// When omitted, auto-detected from terminal width (90%).
-    #[serde(
-        default = "default_columns",
-        skip_serializing_if = "is_default_columns"
-    )]
+    #[serde(default = "default_columns", skip_serializing_if = "is_default_columns")]
     pub columns: u16,
     /// When true (default), show error details (exit status, stderr tail) inline
     /// below the failed step line. When false, only the step line with failure icon is shown.

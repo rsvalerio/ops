@@ -162,28 +162,16 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     merge_extend(&mut base.extend, extend);
     copy_optional_field(&mut base.data.path, data.as_ref().map(|d| &d.path));
     merge_indexmap(&mut base.themes, themes);
-    copy_optional_field(
-        &mut base.extensions.enabled,
-        extensions.as_ref().map(|e| &e.enabled),
-    );
+    copy_optional_field(&mut base.extensions.enabled, extensions.as_ref().map(|e| &e.enabled));
     copy_optional_field(&mut base.about.fields, about.as_ref().map(|a| &a.fields));
     // `[backlog]` merges per key, like data/about: a layer that sets only
     // `default_status` leaves the base's `task_prefix` (say) intact.
     if let Some(backlog) = backlog.as_ref() {
-        copy_optional_field(
-            &mut base.backlog.default_status,
-            Some(&backlog.default_status),
-        );
+        copy_optional_field(&mut base.backlog.default_status, Some(&backlog.default_status));
         copy_optional_field(&mut base.backlog.statuses, Some(&backlog.statuses));
-        copy_optional_field(
-            &mut base.backlog.zero_padded_ids,
-            Some(&backlog.zero_padded_ids),
-        );
+        copy_optional_field(&mut base.backlog.zero_padded_ids, Some(&backlog.zero_padded_ids));
         copy_optional_field(&mut base.backlog.task_prefix, Some(&backlog.task_prefix));
-        copy_optional_field(
-            &mut base.backlog.backlog_directory,
-            Some(&backlog.backlog_directory),
-        );
+        copy_optional_field(&mut base.backlog.backlog_directory, Some(&backlog.backlog_directory));
     }
     merge_indexmap(&mut base.foundation.waivers, foundation.map(|f| f.waivers));
     for prefix in lint_actions.into_iter().flat_map(|l| l.allow) {
@@ -264,7 +252,7 @@ mod tests {
         assert_eq!(base["cmd-c"], 3, "new overlay key inserted");
     }
 
-    /// SEC-21 / TASK-0745: a config-supplied key with embedded control
+    /// a config-supplied key with embedded control
     /// characters must not forge log entries. Subscribe with a plain
     /// fmt-layer writer (which renders fields via Display) and assert that
     /// the captured output contains no raw newline within the keys field
@@ -293,10 +281,7 @@ mod tests {
                 "control-char in key forged a log line: {logged}"
             );
         }
-        assert!(
-            logged.contains("\\n"),
-            "expected escaped \\n in captured output: {logged}"
-        );
+        assert!(logged.contains("\\n"), "expected escaped \\n in captured output: {logged}");
     }
 
     #[test]
@@ -351,20 +336,14 @@ mod tests {
     fn merge_config_stack_override() {
         let mut base = Config::default();
         assert!(base.stack.is_none());
-        let overlay = ConfigOverlay {
-            stack: Some("rust".to_string()),
-            ..Default::default()
-        };
+        let overlay = ConfigOverlay { stack: Some("rust".to_string()), ..Default::default() };
         merge_config(&mut base, overlay);
         assert_eq!(base.stack.as_deref(), Some("rust"));
     }
 
     #[test]
     fn merge_config_empty_overlay_preserves_base() {
-        let mut base = Config {
-            stack: Some("java".to_string()),
-            ..Config::default()
-        };
+        let mut base = Config { stack: Some("java".to_string()), ..Config::default() };
         let overlay = ConfigOverlay::default();
         merge_config(&mut base, overlay);
         assert_eq!(base.stack.as_deref(), Some("java"));
@@ -380,10 +359,7 @@ mod tests {
             ..Default::default()
         };
         merge_config(&mut base, overlay);
-        assert_eq!(
-            base.data.path.as_deref(),
-            Some(Path::new("/custom/data.db"))
-        );
+        assert_eq!(base.data.path.as_deref(), Some(Path::new("/custom/data.db")));
     }
 
     #[test]
@@ -397,10 +373,7 @@ mod tests {
             ..Default::default()
         };
         merge_config(&mut base, overlay);
-        assert_eq!(
-            base.extensions.enabled.as_deref(),
-            Some(vec!["about".to_string()].as_slice())
-        );
+        assert_eq!(base.extensions.enabled.as_deref(), Some(vec!["about".to_string()].as_slice()));
     }
 
     #[test]
@@ -413,10 +386,7 @@ mod tests {
             ..Default::default()
         };
         merge_config(&mut base, overlay);
-        assert_eq!(
-            base.about.fields,
-            Some(vec!["project".to_string(), "codebase".to_string()])
-        );
+        assert_eq!(base.about.fields, Some(vec!["project".to_string(), "codebase".to_string()]));
     }
 
     /// `[foundation.waivers]` merges per key: a later layer adds or replaces
@@ -432,17 +402,8 @@ mod tests {
         let layer: ConfigOverlay =
             toml::from_str("[foundation.waivers]\n\"deny.toml\" = \"c\"\n").expect("parse layer");
         merge_config(&mut base, layer);
-        assert_eq!(
-            base.foundation
-                .waivers
-                .get("rustfmt.toml")
-                .map(String::as_str),
-            Some("a")
-        );
-        assert_eq!(
-            base.foundation.waivers.get("deny.toml").map(String::as_str),
-            Some("c")
-        );
+        assert_eq!(base.foundation.waivers.get("rustfmt.toml").map(String::as_str), Some("a"));
+        assert_eq!(base.foundation.waivers.get("deny.toml").map(String::as_str), Some("c"));
     }
 
     /// `[lint_actions] allow` accumulates across layers without duplicates.
@@ -479,10 +440,7 @@ mod tests {
                 ..Default::default()
             }),
         );
-        let overlay = ConfigOverlay {
-            commands: Some(overlay_cmds),
-            ..Default::default()
-        };
+        let overlay = ConfigOverlay { commands: Some(overlay_cmds), ..Default::default() };
         merge_config(&mut base, overlay);
         assert!(base.commands.contains_key("existing"));
         assert!(base.commands.contains_key("new_cmd"));
@@ -499,10 +457,7 @@ mod tests {
         let mut base = Config::default();
         base.extend.insert(
             "verify".to_string(),
-            ExtendEntry {
-                commands: vec!["from-base".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["from-base".to_string()], ..ExtendEntry::default() },
         );
         let overlay = ConfigOverlay {
             extend: Some(IndexMap::from([
@@ -525,24 +480,18 @@ mod tests {
         };
         merge_config(&mut base, overlay);
         assert_eq!(
-            base.extend
-                .get("verify")
-                .map(|e| e.commands.clone())
-                .unwrap_or_default(),
+            base.extend.get("verify").map(|e| e.commands.clone()).unwrap_or_default(),
             vec!["from-base".to_string(), "from-overlay".to_string()],
             "same-target entries must concatenate in layer order"
         );
         assert_eq!(
-            base.extend
-                .get("qa")
-                .map(|e| e.commands.clone())
-                .unwrap_or_default(),
+            base.extend.get("qa").map(|e| e.commands.clone()).unwrap_or_default(),
             vec!["new-target".to_string()],
             "new targets must be inserted"
         );
     }
 
-    /// TASK-2274: `help` / `category` are scalars, so they replace instead
+    /// `help` / `category` are scalars, so they replace instead
     /// of concatenating — the last layer that sets one wins, and a layer
     /// that sets none keeps the earlier layer's value.
     #[test]
@@ -576,11 +525,7 @@ mod tests {
             vec!["from-base".to_string(), "from-overlay".to_string()],
             "lists still concatenate"
         );
-        assert_eq!(
-            entry.help.as_deref(),
-            Some("overlay help"),
-            "the last layer's help wins"
-        );
+        assert_eq!(entry.help.as_deref(), Some("overlay help"), "the last layer's help wins");
         assert_eq!(
             entry.category.as_deref(),
             Some("Base Cat"),
@@ -588,7 +533,7 @@ mod tests {
         );
     }
 
-    /// TASK-2272 #4: exec-target extends concatenate across layers with the
+    /// Exec-target extends concatenate across layers with the
     /// same rule as composite extends — a `.ops.d` fragment's `args` stack on
     /// `.ops.toml`'s, never replace them.
     #[test]
@@ -597,27 +542,18 @@ mod tests {
         let mut base = Config::default();
         base.extend.insert(
             "clippy".to_string(),
-            ExtendEntry {
-                args: vec!["--locked".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { args: vec!["--locked".to_string()], ..ExtendEntry::default() },
         );
         let overlay = ConfigOverlay {
             extend: Some(IndexMap::from([(
                 "clippy".to_string(),
-                ExtendEntry {
-                    args: vec!["--verbose".to_string()],
-                    ..ExtendEntry::default()
-                },
+                ExtendEntry { args: vec!["--verbose".to_string()], ..ExtendEntry::default() },
             )])),
             ..Default::default()
         };
         merge_config(&mut base, overlay);
         assert_eq!(
-            base.extend
-                .get("clippy")
-                .map(|e| e.args.clone())
-                .unwrap_or_default(),
+            base.extend.get("clippy").map(|e| e.args.clone()).unwrap_or_default(),
             vec!["--locked".to_string(), "--verbose".to_string()],
             "same-target args must concatenate in layer order"
         );

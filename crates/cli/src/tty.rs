@@ -60,10 +60,7 @@ mod tests {
     fn require_tty_fails_when_not_tty() {
         let result = require_tty_with("test-cmd", || false);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
     }
 
     #[test]
@@ -92,29 +89,18 @@ mod tests {
     fn prompt_gate_refuses_when_prompt_stream_is_not_a_terminal_but_stdout_is() {
         // `ops theme select 2>/dev/null`: the old stdout-based gate let this
         // through and inquire drew the picker into /dev/null.
-        let streams = Streams {
-            stdout: true,
-            stderr: false,
-            stdin: true,
-        };
+        let streams = Streams { stdout: true, stderr: false, stdin: true };
         assert!(streams.stdout, "stdout is a terminal in this scenario");
         let result = require_tty_with("theme select", || streams.prompt_gate());
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
     }
 
     #[test]
     fn prompt_gate_permits_when_prompt_stream_is_a_terminal_but_stdout_is_not() {
         // `ops theme select > out.txt`: the terminal is fully attached, so the
         // picker works and the command must not be refused.
-        let streams = Streams {
-            stdout: false,
-            stderr: true,
-            stdin: true,
-        };
+        let streams = Streams { stdout: false, stderr: true, stdin: true };
         assert!(!streams.stdout, "stdout is redirected in this scenario");
         assert!(require_tty_with("theme select", || streams.prompt_gate()).is_ok());
     }
@@ -122,20 +108,14 @@ mod tests {
     #[test]
     fn prompt_gate_refuses_when_stdin_is_not_a_terminal() {
         // A prompt that can be drawn but never answered is still a hang.
-        let streams = Streams {
-            stdout: true,
-            stderr: true,
-            stdin: false,
-        };
+        let streams = Streams { stdout: true, stderr: true, stdin: false };
         assert!(require_tty_with("theme select", || streams.prompt_gate()).is_err());
     }
 
     #[test]
     fn select_option_display() {
-        let opt = SelectOption {
-            name: "build".to_string(),
-            description: "Run cargo build".to_string(),
-        };
+        let opt =
+            SelectOption { name: "build".to_string(), description: "Run cargo build".to_string() };
         assert_eq!(format!("{opt}"), "build — Run cargo build");
     }
 }

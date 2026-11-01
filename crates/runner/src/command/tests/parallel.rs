@@ -10,84 +10,49 @@ async fn run_plan_parallel_success() {
     commands.insert("e2".to_string(), echo_spec);
     let runner = test_runner(commands);
     let mut events = Vec::new();
-    let results = runner
-        .run_plan_parallel(&["e1".into(), "e2".into()], true, &mut |e| events.push(e))
-        .await;
+    let results =
+        runner.run_plan_parallel(&["e1".into(), "e2".into()], true, &mut |e| events.push(e)).await;
     assert!(results.iter().all(|r| r.success));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, RunnerEvent::PlanStarted { .. })));
-    assert_eq!(
-        events
-            .iter()
-            .filter(|e| matches!(e, RunnerEvent::StepFinished { .. }))
-            .count(),
-        2
-    );
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, RunnerEvent::RunFinished { success: true, .. })));
+    assert!(events.iter().any(|e| matches!(e, RunnerEvent::PlanStarted { .. })));
+    assert_eq!(events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).count(), 2);
+    assert!(events.iter().any(|e| matches!(e, RunnerEvent::RunFinished { success: true, .. })));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn run_plan_parallel_verify_event_content() {
     let mut commands = HashMap::new();
-    commands.insert(
-        "echo_a".to_string(),
-        CommandSpec::Exec(echo_cmd("test_output")),
-    );
+    commands.insert("echo_a".to_string(), CommandSpec::Exec(echo_cmd("test_output")));
     let runner = test_runner(commands);
     let mut events = Vec::new();
-    let results = runner
-        .run_plan_parallel(&["echo_a".into()], false, &mut |e| events.push(e))
-        .await;
+    let results =
+        runner.run_plan_parallel(&["echo_a".into()], false, &mut |e| events.push(e)).await;
 
-    assert!(
-        results.iter().all(|r| r.success),
-        "all results should succeed"
-    );
+    assert!(results.iter().all(|r| r.success), "all results should succeed");
 
-    let plan_started: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::PlanStarted { .. }))
-        .collect();
+    let plan_started: Vec<_> =
+        events.iter().filter(|e| matches!(e, RunnerEvent::PlanStarted { .. })).collect();
     assert_eq!(plan_started.len(), 1, "should have exactly one PlanStarted");
     if let RunnerEvent::PlanStarted { command_ids } = &plan_started[0] {
-        assert_eq!(
-            command_ids,
-            &vec!["echo_a"],
-            "PlanStarted should contain correct command_ids"
-        );
+        assert_eq!(command_ids, &vec!["echo_a"], "PlanStarted should contain correct command_ids");
     }
 
-    let step_finished: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::StepFinished { .. }))
-        .collect();
-    assert_eq!(
-        step_finished.len(),
-        1,
-        "should have exactly one StepFinished"
-    );
-    if let RunnerEvent::StepFinished {
-        id, duration_secs, ..
-    } = &step_finished[0]
-    {
+    let step_finished: Vec<_> =
+        events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).collect();
+    assert_eq!(step_finished.len(), 1, "should have exactly one StepFinished");
+    if let RunnerEvent::StepFinished { id, duration_secs, .. } = &step_finished[0] {
         assert_eq!(id, "echo_a", "StepFinished should have correct id");
         assert!(duration_secs > &0.0, "duration_secs should be positive");
     }
 
-    let run_finished: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::RunFinished { .. }))
-        .collect();
+    let run_finished: Vec<_> =
+        events.iter().filter(|e| matches!(e, RunnerEvent::RunFinished { .. })).collect();
     assert_eq!(run_finished.len(), 1, "should have exactly one RunFinished");
     if let RunnerEvent::RunFinished { success, .. } = &run_finished[0] {
         assert!(success, "RunFinished should indicate success");
     }
 }
 
-/// ASYNC-7 / TASK-0777: a parallel plan with a single command must produce
+/// a parallel plan with a single command must produce
 /// the same observable event stream as the sequential `run_plan` — the
 /// fast-path delegates instead of spinning up the parallel infrastructure,
 /// so the order `PlanStarted` → `StepStarted` → … → `StepFinished` → `RunFinished`
@@ -99,9 +64,7 @@ async fn run_plan_parallel_singleton_matches_sequential_event_order() {
     let runner = test_runner(commands);
 
     let mut events = Vec::new();
-    let _ = runner
-        .run_plan_parallel(&["only".into()], false, &mut |e| events.push(e))
-        .await;
+    let _ = runner.run_plan_parallel(&["only".into()], false, &mut |e| events.push(e)).await;
 
     let kinds: Vec<&'static str> = events
         .iter()
@@ -118,13 +81,10 @@ async fn run_plan_parallel_singleton_matches_sequential_event_order() {
         .collect();
     assert_eq!(kinds.first(), Some(&"PlanStarted"));
     assert_eq!(kinds.last(), Some(&"RunFinished"));
-    assert!(
-        kinds.contains(&"StepStarted") && kinds.contains(&"StepFinished"),
-        "got: {kinds:?}"
-    );
+    assert!(kinds.contains(&"StepStarted") && kinds.contains(&"StepFinished"), "got: {kinds:?}");
 }
 
-/// ERR-1 / TASK-0768: every step that emitted `StepStarted` must also see a
+/// Every step that emitted `StepStarted` must also see a
 /// terminal event in the stream. Under `fail_fast` the runner aborts in-flight
 /// siblings, and previously their `StepStarted` had no matching terminal —
 /// JSON consumers were left waiting forever for a step that never finished.
@@ -132,18 +92,14 @@ async fn run_plan_parallel_singleton_matches_sequential_event_order() {
 async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
     let mut commands = HashMap::new();
     commands.insert("fast_fail".to_string(), CommandSpec::Exec(false_cmd()));
-    commands.insert(
-        "slow_sibling".to_string(),
-        CommandSpec::Exec(exec_spec("sh", &["-c", "sleep 5"])),
-    );
+    commands
+        .insert("slow_sibling".to_string(), CommandSpec::Exec(exec_spec("sh", &["-c", "sleep 5"])));
     let runner = test_runner(commands);
     let mut events = Vec::new();
     let _ = runner
-        .run_plan_parallel(
-            &["fast_fail".into(), "slow_sibling".into()],
-            true,
-            &mut |e| events.push(e),
-        )
+        .run_plan_parallel(&["fast_fail".into(), "slow_sibling".into()], true, &mut |e| {
+            events.push(e);
+        })
         .await;
 
     let started: Vec<&CommandId> = events
@@ -167,7 +123,7 @@ async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
     }
 }
 
-/// PATTERN-1 / TASK-0997: a parallel plan that names the same leaf id
+/// a parallel plan that names the same leaf id
 /// twice (legal — `expand_to_leaves` only guards cycles) must still
 /// pair every `StepStarted` with a terminal event when fail-fast aborts
 /// both occurrences. The previous `HashSet`-based synthesizer collapsed
@@ -178,10 +134,7 @@ async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
 async fn run_plan_parallel_duplicate_id_pairs_every_started_with_terminal_under_fail_fast() {
     let mut commands = HashMap::new();
     commands.insert("fast_fail".to_string(), CommandSpec::Exec(false_cmd()));
-    commands.insert(
-        "slow_dup".to_string(),
-        CommandSpec::Exec(exec_spec("sh", &["-c", "sleep 5"])),
-    );
+    commands.insert("slow_dup".to_string(), CommandSpec::Exec(exec_spec("sh", &["-c", "sleep 5"])));
     let runner = test_runner(commands);
     let mut events = Vec::new();
     // Plan: fast_fail trips fail_fast; the duplicate `slow_dup` slots
@@ -194,10 +147,8 @@ async fn run_plan_parallel_duplicate_id_pairs_every_started_with_terminal_under_
         )
         .await;
 
-    let started_count = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::StepStarted { .. }))
-        .count();
+    let started_count =
+        events.iter().filter(|e| matches!(e, RunnerEvent::StepStarted { .. })).count();
     let terminal_count = events
         .iter()
         .filter(|e| {
@@ -228,15 +179,11 @@ async fn run_plan_parallel_fail_fast_emits_failure() {
         .await;
     assert!(!results.iter().all(|r| r.success), "run should fail");
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
+        events.iter().any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
         "should emit StepFailed"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })),
+        events.iter().any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })),
         "should emit RunFinished with success=false"
     );
 }
@@ -254,22 +201,10 @@ async fn run_plan_parallel_no_fail_fast() {
         })
         .await;
     assert!(!results.iter().all(|r| r.success));
-    let finished = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::StepFinished { .. }))
-        .count();
-    let failed = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::StepFailed { .. }))
-        .count();
-    assert_eq!(
-        finished + failed,
-        2,
-        "both steps should complete (one ok, one fail)"
-    );
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })));
+    let finished = events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).count();
+    let failed = events.iter().filter(|e| matches!(e, RunnerEvent::StepFailed { .. })).count();
+    assert_eq!(finished + failed, 2, "both steps should complete (one ok, one fail)");
+    assert!(events.iter().any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })));
 }
 
 #[tokio::test]
@@ -277,27 +212,15 @@ async fn run_parallel_composite() {
     let mut commands = HashMap::new();
     commands.insert("a".to_string(), CommandSpec::Exec(echo_cmd("a")));
     commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
-    commands.insert(
-        "par".to_string(),
-        CommandSpec::Composite(parallel_cmd(&["a", "b"])),
-    );
+    commands.insert("par".to_string(), CommandSpec::Composite(parallel_cmd(&["a", "b"])));
     let runner = test_runner(commands);
     let mut events = Vec::new();
-    let results = runner
-        .run("par", &mut |e| events.push(e))
-        .await
-        .expect("run should not error");
+    let results = runner.run("par", &mut |e| events.push(e)).await.expect("run should not error");
     assert!(results.iter().all(|r| r.success));
-    assert_eq!(
-        events
-            .iter()
-            .filter(|e| matches!(e, RunnerEvent::StepFinished { .. }))
-            .count(),
-        2
-    );
+    assert_eq!(events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).count(), 2);
 }
 
-/// TASK-0328: `exec_standalone` delivers the terminal event with an awaited
+/// `exec_standalone` delivers the terminal event with an awaited
 /// `tx.send`, after every output line, so the display can never orphan a
 /// progress bar under a noisy command.
 #[cfg(unix)]
@@ -305,18 +228,11 @@ async fn run_parallel_composite() {
 async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     let (tx, mut rx) = mpsc::channel(8);
     let abort = Arc::new(AbortSignal::new());
-    let spec = Arc::new(exec_spec(
-        "sh",
-        &["-c", "for i in $(seq 1 500); do echo line_$i; done"],
-    ));
+    let spec = Arc::new(exec_spec("sh", &["-c", "for i in $(seq 1 500); do echo line_$i; done"]));
     let exec_handle = tokio::spawn(exec_standalone(
         "buffer_full".into(),
         spec,
-        ExecTaskCtx {
-            env: test_exec_env(),
-            tx,
-            abort,
-        },
+        ExecTaskCtx { env: test_exec_env(), tx, abort },
     ));
 
     let mut events = Vec::new();
@@ -326,11 +242,7 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     let result = exec_handle.await.expect("exec_standalone task panicked");
 
     assert!(result.success, "high-volume command should succeed");
-    assert!(
-        events.len() > 1,
-        "should have observed multiple events, got {}",
-        events.len()
-    );
+    assert!(events.len() > 1, "should have observed multiple events, got {}", events.len());
 
     let terminal_idx = events
         .iter()
@@ -350,7 +262,7 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     );
 }
 
-/// TASK-0335 #2: aborting the parent of `exec_standalone` must not leave
+/// Aborting the parent of `exec_standalone` must not leave
 /// anything holding the outer sender in the runtime.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -361,20 +273,13 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
     let abort = Arc::new(AbortSignal::new());
     let spec = Arc::new(exec_spec(
         "sh",
-        &[
-            "-c",
-            "for i in $(seq 1 1000); do echo line_$i; done; sleep 5",
-        ],
+        &["-c", "for i in $(seq 1 1000); do echo line_$i; done; sleep 5"],
     ));
 
     let handle = tokio::spawn(exec_standalone(
         "leak_test".into(),
         spec,
-        ExecTaskCtx {
-            env: test_exec_env(),
-            tx,
-            abort,
-        },
+        ExecTaskCtx { env: test_exec_env(), tx, abort },
     ));
 
     let _ = timeout(std::time::Duration::from_secs(5), rx.recv())
@@ -394,7 +299,7 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
     );
 }
 
-/// TASK-2437: a failing step that prints far more lines than the event
+/// a failing step that prints far more lines than the event
 /// channel holds must deliver every one of them, in order, so the display's
 /// stderr tail is the real end of the output. The receiver stalls first so
 /// the producer is parked on a full channel, the case where lines used to be
@@ -406,20 +311,13 @@ async fn exec_standalone_delivers_every_output_line_of_a_noisy_failed_step() {
     let abort = Arc::new(AbortSignal::new());
     let spec = Arc::new(exec_spec(
         "sh",
-        &[
-            "-c",
-            "for i in $(seq 1 1500); do echo line_$i >&2; done; exit 1",
-        ],
+        &["-c", "for i in $(seq 1 1500); do echo line_$i >&2; done; exit 1"],
     ));
 
     let handle = tokio::spawn(exec_standalone(
         "burst".into(),
         spec,
-        ExecTaskCtx {
-            env: test_exec_env(),
-            tx,
-            abort,
-        },
+        ExecTaskCtx { env: test_exec_env(), tx, abort },
     ));
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -434,18 +332,14 @@ async fn exec_standalone_delivers_every_output_line_of_a_noisy_failed_step() {
     let stderr_lines: Vec<&str> = events
         .iter()
         .filter_map(|e| match e {
-            RunnerEvent::StepOutput {
-                line, stderr: true, ..
-            } => Some(line.as_str()),
+            RunnerEvent::StepOutput { line, stderr: true, .. } => Some(line.as_str()),
             _ => None,
         })
         .collect();
     let expected: Vec<String> = (1..=1500).map(|i| format!("line_{i}")).collect();
     assert_eq!(stderr_lines, expected);
     assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, RunnerEvent::StepOutputDropped { .. })),
+        !events.iter().any(|e| matches!(e, RunnerEvent::StepOutputDropped { .. })),
         "no line may be dropped without abort"
     );
     assert!(
@@ -455,7 +349,7 @@ async fn exec_standalone_delivers_every_output_line_of_a_noisy_failed_step() {
     );
 }
 
-/// TASK-2437 AC #2: lines abandoned because abort fired while the channel
+/// Lines abandoned because abort fired while the channel
 /// was full are counted, and the count is logged at `warn` (visible at the
 /// default log level) when the display cannot be told either.
 #[cfg(unix)]
@@ -467,20 +361,13 @@ async fn exec_standalone_reports_lines_dropped_under_abort() {
     let (dispatch, buf) = ops_core::test_utils::capture_dispatch(tracing::Level::WARN);
     let (tx, mut rx) = mpsc::channel::<RunnerEvent>(8);
     let abort = Arc::new(AbortSignal::new());
-    let spec = Arc::new(exec_spec(
-        "sh",
-        &["-c", "for i in $(seq 1 1500); do echo line_$i; done"],
-    ));
+    let spec = Arc::new(exec_spec("sh", &["-c", "for i in $(seq 1 1500); do echo line_$i; done"]));
 
     let handle = tokio::spawn(
         exec_standalone(
             "burst".into(),
             spec,
-            ExecTaskCtx {
-                env: test_exec_env(),
-                tx,
-                abort: Arc::clone(&abort),
-            },
+            ExecTaskCtx { env: test_exec_env(), tx, abort: Arc::clone(&abort) },
         )
         .with_subscriber(dispatch),
     );
@@ -514,7 +401,7 @@ async fn exec_standalone_reports_lines_dropped_under_abort() {
     );
 }
 
-/// ERR-1 / TASK-1174: when the outer receiver has been torn down (display
+/// When the outer receiver has been torn down (display
 /// shutdown race, `fail_fast` tear-down) before `exec_standalone` flushes its
 /// `StepOutputDropped` event, the count must not vanish silently. The send
 /// fails with `SendError`, and the function logs a structured `tracing::warn!`
@@ -538,20 +425,13 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
     // the failing send whose warning the assertion below inspects.
     let (tx, rx) = mpsc::channel::<RunnerEvent>(1);
     let abort = Arc::new(AbortSignal::new());
-    let spec = Arc::new(exec_spec(
-        "sh",
-        &["-c", "for i in $(seq 1 5000); do echo line_$i; done"],
-    ));
+    let spec = Arc::new(exec_spec("sh", &["-c", "for i in $(seq 1 5000); do echo line_$i; done"]));
 
     let task = tokio::spawn(
         exec_standalone(
             "drop-target".into(),
             spec,
-            ExecTaskCtx {
-                env: test_exec_env(),
-                tx,
-                abort,
-            },
+            ExecTaskCtx { env: test_exec_env(), tx, abort },
         )
         .with_subscriber(dispatch),
     );
@@ -570,7 +450,7 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
     );
 }
 
-/// CONC-9 / TASK-0459: when the outer mpsc receiver stalls (display pump
+/// When the outer mpsc receiver stalls (display pump
 /// hung) and the abort flag is tripped (a sibling `fail_fast`'d),
 /// `exec_standalone` must abandon its terminal-event send instead of
 /// blocking on a full outer channel. Previously the task would hang
@@ -586,21 +466,13 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
 
     // Fill the outer channel before the task can deliver a terminal event
     // by sending a placeholder. Capacity is 1 so the next send blocks.
-    tx.send(RunnerEvent::PlanStarted {
-        command_ids: vec![],
-    })
-    .await
-    .unwrap();
+    tx.send(RunnerEvent::PlanStarted { command_ids: vec![] }).await.unwrap();
 
     let abort_clone = Arc::clone(&abort);
     let handle = tokio::spawn(exec_standalone(
         "stuck".into(),
         spec,
-        ExecTaskCtx {
-            env: test_exec_env(),
-            tx,
-            abort: abort_clone,
-        },
+        ExecTaskCtx { env: test_exec_env(), tx, abort: abort_clone },
     ));
 
     // Give the task a moment to reach the terminal-send.
@@ -626,16 +498,9 @@ async fn exec_standalone_skips_when_abort_set() {
         s
     };
     let spec = Arc::new(echo_cmd("should not run"));
-    let result = exec_standalone(
-        "skipped".into(),
-        spec,
-        ExecTaskCtx {
-            env: test_exec_env(),
-            tx,
-            abort,
-        },
-    )
-    .await;
+    let result =
+        exec_standalone("skipped".into(), spec, ExecTaskCtx { env: test_exec_env(), tx, abort })
+            .await;
     // TASK-0408: cancellation (abort flag set on entry) is now success=false.
     assert!(!result.success);
     assert_eq!(result.duration, Duration::ZERO);
@@ -649,19 +514,12 @@ async fn exec_standalone_skips_when_abort_set() {
 #[tokio::test(flavor = "multi_thread")]
 async fn run_plan_parallel_resolution_failure() {
     let mut commands = HashMap::new();
-    commands.insert(
-        "comp".to_string(),
-        CommandSpec::Composite(composite_cmd(&["a"])),
-    );
+    commands.insert("comp".to_string(), CommandSpec::Composite(composite_cmd(&["a"])));
     let runner = test_runner(commands);
     let mut events = Vec::new();
-    let results = runner
-        .run_plan_parallel(&["comp".into()], true, &mut |e| events.push(e))
-        .await;
+    let results = runner.run_plan_parallel(&["comp".into()], true, &mut |e| events.push(e)).await;
     assert!(!results.iter().all(|r| r.success), "should fail");
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })));
+    assert!(events.iter().any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })));
 }
 
 /// TQ-013: Verify parallel execution actually runs commands concurrently.
@@ -692,18 +550,13 @@ mod parallel_timing_tests {
         let marker_b = dir.path().join("b");
 
         let mut commands = HashMap::new();
-        commands.insert(
-            "rdv_a".to_string(),
-            CommandSpec::Exec(rendezvous_cmd(&marker_a, &marker_b)),
-        );
-        commands.insert(
-            "rdv_b".to_string(),
-            CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)),
-        );
+        commands
+            .insert("rdv_a".to_string(), CommandSpec::Exec(rendezvous_cmd(&marker_a, &marker_b)));
+        commands
+            .insert("rdv_b".to_string(), CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)));
         let runner = test_runner(commands);
-        let results = runner
-            .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |_| {})
-            .await;
+        let results =
+            runner.run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |_| {}).await;
 
         assert!(
             results.iter().all(|r| r.success),
@@ -715,14 +568,8 @@ mod parallel_timing_tests {
 #[test]
 fn stage_lengths_split_at_exclusive_steps() {
     use crate::command::parallel::stage_lengths;
-    assert_eq!(
-        stage_lengths([true, false, true, false, false]),
-        vec![1, 1, 1, 2]
-    );
-    assert_eq!(
-        stage_lengths([true, true, false, false, false]),
-        vec![1, 1, 3]
-    );
+    assert_eq!(stage_lengths([true, false, true, false, false]), vec![1, 1, 1, 2]);
+    assert_eq!(stage_lengths([true, true, false, false, false]), vec![1, 1, 3]);
     assert_eq!(stage_lengths([false, false, true]), vec![2, 1]);
     assert_eq!(stage_lengths([false, false]), vec![2]);
     assert_eq!(stage_lengths([]), Vec::<usize>::new());
@@ -761,9 +608,8 @@ mod exclusive_stage_tests {
         commands.insert("r1".to_string(), check.clone());
         commands.insert("r2".to_string(), check);
         let runner = test_runner(commands);
-        let results = runner
-            .run_plan_parallel(&ids(&["slow", "r1", "r2"]), true, &mut |_| {})
-            .await;
+        let results =
+            runner.run_plan_parallel(&ids(&["slow", "r1", "r2"]), true, &mut |_| {}).await;
 
         assert_eq!(results.len(), 3);
         assert!(
@@ -779,22 +625,15 @@ mod exclusive_stage_tests {
         let b = shell_escape(&dir.path().join("b"));
 
         let mut commands = HashMap::new();
-        commands.insert(
-            "w1".to_string(),
-            CommandSpec::Exec(sh(&format!("sleep 0.3; touch {a}"))),
-        );
-        commands.insert(
-            "w2".to_string(),
-            CommandSpec::Exec(sh(&format!("sleep 0.3; touch {b}"))),
-        );
+        commands.insert("w1".to_string(), CommandSpec::Exec(sh(&format!("sleep 0.3; touch {a}"))));
+        commands.insert("w2".to_string(), CommandSpec::Exec(sh(&format!("sleep 0.3; touch {b}"))));
         commands.insert(
             "check".to_string(),
             CommandSpec::Exec(exclusive(sh(&format!("[ -e {a} ] && [ -e {b} ]")))),
         );
         let runner = test_runner(commands);
-        let results = runner
-            .run_plan_parallel(&ids(&["w1", "w2", "check"]), true, &mut |_| {})
-            .await;
+        let results =
+            runner.run_plan_parallel(&ids(&["w1", "w2", "check"]), true, &mut |_| {}).await;
 
         assert!(
             results.iter().all(|r| r.success),
@@ -809,22 +648,14 @@ mod exclusive_stage_tests {
         let marker_b = dir.path().join("b");
 
         let mut commands = HashMap::new();
-        commands.insert(
-            "first".to_string(),
-            CommandSpec::Exec(exclusive(true_cmd())),
-        );
-        commands.insert(
-            "rdv_a".to_string(),
-            CommandSpec::Exec(rendezvous_cmd(&marker_a, &marker_b)),
-        );
-        commands.insert(
-            "rdv_b".to_string(),
-            CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)),
-        );
+        commands.insert("first".to_string(), CommandSpec::Exec(exclusive(true_cmd())));
+        commands
+            .insert("rdv_a".to_string(), CommandSpec::Exec(rendezvous_cmd(&marker_a, &marker_b)));
+        commands
+            .insert("rdv_b".to_string(), CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)));
         let runner = test_runner(commands);
-        let results = runner
-            .run_plan_parallel(&ids(&["first", "rdv_a", "rdv_b"]), true, &mut |_| {})
-            .await;
+        let results =
+            runner.run_plan_parallel(&ids(&["first", "rdv_a", "rdv_b"]), true, &mut |_| {}).await;
 
         assert!(
             results.iter().all(|r| r.success),
@@ -853,10 +684,7 @@ mod exclusive_stage_tests {
             .iter()
             .any(|e| matches!(e, RunnerEvent::StepStarted { id, .. } if id != "bad")));
         assert_eq!(
-            events
-                .iter()
-                .filter(|e| matches!(e, RunnerEvent::PlanStarted { .. }))
-                .count(),
+            events.iter().filter(|e| matches!(e, RunnerEvent::PlanStarted { .. })).count(),
             1,
             "a staged plan keeps one lifecycle"
         );
@@ -866,9 +694,8 @@ mod exclusive_stage_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn without_fail_fast_every_stage_runs() {
         let runner = staged_failure_runner();
-        let results = runner
-            .run_plan_parallel(&ids(&["bad", "e1", "e2"]), false, &mut |_| {})
-            .await;
+        let results =
+            runner.run_plan_parallel(&ids(&["bad", "e1", "e2"]), false, &mut |_| {}).await;
 
         assert_eq!(results.len(), 3);
         assert_eq!(results.iter().filter(|r| r.success).count(), 2);
@@ -891,22 +718,15 @@ mod parallel_failure_tests {
             })
             .await;
 
-        assert!(
-            results.iter().all(|r| !r.success),
-            "all results should be failures"
-        );
+        assert!(results.iter().all(|r| !r.success), "all results should be failures");
         assert_eq!(results.len(), 2, "both commands should have results");
 
-        let failed_events = events
-            .iter()
-            .filter(|e| matches!(e, RunnerEvent::StepFailed { .. }))
-            .count();
+        let failed_events =
+            events.iter().filter(|e| matches!(e, RunnerEvent::StepFailed { .. })).count();
         assert_eq!(failed_events, 2, "both failures should emit StepFailed");
 
         assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })),
+            events.iter().any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })),
             "should emit RunFinished with success=false"
         );
     }
@@ -948,9 +768,7 @@ mod after_tests {
     async fn run(runner: &CommandRunner, fail_fast: bool) -> (Vec<StepResult>, Vec<RunnerEvent>) {
         let leaves = runner.expand_to_leaves("plan").expect("plan expands");
         let mut events = Vec::new();
-        let results = runner
-            .run_plan_parallel(&leaves, fail_fast, &mut |e| events.push(e))
-            .await;
+        let results = runner.run_plan_parallel(&leaves, fail_fast, &mut |e| events.push(e)).await;
         (results, events)
     }
 
@@ -977,10 +795,7 @@ mod after_tests {
         );
         let (results, _) = run(&runner, true).await;
         assert_eq!(results.len(), 3);
-        assert!(
-            results.iter().all(|r| r.success),
-            "next must see build's output: {results:?}"
-        );
+        assert!(results.iter().all(|r| r.success), "next must see build's output: {results:?}");
     }
 
     /// `after` blocks only the step that declares it: unrelated steps still
@@ -1011,10 +826,7 @@ mod after_tests {
         let mut build = sh(&format!("sleep 0.3; touch {marker}"));
         build.aliases = vec!["b".to_string()];
         let runner = runner_for(
-            vec![
-                ("next", after(sh(&format!("[ -e {marker} ]")), &["b"])),
-                ("build", build),
-            ],
+            vec![("next", after(sh(&format!("[ -e {marker} ]")), &["b"])), ("build", build)],
             &["next", "build"],
             true,
         );
@@ -1091,10 +903,7 @@ mod after_tests {
         let runner = runner_for(
             vec![
                 ("fmt", fmt),
-                (
-                    "next",
-                    after(sh(&format!("[ -e {marker} ]")), &["build", "fmt"]),
-                ),
+                ("next", after(sh(&format!("[ -e {marker} ]")), &["build", "fmt"])),
                 ("build", sh(&format!("sleep 0.2; touch {marker}"))),
             ],
             &["fmt", "next", "build"],

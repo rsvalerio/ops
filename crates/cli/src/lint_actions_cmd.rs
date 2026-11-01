@@ -64,11 +64,7 @@ pub fn run_lint_actions(root: &Path, allow: &[String]) -> anyhow::Result<ExitCod
     for path in &files {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let rel = path
-            .strip_prefix(root)
-            .unwrap_or(path)
-            .display()
-            .to_string();
+        let rel = path.strip_prefix(root).unwrap_or(path).display().to_string();
         for f in lint(&text, allow) {
             count = count.saturating_add(1);
             writeln!(out, "{}:{}: {}", safe(&rel), f.line, safe(&f.message))?;
@@ -103,10 +99,7 @@ fn workflow_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
             continue;
         }
         let path = entry.path();
-        if matches!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("yml" | "yaml")
-        ) {
+        if matches!(path.extension().and_then(|e| e.to_str()), Some("yml" | "yaml")) {
             files.push(path);
         }
     }
@@ -172,10 +165,7 @@ fn lint(text: &str, allow: &[String]) -> Vec<Finding> {
                 })
             });
         if let Some(message) = problem {
-            findings.push(Finding {
-                line: index.saturating_add(1),
-                message,
-            });
+            findings.push(Finding { line: index.saturating_add(1), message });
         }
     }
     findings
@@ -208,15 +198,11 @@ fn uses_problem(value: &str, rest: &str, allow: &[String]) -> Option<String> {
         return None;
     }
     if let Some(image) = value.strip_prefix("docker://") {
-        let pinned = image
-            .rsplit_once("@sha256:")
-            .is_some_and(|(_, digest)| is_hex(digest, 64));
+        let pinned = image.rsplit_once("@sha256:").is_some_and(|(_, digest)| is_hex(digest, 64));
         return (!pinned).then(|| format!("`{value}` is not pinned to an image `@sha256:` digest"));
     }
     let Some((_, reference)) = value.rsplit_once('@') else {
-        return Some(format!(
-            "`{value}` names no ref; pin it to a full commit SHA"
-        ));
+        return Some(format!("`{value}` names no ref; pin it to a full commit SHA"));
     };
     if !is_hex(reference, 40) {
         return Some(format!(
@@ -327,9 +313,7 @@ mod tests {
     #[test]
     fn scans_only_regular_yaml_files_in_the_workflows_dir() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(workflow_files(&dir.path().join(WORKFLOWS_DIR))
-            .unwrap()
-            .is_empty());
+        assert!(workflow_files(&dir.path().join(WORKFLOWS_DIR)).unwrap().is_empty());
         let wf = dir.path().join(WORKFLOWS_DIR);
         std::fs::create_dir_all(&wf).unwrap();
         std::fs::write(wf.join("b.yaml"), "").unwrap();
@@ -351,11 +335,7 @@ mod tests {
         let root = dir.path();
         assert!(action_files(root).unwrap().is_empty());
         std::fs::write(root.join("action.yml"), "").unwrap();
-        for sub in [
-            ".github/actions/local",
-            "actions/published",
-            "actions/empty",
-        ] {
+        for sub in [".github/actions/local", "actions/published", "actions/empty"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();
         }
         std::fs::write(root.join(".github/actions/local/action.yaml"), "").unwrap();
@@ -383,11 +363,7 @@ mod tests {
             .collect();
         assert_eq!(
             found,
-            [
-                ".github/actions/local/action.yaml",
-                "action.yml",
-                "actions/published/action.yml",
-            ]
+            [".github/actions/local/action.yaml", "action.yml", "actions/published/action.yml",]
         );
     }
 
@@ -397,10 +373,7 @@ mod tests {
         let action = dir.path().join("actions/setup");
         std::fs::create_dir_all(&action).unwrap();
         std::fs::write(action.join("action.yml"), "    - uses: a/b@v1\n").unwrap();
-        assert_eq!(
-            run_lint_actions(dir.path(), &[]).unwrap(),
-            ExitCode::FAILURE
-        );
+        assert_eq!(run_lint_actions(dir.path(), &[]).unwrap(), ExitCode::FAILURE);
     }
 
     #[test]
@@ -409,15 +382,9 @@ mod tests {
         let wf = dir.path().join(WORKFLOWS_DIR);
         std::fs::create_dir_all(&wf).unwrap();
         std::fs::write(wf.join("ci.yml"), format!("  - uses: a/b@{SHA} # v1\n")).unwrap();
-        assert_eq!(
-            run_lint_actions(dir.path(), &[]).unwrap(),
-            ExitCode::SUCCESS
-        );
+        assert_eq!(run_lint_actions(dir.path(), &[]).unwrap(), ExitCode::SUCCESS);
         std::fs::write(wf.join("ci.yml"), "    secrets: inherit\n").unwrap();
-        assert_eq!(
-            run_lint_actions(dir.path(), &[]).unwrap(),
-            ExitCode::FAILURE
-        );
+        assert_eq!(run_lint_actions(dir.path(), &[]).unwrap(), ExitCode::FAILURE);
     }
 
     /// The repository's own workflows satisfy the policy under the

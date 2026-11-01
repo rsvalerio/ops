@@ -41,9 +41,8 @@ impl<'de> Deserialize<'de> for CommandSpec {
     {
         use serde::de::{Error, IntoDeserializer};
         let value = toml::Value::deserialize(deserializer)?;
-        let table = value
-            .as_table()
-            .ok_or_else(|| D::Error::custom("command spec must be a table"))?;
+        let table =
+            value.as_table().ok_or_else(|| D::Error::custom("command spec must be a table"))?;
         let has_program = table.contains_key("program");
         let has_commands = table.contains_key("commands");
         // `clone` is a third discriminator. It is mutually
@@ -77,10 +76,7 @@ impl<'de> Deserialize<'de> for CommandSpec {
         // ("unknown field `progam`") rather than the misleading
         // "missing field `commands`" that `#[serde(untagged)]` produced.
         const COMPOSITE_KEYS: &[&str] = &["commands", "parallel", "fail_fast"];
-        let composite_score = COMPOSITE_KEYS
-            .iter()
-            .filter(|k| table.contains_key(**k))
-            .count();
+        let composite_score = COMPOSITE_KEYS.iter().filter(|k| table.contains_key(**k)).count();
         let pick_composite = has_commands || (!has_program && composite_score > 0);
         if pick_composite {
             CompositeCommandSpec::deserialize(value.into_deserializer())
@@ -121,6 +117,12 @@ pub trait CommandMeta {
 /// resolves safely. Set
 /// [`ExecCommandSpec::display_program`] to `"ops"` alongside it so the
 /// rendered step line stays `ops <subcommand>`.
+///
+/// Config-side spelling: a `.ops.toml` cannot call this function, but it
+/// gets the same resolution through the `OPS_BIN` builtin —
+/// `program = "${OPS_BIN}"` expands to this value at spawn time (see the
+/// "Running a command inside a wrapper" section of `docs/configuration.md`
+/// and [`crate::expand::Variables`]).
 #[must_use]
 pub fn current_ops_program() -> String {
     std::env::current_exe()
@@ -235,7 +237,7 @@ pub struct ExecCommandSpec {
     /// as `/home/…/bin/ops sec` instead of `ops sec`). Deliberately
     /// `serde(skip)` + `deny_unknown_fields`, so a `.ops.toml` cannot set
     /// it: a config-supplied display name diverging from the real program
-    /// is exactly the misleading-render hazard SEC-21 guards against.
+    /// is exactly the misleading-render hazard the skip prevents.
     #[serde(skip)]
     pub display_program: Option<String>,
     /// Run the command once per matrix cell; see
@@ -341,9 +343,7 @@ impl ExecCommandSpec {
         let mut spec = Self::ops_subcommand(subcommand);
         spec.args.push("--check".into());
         spec.exclusive = false;
-        spec.help = Some(format!(
-            "Fail if `{subcommand}` would change a file; never writes"
-        ));
+        spec.help = Some(format!("Fail if `{subcommand}` would change a file; never writes"));
         spec
     }
 
@@ -367,10 +367,7 @@ impl ExecCommandSpec {
     /// If `program` is empty, `timeout_secs` is `Some(0)`, any field
     /// contains control characters, or an `env` key contains `=`.
     pub fn validate(&self, name: &str) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.program.is_empty(),
-            "command '{name}': program must not be empty"
-        );
+        anyhow::ensure!(!self.program.is_empty(), "command '{name}': program must not be empty");
         if self.timeout_secs == Some(0) {
             anyhow::bail!("command '{name}': timeout_secs must be greater than 0");
         }
@@ -387,10 +384,7 @@ impl ExecCommandSpec {
         if let Some(cwd) = &self.cwd {
             let cwd_str = cwd.to_string_lossy();
             check_control_chars(name, "cwd", &cwd_str)?;
-            if cwd
-                .components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-            {
+            if cwd.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
                 anyhow::bail!(
                     "command '{name}': cwd must not contain '..' components (got {cwd_str:?})"
                 );
@@ -493,18 +487,16 @@ impl ExecCommandSpec {
         let mut out = Vec::with_capacity(cells.len());
         for cell in cells {
             let fill = |field: &str, value: &str| -> anyhow::Result<String> {
-                substitute(value, |k| cell.get(k))
-                    .map(Cow::into_owned)
-                    .map_err(|e| match e {
-                        MatrixRefError::Unknown(_) => anyhow::anyhow!(
-                            "command '{name}': {field} references {e}, which cell [{}] \
+                substitute(value, |k| cell.get(k)).map(Cow::into_owned).map_err(|e| match e {
+                    MatrixRefError::Unknown(_) => anyhow::anyhow!(
+                        "command '{name}': {field} references {e}, which cell [{}] \
                              does not define",
-                            cell.describe()
-                        ),
-                        MatrixRefError::Unterminated => {
-                            anyhow::anyhow!("command '{name}': {field} contains {e}")
-                        }
-                    })
+                        cell.describe()
+                    ),
+                    MatrixRefError::Unterminated => {
+                        anyhow::anyhow!("command '{name}': {field} contains {e}")
+                    }
+                })
             };
             let mut spec = self.clone();
             spec.strategy = None;
@@ -521,11 +513,7 @@ impl ExecCommandSpec {
                     *cwd = PathBuf::from(fill("cwd", raw)?);
                 }
             }
-            out.push(MatrixCellSpec {
-                id: cell.label(name),
-                cell,
-                spec,
-            });
+            out.push(MatrixCellSpec { id: cell.label(name), cell, spec });
         }
         Ok(out)
     }
@@ -568,10 +556,7 @@ impl ExecCommandSpec {
     /// unexpanded. Its first item is the process that actually starts, so
     /// anything reporting a spawn must read that, not `program`.
     pub fn argv(&self) -> impl Iterator<Item = &String> {
-        self.wrap
-            .iter()
-            .chain(std::iter::once(&self.program))
-            .chain(&self.args)
+        self.wrap.iter().chain(std::iter::once(&self.program)).chain(&self.args)
     }
 
     /// The program the spawn starts: `wrap[0]` when wrapped, else `program`.
@@ -710,10 +695,8 @@ pub fn shell_quote(value: &str) -> Cow<'_, str> {
 /// `program = "\u{0}"`, embedded newlines, and CR/LF smuggling at load
 /// time with a named field rather than a `EINVAL` at spawn.
 fn check_control_chars(name: &str, field: &str, value: &str) -> anyhow::Result<()> {
-    if let Some((idx, ch)) = value
-        .chars()
-        .enumerate()
-        .find(|(_, c)| u32::from(*c) < 0x20 && *c != '\t')
+    if let Some((idx, ch)) =
+        value.chars().enumerate().find(|(_, c)| u32::from(*c) < 0x20 && *c != '\t')
     {
         anyhow::bail!(
             "command '{name}': {field} contains control character U+{code:04X} at position {idx}",
@@ -733,10 +716,7 @@ fn join_shell_quoted(parts: &[String]) -> String {
     // plus a separating space. The unsafe-quoting path pushes a few more
     // bytes; treating that as a rare overflow keeps the common dry-run
     // render to a single allocation.
-    let cap = parts
-        .iter()
-        .map(|p| p.len().saturating_add(1))
-        .sum::<usize>();
+    let cap = parts.iter().map(|p| p.len().saturating_add(1)).sum::<usize>();
     let mut out = String::with_capacity(cap);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {

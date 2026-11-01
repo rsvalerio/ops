@@ -1,4 +1,4 @@
-//! `JUnit` XML report for [`super::ProgressDisplay`] (TASK-2338).
+//! `JUnit` XML report for [`super::ProgressDisplay`].
 //!
 //! `--junit <file>` writes one `<testcase>` per plan step when the run
 //! finishes, so CI test-report consumers (dorny/test-reporter, GitLab's
@@ -46,11 +46,7 @@ pub(super) struct JunitReport {
 
 impl JunitReport {
     pub(super) fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            output: HashMap::new(),
-            cases: Vec::new(),
-        }
+        Self { path, output: HashMap::new(), cases: Vec::new() }
     }
 
     /// Drop everything collected for a previous plan.
@@ -78,25 +74,16 @@ impl JunitReport {
             display: display.to_string(),
             status: outcome.status,
             duration_secs: outcome.duration_secs,
-            failure: outcome.failure.map(|message| Failure {
-                message: message.to_string(),
-                tail: tail.into(),
-            }),
+            failure: outcome
+                .failure
+                .map(|message| Failure { message: message.to_string(), tail: tail.into() }),
         });
     }
 
     /// Render the report as a `JUnit` XML document.
     fn render(&self, duration_secs: f64) -> String {
-        let failures = self
-            .cases
-            .iter()
-            .filter(|c| matches!(c.status, StepStatus::Failed))
-            .count();
-        let skipped = self
-            .cases
-            .iter()
-            .filter(|c| matches!(c.status, StepStatus::Skipped))
-            .count();
+        let failures = self.cases.iter().filter(|c| matches!(c.status, StepStatus::Failed)).count();
+        let skipped = self.cases.iter().filter(|c| matches!(c.status, StepStatus::Skipped)).count();
         let tests = self.cases.len();
         let time = format!("{duration_secs:.3}");
         let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -191,12 +178,7 @@ mod tests {
         duration_secs: f64,
         failure: Option<&'static str>,
     ) -> StepOutcome<'static> {
-        StepOutcome {
-            id,
-            status,
-            duration_secs,
-            failure,
-        }
+        StepOutcome { id, status, duration_secs, failure }
     }
 
     #[test]
@@ -211,10 +193,7 @@ mod tests {
     fn one_testcase_per_step_with_failure_message_and_tail() {
         let mut report = JunitReport::new(PathBuf::from("unused.xml"));
         report.record_output("build", "compiling");
-        report.step_finished(
-            "cargo build",
-            &outcome("build", StepStatus::Succeeded, 1.5, None),
-        );
+        report.step_finished("cargo build", &outcome("build", StepStatus::Succeeded, 1.5, None));
         for i in 0..(FAILURE_TAIL_LINES + 5) {
             report.record_output("test", &format!("line {i}"));
         }

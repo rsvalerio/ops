@@ -147,18 +147,12 @@ mod tests {
 
     #[test]
     fn build_stack_detail_engine_only() {
-        assert_eq!(
-            build_stack_detail(Some(">=18"), None),
-            Some("Node >=18".to_string())
-        );
+        assert_eq!(build_stack_detail(Some(">=18"), None), Some("Node >=18".to_string()));
     }
 
     #[test]
     fn build_stack_detail_pm_only() {
-        assert_eq!(
-            build_stack_detail(None, Some("pnpm")),
-            Some("pnpm".to_string())
-        );
+        assert_eq!(build_stack_detail(None, Some("pnpm")), Some("pnpm".to_string()));
     }
 
     #[test]
@@ -270,10 +264,7 @@ mod tests {
         // `module_count = None` — the row stays hidden.
         assert_eq!(id.module_count, None);
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
-        assert_eq!(
-            id.repository.as_deref(),
-            Some("https://github.com/user/repo")
-        );
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/user/repo"));
         assert_eq!(id.authors, vec!["Alice <a@example.com>"]);
     }
 
@@ -283,16 +274,8 @@ mod tests {
     #[test]
     fn workspace_module_count_equals_the_units_provider_length() {
         for (label, root_pkg, pnpm_yaml) in [
-            (
-                "npm workspaces",
-                r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
-                None,
-            ),
-            (
-                "pnpm-workspace.yaml",
-                r#"{ "name": "root" }"#,
-                Some("packages:\n  - 'packages/*'\n"),
-            ),
+            ("npm workspaces", r#"{ "name": "root", "workspaces": ["packages/*"] }"#, None),
+            ("pnpm-workspace.yaml", r#"{ "name": "root" }"#, Some("packages:\n  - 'packages/*'\n")),
         ] {
             let dir = tempfile::tempdir().unwrap();
             write(&dir.path().join("package.json"), root_pkg);
@@ -345,10 +328,7 @@ mod tests {
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let id: ProjectIdentity =
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
-        assert_eq!(
-            id.authors,
-            vec!["Alice <a@example.com>", "Bob <b@example.com>", "Carol"]
-        );
+        assert_eq!(id.authors, vec!["Alice <a@example.com>", "Bob <b@example.com>", "Carol"]);
     }
 
     #[test]
@@ -375,10 +355,7 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "x", "engines": { "node": ">=18" } }"#,
         );
-        write(
-            &dir.path().join("pnpm-workspace.yaml"),
-            "packages:\n  - 'packages/*'\n",
-        );
+        write(&dir.path().join("pnpm-workspace.yaml"), "packages:\n  - 'packages/*'\n");
         let provider = NodeIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let id: ProjectIdentity =
@@ -487,19 +464,14 @@ mod tests {
         );
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
 
-        let identity = registry
-            .provide("project_identity", &mut ctx)
-            .expect("identity provider must answer");
+        let identity =
+            registry.provide("project_identity", &mut ctx).expect("identity provider must answer");
         assert_eq!(identity["stack_label"], serde_json::json!("Node"));
 
-        let units = registry
-            .provide("project_units", &mut ctx)
-            .expect("units provider must answer");
+        let units =
+            registry.provide("project_units", &mut ctx).expect("units provider must answer");
         assert_eq!(
-            units
-                .as_array()
-                .and_then(|a| a.first())
-                .and_then(|u| u.get("name")),
+            units.as_array().and_then(|a| a.first()).and_then(|u| u.get("name")),
             Some(&serde_json::json!("alpha")),
             "units payload must list the workspace member: {units}"
         );

@@ -1,10 +1,10 @@
 ---
 id: TASK-2657
 title: 'code-review-plan-wave80'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 10:31'
-updated_date: '2026-11-01 11:04'
+updated_date: '2026-11-01 14:10'
 labels:
   - code-review-wave
 dependencies:
@@ -40,5 +40,8 @@ Rationale: the ops repo must pass its own doc-ids and foundation checks so both 
 Overlaps: none declared. The wave overlap tool sees only .ops.toml and rustfmt.toml, but clearing the doc-comment ids (2647) and any rustfmt adoption (2648) touch sources widely, so this will really overlap TASK-2655 and TASK-2656. Merge it last despite the suggested order.
 
 Prerequisite: doc-ids and foundation exist only on main after #120, in no published release (v0.90.0 predates them and its release run was cancelled). Before wiring either into verify or qa, cut a release containing #120 and bump mise.toml, or CI fails with unknown command.
+
+Branch: code-review/TASK-2657
+Worktree: /home/rsvalerio/projects/.wave-TASK-2657
 
 <!-- SECTION:NOTES:END -->

@@ -63,10 +63,7 @@ pub fn run_command_dry_run_to(
             // Unmaterialized clones never reach the runner on the load path;
             // say so rather than printing a misleading "(unknown command)".
             Some(CommandSpec::Clone(_)) => {
-                writeln!(
-                    w,
-                    "      (unmaterialized clone - should have been resolved at load)"
-                )?;
+                writeln!(w, "      (unmaterialized clone - should have been resolved at load)")?;
             }
             None => {
                 writeln!(w, "      (unknown command)")?;
@@ -87,9 +84,8 @@ fn print_matrix_spec(
 ) -> anyhow::Result<()> {
     let cells = e.matrix_cells(name)?;
     if let Some(strategy) = &e.strategy {
-        let max_parallel = strategy
-            .max_parallel
-            .map_or_else(|| "unbounded".to_string(), |n| n.to_string());
+        let max_parallel =
+            strategy.max_parallel.map_or_else(|| "unbounded".to_string(), |n| n.to_string());
         writeln!(
             w,
             "      matrix:  {} cell(s), max_parallel = {max_parallel}, fail_fast = {}",
@@ -117,11 +113,7 @@ pub fn print_exec_spec(
     if let Some(wrap) = e.expanded_wrap_display(vars)? {
         writeln!(w, "      wrap:    {}", audit_safe(&wrap))?;
     }
-    writeln!(
-        w,
-        "      program: {}",
-        audit_safe(&vars.try_expand(&e.program)?)
-    )?;
+    writeln!(w, "      program: {}", audit_safe(&vars.try_expand(&e.program)?))?;
     if let Some(args) = e.expanded_args_display(vars)? {
         writeln!(w, "      args:    {}", audit_safe(&args))?;
     }
@@ -194,11 +186,9 @@ pub(super) fn env_display_value(
     vars: &ops_core::expand::Variables,
 ) -> anyhow::Result<String> {
     let expanded = vars.try_expand(value)?;
-    Ok(
-        if is_sensitive_env_key(key) || looks_like_secret_value(&expanded) {
-            "***REDACTED***".to_string()
-        } else {
-            expanded.into_owned()
-        },
-    )
+    Ok(if is_sensitive_env_key(key) || looks_like_secret_value(&expanded) {
+        "***REDACTED***".to_string()
+    } else {
+        expanded.into_owned()
+    })
 }

@@ -127,12 +127,7 @@ pub fn builtin_extensions_from(
         debug!("no stack detected, loading generic extensions only");
     }
 
-    select_enabled(
-        available,
-        &compiled_names,
-        stack,
-        config.extensions.enabled.as_deref(),
-    )
+    select_enabled(available, &compiled_names, stack, config.extensions.enabled.as_deref())
 }
 
 /// Stack-filter pass extracted from `builtin_extensions` so the policy
@@ -145,10 +140,7 @@ fn filter_by_stack(
 ) -> Vec<(&'static str, Box<dyn Extension>)> {
     compiled
         .into_iter()
-        .filter(|(_, ext)| {
-            ext.stack()
-                .is_none_or(|ext_stack| detected == Some(ext_stack))
-        })
+        .filter(|(_, ext)| ext.stack().is_none_or(|ext_stack| detected == Some(ext_stack)))
         .collect()
 }
 
@@ -184,16 +176,11 @@ fn select_enabled(
         // deterministic across processes and snapshot-friendly.
         let mut available_names: Vec<&'static str> = available.keys().copied().collect();
         available_names.sort_unstable();
-        let stack_label = detected_stack.map_or_else(
-            || "no stack detected".to_string(),
-            |s| s.as_str().to_string(),
-        );
+        let stack_label = detected_stack
+            .map_or_else(|| "no stack detected".to_string(), |s| s.as_str().to_string());
         let mut parts: Vec<String> = Vec::new();
         if !missing_not_compiled.is_empty() {
-            parts.push(format!(
-                "not compiled in: {}",
-                missing_not_compiled.join(", ")
-            ));
+            parts.push(format!("not compiled in: {}", missing_not_compiled.join(", ")));
         }
         if !missing_stack_filtered.is_empty() {
             parts.push(format!(
@@ -207,10 +194,8 @@ fn select_enabled(
             available_names.join(", ")
         );
     }
-    let exts: Vec<Box<dyn Extension>> = enabled
-        .iter()
-        .filter_map(|name| available.remove(name.as_str()))
-        .collect();
+    let exts: Vec<Box<dyn Extension>> =
+        enabled.iter().filter_map(|name| available.remove(name.as_str())).collect();
     debug!(count = exts.len(), "extensions loaded from config");
     Ok(exts)
 }

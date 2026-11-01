@@ -1,4 +1,4 @@
-//! Tests for command execution, split per concern (TASK-0423).
+//! Tests for command execution, split per concern.
 
 pub use super::*;
 pub use crate::command::abort::AbortSignal;
@@ -36,18 +36,10 @@ pub fn test_exec_env() -> ExecEnv {
 
 pub fn runner_with_test_commands() -> CommandRunner {
     let mut commands = HashMap::new();
-    commands.insert(
-        "build".to_string(),
-        CommandSpec::Exec(exec_spec("cargo", &["build"])),
-    );
-    commands.insert(
-        "clippy".to_string(),
-        CommandSpec::Exec(exec_spec("cargo", &["clippy"])),
-    );
-    commands.insert(
-        "verify".to_string(),
-        CommandSpec::Composite(composite_cmd(&["build", "clippy"])),
-    );
+    commands.insert("build".to_string(), CommandSpec::Exec(exec_spec("cargo", &["build"])));
+    commands.insert("clippy".to_string(), CommandSpec::Exec(exec_spec("cargo", &["clippy"])));
+    commands
+        .insert("verify".to_string(), CommandSpec::Composite(composite_cmd(&["build", "clippy"])));
     test_runner(commands)
 }
 

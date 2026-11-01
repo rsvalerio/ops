@@ -15,10 +15,7 @@ fn interpret_upgrade_output_errs_on_exit_one() {
     let err = result.expect_err("non-zero exit must surface");
     let msg = err.to_string();
     assert!(msg.contains("status 1"), "expected exit-1 in error: {msg}");
-    assert!(
-        msg.contains("connection timed out"),
-        "stderr tail must be preserved: {msg}"
-    );
+    assert!(msg.contains("connection timed out"), "stderr tail must be preserved: {msg}");
 }
 
 /// `cargo upgrade --dry-run` exit 101 (cargo or subtool panic) must
@@ -29,24 +26,15 @@ fn interpret_upgrade_output_errs_on_exit_one_oh_one() {
     let result = crate::parse::interpret_upgrade_output(Some(101), b"", stderr);
     let err = result.expect_err("panic exit must surface");
     let msg = err.to_string();
-    assert!(
-        msg.contains("status 101"),
-        "expected exit-101 in error: {msg}"
-    );
-    assert!(
-        msg.contains("panicked"),
-        "stderr tail must be preserved: {msg}"
-    );
+    assert!(msg.contains("status 101"), "expected exit-101 in error: {msg}");
+    assert!(msg.contains("panicked"), "stderr tail must be preserved: {msg}");
 }
 
 #[test]
 fn interpret_upgrade_output_errs_on_signal_kill() {
     let result = crate::parse::interpret_upgrade_output(None, b"", b"");
     let err = result.expect_err("None exit must surface");
-    assert!(
-        err.to_string().contains("signal"),
-        "error must name signal-kill case, got: {err}"
-    );
+    assert!(err.to_string().contains("signal"), "error must name signal-kill case, got: {err}");
 }
 
 #[test]
@@ -105,11 +93,7 @@ name   old req compatible latest  new req
 tokio  1.35.0  1.38.0     1.38.0  1.38.0
 ";
     let entries = parse_upgrade_table(stdout);
-    assert_eq!(
-        entries.len(),
-        2,
-        "second header must not drop subsequent rows; got: {entries:?}"
-    );
+    assert_eq!(entries.len(), 2, "second header must not drop subsequent rows; got: {entries:?}");
     assert_eq!(entries[0].name, "serde");
     assert_eq!(entries[1].name, "tokio");
 }
@@ -208,10 +192,7 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
 
     let err = result.expect_err("missing separator must bail, not score as `no upgrades`");
     let msg = err.to_string();
-    assert!(
-        msg.contains("separator"),
-        "error must name the missing-separator case; got: {msg}"
-    );
+    assert!(msg.contains("separator"), "error must name the missing-separator case; got: {msg}");
     // Distinguishable from the header-drift and row-shape-drift messages,
     // both of which describe a table that *could* be aligned.
     assert!(
@@ -248,10 +229,7 @@ fn interpret_upgrade_output_unrecognised_exit_debug_escapes_stderr_tail() {
     let result = crate::parse::interpret_upgrade_output(Some(7), b"", stderr);
     let err = result.expect_err("unrecognised exit must surface");
     let msg = err.to_string();
-    assert!(
-        !msg.contains('\u{1b}'),
-        "ANSI ESC must not survive in: {msg:?}"
-    );
+    assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
     assert!(
         msg.contains("\\n") || !msg.contains('\n'),
         "stderr newlines must be escaped or stripped: {msg:?}"

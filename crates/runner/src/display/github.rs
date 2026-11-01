@@ -1,4 +1,4 @@
-//! GitHub Actions integration for [`super::ProgressDisplay`] (TASK-2325).
+//! GitHub Actions integration for [`super::ProgressDisplay`].
 //!
 //! When `ops` runs under GitHub Actions (`GITHUB_ACTIONS=true`) the plain
 //! step lines are hard to read in the job log: a failing step only shows its
@@ -72,19 +72,13 @@ impl GithubActions {
         if std::env::var("GITHUB_ACTIONS").ok().as_deref() != Some("true") {
             return None;
         }
-        let summary_path = std::env::var_os("GITHUB_STEP_SUMMARY")
-            .filter(|p| !p.is_empty())
-            .map(PathBuf::from);
+        let summary_path =
+            std::env::var_os("GITHUB_STEP_SUMMARY").filter(|p| !p.is_empty()).map(PathBuf::from);
         Some(Self::new(summary_path))
     }
 
     pub(super) fn new(summary_path: Option<PathBuf>) -> Self {
-        Self {
-            summary_path,
-            stop_token: stop_token(),
-            output: HashMap::new(),
-            rows: Vec::new(),
-        }
+        Self { summary_path, stop_token: stop_token(), output: HashMap::new(), rows: Vec::new() }
     }
 
     /// Drop everything collected for a previous plan.
@@ -121,17 +115,8 @@ impl GithubActions {
         display: &str,
         outcome: &StepOutcome<'_>,
     ) -> Vec<String> {
-        let &StepOutcome {
-            id,
-            status,
-            duration_secs,
-            failure,
-        } = outcome;
-        self.rows.push(SummaryRow {
-            display: display.to_string(),
-            status,
-            duration_secs,
-        });
+        let &StepOutcome { id, status, duration_secs, failure } = outcome;
+        self.rows.push(SummaryRow { display: display.to_string(), status, duration_secs });
         let output = self.output.remove(id).unwrap_or_default();
 
         let title = format!(
@@ -168,23 +153,13 @@ impl GithubActions {
 
     /// Render the Markdown run summary.
     fn render_summary(&self, success: bool, duration_secs: f64) -> String {
-        let failed = self
-            .rows
-            .iter()
-            .filter(|r| matches!(r.status, StepStatus::Failed))
-            .count();
-        let succeeded = self
-            .rows
-            .iter()
-            .filter(|r| matches!(r.status, StepStatus::Succeeded))
-            .count();
+        let failed = self.rows.iter().filter(|r| matches!(r.status, StepStatus::Failed)).count();
+        let succeeded =
+            self.rows.iter().filter(|r| matches!(r.status, StepStatus::Succeeded)).count();
         let elapsed = theme::format_duration(duration_secs);
         let mut out = String::new();
         let headline = if success {
-            format!(
-                "### ops: {succeeded}/{} step(s) succeeded in {elapsed}",
-                self.rows.len()
-            )
+            format!("### ops: {succeeded}/{} step(s) succeeded in {elapsed}", self.rows.len())
         } else {
             format!(
                 "### ops: failed ({failed} failed, {succeeded} succeeded of {}) in {elapsed}",
@@ -255,9 +230,7 @@ fn stop_token() -> String {
 
 /// Escape a workflow-command message, as `@actions/core`'s `escapeData`.
 fn escape_data(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace('\r', "%0D")
-        .replace('\n', "%0A")
+    s.replace('%', "%25").replace('\r', "%0D").replace('\n', "%0A")
 }
 
 /// Escape a workflow-command property value, as `@actions/core`'s
@@ -326,10 +299,7 @@ mod tests {
         );
         assert_eq!(
             lines,
-            vec![
-                "::group::cargo fmt (succeeded in 0.10s)".to_string(),
-                "::endgroup::".to_string()
-            ]
+            vec!["::group::cargo fmt (succeeded in 0.10s)".to_string(), "::endgroup::".to_string()]
         );
     }
 

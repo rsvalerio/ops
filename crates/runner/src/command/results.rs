@@ -40,18 +40,12 @@ impl StepResult {
         duration: Duration,
         stdout: String,
     ) -> Self {
-        Self {
-            stdout,
-            ..Self::new(id, true, duration)
-        }
+        Self { stdout, ..Self::new(id, true, duration) }
     }
 
     /// Construct a failure result for an IO/timeout error (no captured output).
     pub fn failure(id: impl Into<CommandId>, duration: Duration, message: String) -> Self {
-        Self {
-            message: Some(message),
-            ..Self::new(id, false, duration)
-        }
+        Self { message: Some(message), ..Self::new(id, false, duration) }
     }
 
     /// Result for a step that never ran because the plan was cancelled:
@@ -277,9 +271,8 @@ fn cap_streamed(mut head: Vec<u8>, dropped_after: u64, cap: usize) -> String {
     // buffer length to u64 is exact and the fallback is unreachable; if it
     // ever were reached, `u64::MAX` keeps the reported drop count monotone
     // rather than wrapping it to a small number.
-    let total_dropped = u64::try_from(from_head_overflow)
-        .unwrap_or(u64::MAX)
-        .saturating_add(dropped_after);
+    let total_dropped =
+        u64::try_from(from_head_overflow).unwrap_or(u64::MAX).saturating_add(dropped_after);
     // PERF-3 / TASK-1232: try the in-place `String::from_utf8` fast path
     // first (the common case for cargo / rustc / shell-script stdout), so a
     // 4 MiB capture transmutes the existing `Vec<u8>` into a `String`
@@ -297,10 +290,7 @@ fn cap_streamed(mut head: Vec<u8>, dropped_after: u64, cap: usize) -> String {
         out.push('\n');
     }
     use std::fmt::Write as _;
-    let _ = writeln!(
-        &mut out,
-        "[ops] output truncated: dropped {total_dropped} bytes (cap {cap})"
-    );
+    let _ = writeln!(&mut out, "[ops] output truncated: dropped {total_dropped} bytes (cap {cap})");
     out
 }
 
@@ -386,10 +376,7 @@ mod tests {
         let debug = format!("{result:?}");
         assert!(debug.contains("debug_cmd"), "Debug should include id");
         assert!(debug.contains("oops"), "Debug should include message");
-        assert!(
-            debug.contains("false"),
-            "Debug should include success=false"
-        );
+        assert!(debug.contains("false"), "Debug should include success=false");
     }
 
     /// A stream larger than the cap is reduced to a
@@ -405,16 +392,11 @@ mod tests {
             truncated.contains("[ops] output truncated"),
             "expected truncation marker, got: {truncated:?}"
         );
-        assert!(
-            truncated.contains("dropped"),
-            "marker should mention dropped byte count"
-        );
+        assert!(truncated.contains("dropped"), "marker should mention dropped byte count");
         assert!(
             truncated.starts_with("abcdefghijklmnopqrstuvwxyzabcdef"),
             "head must be preserved, got prefix: {:?}",
-            truncated
-                .get(..40.min(truncated.len()))
-                .unwrap_or(&truncated)
+            truncated.get(..40.min(truncated.len())).unwrap_or(&truncated)
         );
     }
 

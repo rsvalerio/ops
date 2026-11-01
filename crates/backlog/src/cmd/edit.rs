@@ -79,11 +79,8 @@ fn apply_frontmatter_edits(fm: &mut crate::model::Frontmatter, opts: &EditOption
         fm.status.clone_from(status);
     }
     if let Some(assignees) = &opts.assignees {
-        let cleared: Vec<String> = assignees
-            .iter()
-            .filter(|a| !a.trim().is_empty())
-            .cloned()
-            .collect();
+        let cleared: Vec<String> =
+            assignees.iter().filter(|a| !a.trim().is_empty()).cloned().collect();
         fm.assignees = cleared;
     }
     if !opts.add_labels.is_empty() {
@@ -104,10 +101,7 @@ fn apply_frontmatter_edits(fm: &mut crate::model::Frontmatter, opts: &EditOption
     for dep in &opts.add_dep {
         // Same case rule as the remove below: a dep differing only by case
         // must not slip past the duplicate check and then be removed twice.
-        let already = fm
-            .dependencies
-            .iter()
-            .any(|existing| existing.eq_ignore_ascii_case(dep));
+        let already = fm.dependencies.iter().any(|existing| existing.eq_ignore_ascii_case(dep));
         if !dep.trim().is_empty() && !already {
             fm.dependencies.push(dep.clone());
         }
@@ -275,10 +269,7 @@ body text
 ";
 
     fn opts() -> EditOptions {
-        EditOptions {
-            task_id: "TASK-0001".to_string(),
-            ..EditOptions::default()
-        }
+        EditOptions { task_id: "TASK-0001".to_string(), ..EditOptions::default() }
     }
 
     #[test]
@@ -303,25 +294,15 @@ body text
         .expect("re-parse");
         assert_eq!(doc.frontmatter.status, "To Do");
         assert_eq!(doc.frontmatter.assignees, vec!["code-review-wave"]);
-        assert!(
-            doc.frontmatter.updated_date.is_some(),
-            "updated_date bumped"
-        );
+        assert!(doc.frontmatter.updated_date.is_some(), "updated_date bumped");
     }
 
     #[test]
     fn empty_assignee_clears_the_list() {
         let (dir, store) = scratch_with(&TASK.replacen("assignee: []", "assignee:\n  - wave", 1));
         let mut out = Vec::new();
-        run_edit(
-            &store,
-            &EditOptions {
-                assignees: Some(vec![String::new()]),
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect("edit");
+        run_edit(&store, &EditOptions { assignees: Some(vec![String::new()]), ..opts() }, &mut out)
+            .expect("edit");
         let doc = TaskDoc::parse(
             &std::fs::read_to_string(dir.path().join(".backlog/tasks/task-0001 - original.md"))
                 .expect("read"),
@@ -337,10 +318,7 @@ body text
         for _ in 0..2 {
             run_edit(
                 &store,
-                &EditOptions {
-                    add_labels: vec!["code-review-wave".to_string()],
-                    ..opts()
-                },
+                &EditOptions { add_labels: vec!["code-review-wave".to_string()], ..opts() },
                 &mut out,
             )
             .expect("edit");
@@ -359,10 +337,7 @@ body text
         let mut out = Vec::new();
         run_edit(
             &store,
-            &EditOptions {
-                append_notes: vec!["Overlaps: TASK-0119".to_string()],
-                ..opts()
-            },
+            &EditOptions { append_notes: vec!["Overlaps: TASK-0119".to_string()], ..opts() },
             &mut out,
         )
         .expect("edit");
@@ -380,10 +355,7 @@ body text
                 .expect("read"),
         )
         .expect("re-parse");
-        assert_eq!(
-            doc.body.notes(),
-            Some("Overlaps: TASK-0119\n\nBranch: code-review/TASK-0001")
-        );
+        assert_eq!(doc.body.notes(), Some("Overlaps: TASK-0119\n\nBranch: code-review/TASK-0001"));
     }
 
     #[test]
@@ -392,22 +364,13 @@ body text
         let mut out = Vec::new();
         run_edit(
             &store,
-            &EditOptions {
-                title: Some("renamed title".to_string()),
-                ..opts()
-            },
+            &EditOptions { title: Some("renamed title".to_string()), ..opts() },
             &mut out,
         )
         .expect("edit");
         let tasks = dir.path().join(".backlog").join("tasks");
-        assert!(
-            tasks.join("task-0001 - renamed-title.md").is_file(),
-            "new slug file must exist"
-        );
-        assert!(
-            !tasks.join("task-0001 - original.md").exists(),
-            "old file must be gone"
-        );
+        assert!(tasks.join("task-0001 - renamed-title.md").is_file(), "new slug file must exist");
+        assert!(!tasks.join("task-0001 - original.md").exists(), "old file must be gone");
     }
 
     /// The rewrite is staged and renamed into place: no `.tmp` staging file
@@ -417,33 +380,17 @@ body text
         let (dir, store) = scratch_with(TASK);
         let tasks = dir.path().join(".backlog").join("tasks");
         let mut out = Vec::new();
+        run_edit(&store, &EditOptions { status: Some("To Do".to_string()), ..opts() }, &mut out)
+            .expect("plain edit");
         run_edit(
             &store,
-            &EditOptions {
-                status: Some("To Do".to_string()),
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect("plain edit");
-        run_edit(
-            &store,
-            &EditOptions {
-                title: Some("renamed title".to_string()),
-                ..opts()
-            },
+            &EditOptions { title: Some("renamed title".to_string()), ..opts() },
             &mut out,
         )
         .expect("rename edit");
         let files: Vec<String> = std::fs::read_dir(&tasks)
             .expect("read tasks dir")
-            .map(|entry| {
-                entry
-                    .expect("dir entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
+            .map(|entry| entry.expect("dir entry").file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(
             files,
@@ -465,15 +412,9 @@ body text
         std::fs::write(tasks.join("task-0001 - taken.md"), &squatter).expect("seed squatter");
 
         let mut out = Vec::new();
-        let err = run_edit(
-            &store,
-            &EditOptions {
-                title: Some("taken".to_string()),
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect_err("must refuse the taken slug");
+        let err =
+            run_edit(&store, &EditOptions { title: Some("taken".to_string()), ..opts() }, &mut out)
+                .expect_err("must refuse the taken slug");
         assert!(
             err.to_string().contains("refusing to overwrite"),
             "error must refuse, got: {err:#}"
@@ -517,10 +458,7 @@ body text
             tasks.join("task-0001.01 - grown-up.md").is_file(),
             "the subtask keeps its dotted id under the new slug"
         );
-        assert!(
-            !tasks.join("task-0001.01 - child.md").exists(),
-            "old subtask file must be gone"
-        );
+        assert!(!tasks.join("task-0001.01 - child.md").exists(), "old subtask file must be gone");
         let parent = std::fs::read_to_string(tasks.join("task-0001 - original.md"))
             .expect("parent file must survive");
         assert!(
@@ -537,29 +475,15 @@ body text
         let mut out = Vec::new();
         run_edit(
             &store,
-            &EditOptions {
-                parent: Some("TASK-0099".to_string()),
-                ..opts()
-            },
+            &EditOptions { parent: Some("TASK-0099".to_string()), ..opts() },
             &mut out,
         )
         .expect("edit");
         let path = dir.path().join(".backlog/tasks/task-0001 - original.md");
         let doc = TaskDoc::parse(&std::fs::read_to_string(&path).expect("read")).expect("re-parse");
-        assert_eq!(
-            doc.frontmatter.extra_scalar("parent_task_id"),
-            Some("TASK-0099")
-        );
+        assert_eq!(doc.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0099"));
 
-        run_edit(
-            &store,
-            &EditOptions {
-                clear_parent: true,
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect("edit");
+        run_edit(&store, &EditOptions { clear_parent: true, ..opts() }, &mut out).expect("edit");
         let doc = TaskDoc::parse(&std::fs::read_to_string(&path).expect("read")).expect("re-parse");
         assert_eq!(doc.frontmatter.extra_scalar("parent_task_id"), None);
     }
@@ -572,33 +496,20 @@ body text
         let path = dir.path().join(".backlog/tasks/task-0001 - original.md");
         let mut out = Vec::new();
         for dep in ["TASK-0010", "TASK-0011"] {
-            run_edit(
-                &store,
-                &EditOptions {
-                    add_dep: vec![dep.to_string()],
-                    ..opts()
-                },
-                &mut out,
-            )
-            .expect("edit");
+            run_edit(&store, &EditOptions { add_dep: vec![dep.to_string()], ..opts() }, &mut out)
+                .expect("edit");
         }
         // Appending a dep that is already there must not duplicate it —
         // even when the casing differs (the remove rule is case-blind too).
         run_edit(
             &store,
-            &EditOptions {
-                add_dep: vec!["TASK-0010".to_string()],
-                ..opts()
-            },
+            &EditOptions { add_dep: vec!["TASK-0010".to_string()], ..opts() },
             &mut out,
         )
         .expect("edit");
         run_edit(
             &store,
-            &EditOptions {
-                add_dep: vec!["task-0010".to_string()],
-                ..opts()
-            },
+            &EditOptions { add_dep: vec!["task-0010".to_string()], ..opts() },
             &mut out,
         )
         .expect("edit");
@@ -607,10 +518,7 @@ body text
 
         run_edit(
             &store,
-            &EditOptions {
-                remove_dep: vec!["task-0010".to_string()],
-                ..opts()
-            },
+            &EditOptions { remove_dep: vec!["task-0010".to_string()], ..opts() },
             &mut out,
         )
         .expect("edit");
@@ -624,32 +532,18 @@ body text
         let mut out = Vec::new();
         let err = run_edit(
             &store,
-            &EditOptions {
-                task_id: "TASK-9999".to_string(),
-                ..EditOptions::default()
-            },
+            &EditOptions { task_id: "TASK-9999".to_string(), ..EditOptions::default() },
             &mut out,
         )
         .expect_err("must fail");
-        assert!(
-            err.to_string().contains("TASK-9999"),
-            "error must name the id, got: {err:#}"
-        );
+        assert!(err.to_string().contains("TASK-9999"), "error must name the id, got: {err:#}");
     }
 
     #[test]
     fn check_and_uncheck_ac_by_index() {
         let (dir, store) = scratch_with(TASK);
         let mut out = Vec::new();
-        run_edit(
-            &store,
-            &EditOptions {
-                check_ac: vec![1],
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect("edit");
+        run_edit(&store, &EditOptions { check_ac: vec![1], ..opts() }, &mut out).expect("edit");
         let doc = TaskDoc::parse(
             &std::fs::read_to_string(dir.path().join(".backlog/tasks/task-0001 - original.md"))
                 .expect("read"),
@@ -683,15 +577,8 @@ body text
 
         // Reopen: the store holds parsed copies, and the file just changed.
         let store = Store::open(&dir.path().join(".backlog")).expect("reopen");
-        run_edit(
-            &store,
-            &EditOptions {
-                check_dod: vec![2],
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect("check dod");
+        run_edit(&store, &EditOptions { check_dod: vec![2], ..opts() }, &mut out)
+            .expect("check dod");
         let doc = reparse(&path);
         assert!(!doc.body.dod_items()[0].checked);
         assert!(doc.body.dod_items()[1].checked);
@@ -702,15 +589,8 @@ body text
     fn dod_index_out_of_range_names_the_section() {
         let (_dir, store) = scratch_with(TASK);
         let mut out = Vec::new();
-        let err = run_edit(
-            &store,
-            &EditOptions {
-                check_dod: vec![1],
-                ..opts()
-            },
-            &mut out,
-        )
-        .expect_err("no dod items");
+        let err = run_edit(&store, &EditOptions { check_dod: vec![1], ..opts() }, &mut out)
+            .expect_err("no dod items");
         assert!(err.to_string().contains("no definition-of-done item #1"));
     }
 }

@@ -32,10 +32,7 @@ fn extract_quoted_list_bails_on_unbalanced_quote() {
 /// terminate the value early.
 #[test]
 fn extract_quoted_honors_escaped_double_quotes() {
-    assert_eq!(
-        extract_quoted(r#""see \"v2\" docs""#),
-        Some(r#"see \"v2\" docs"#)
-    );
+    assert_eq!(extract_quoted(r#""see \"v2\" docs""#), Some(r#"see \"v2\" docs"#));
 }
 
 /// Same escape handling for single-quoted Groovy strings.
@@ -70,10 +67,7 @@ fn extract_assignment_double_quoted() {
 
 #[test]
 fn extract_assignment_single_quoted() {
-    assert_eq!(
-        extract_assignment("group = 'org.spring'", "group"),
-        Some("org.spring".to_string())
-    );
+    assert_eq!(extract_assignment("group = 'org.spring'", "group"), Some("org.spring".to_string()));
 }
 
 #[test]
@@ -92,22 +86,13 @@ fn extract_assignment_no_match() {
 #[test]
 fn extract_assignment_no_equals_does_not_match() {
     // bare-method form is handled by extract_bare_method, not extract_assignment
-    assert_eq!(
-        extract_assignment("description \"val\"", "description"),
-        None
-    );
+    assert_eq!(extract_assignment("description \"val\"", "description"), None);
 }
 
 #[test]
 fn extract_assignment_word_boundary() {
-    assert_eq!(
-        extract_assignment("rootProject.nameOverride = \"x\"", "rootProject.name"),
-        None
-    );
-    assert_eq!(
-        extract_assignment("descriptionText = \"x\"", "description"),
-        None
-    );
+    assert_eq!(extract_assignment("rootProject.nameOverride = \"x\"", "rootProject.name"), None);
+    assert_eq!(extract_assignment("descriptionText = \"x\"", "description"), None);
 }
 
 #[test]
@@ -124,10 +109,7 @@ fn extract_bare_method_basic() {
 
 #[test]
 fn extract_bare_method_rejects_block() {
-    assert_eq!(
-        extract_bare_method("descriptionTask { foo() }", "description"),
-        None
-    );
+    assert_eq!(extract_bare_method("descriptionTask { foo() }", "description"), None);
 }
 
 #[test]
@@ -190,11 +172,7 @@ fn parse_gradle_settings_single_quoted() {
 #[test]
 fn parse_gradle_settings_multi_arg_groovy() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle"),
-        "include 'a', 'b', 'c'\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle"), "include 'a', 'b', 'c'\n").unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a", "b", "c"]);
@@ -203,11 +181,7 @@ fn parse_gradle_settings_multi_arg_groovy() {
 #[test]
 fn parse_gradle_settings_multi_arg_kotlin() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle.kts"),
-        "include(\"a\", \"b\")\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle.kts"), "include(\"a\", \"b\")\n").unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a", "b"]);
@@ -216,11 +190,8 @@ fn parse_gradle_settings_multi_arg_kotlin() {
 #[test]
 fn parse_gradle_settings_kotlin_chained_includes_same_line() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle.kts"),
-        "include(\"a\"); include(\"b\")\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle.kts"), "include(\"a\"); include(\"b\")\n")
+        .unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a", "b"]);
@@ -229,11 +200,7 @@ fn parse_gradle_settings_kotlin_chained_includes_same_line() {
 #[test]
 fn parse_gradle_settings_kotlin_quoted_arg_with_paren() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle.kts"),
-        "include(\"legacy)module\")\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle.kts"), "include(\"legacy)module\")\n").unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["legacy)module"]);
@@ -246,11 +213,8 @@ fn parse_gradle_settings_root_project_name_with_inline_comment() {
     // so a future caller can't regress to a greedy match without breaking
     // a test.
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle"),
-        "rootProject.name = \"myapp\" // primary\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle"), "rootProject.name = \"myapp\" // primary\n")
+        .unwrap();
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.root_project_name, Some("myapp".to_string()));
 }
@@ -258,11 +222,8 @@ fn parse_gradle_settings_root_project_name_with_inline_comment() {
 #[test]
 fn parse_gradle_settings_inline_comment() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle"),
-        "include 'core' // primary module\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle"), "include 'core' // primary module\n")
+        .unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["core"]);
@@ -284,11 +245,8 @@ fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy(
     let kotlin = parse_gradle_settings(&canon(&kotlin_dir)).unwrap();
 
     let groovy_dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        groovy_dir.path().join("settings.gradle"),
-        "include \"legacy\\\")module\"\n",
-    )
-    .unwrap();
+    std::fs::write(groovy_dir.path().join("settings.gradle"), "include \"legacy\\\")module\"\n")
+        .unwrap();
     let groovy = parse_gradle_settings(&canon(&groovy_dir)).unwrap();
 
     assert_eq!(kotlin.includes, expected);
@@ -300,11 +258,8 @@ fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy(
 #[test]
 fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle.kts"),
-        "include(\"a//b\") // trailing note\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle.kts"), "include(\"a//b\") // trailing note\n")
+        .unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a//b".to_string()]);
@@ -317,11 +272,7 @@ fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
 #[test]
 fn parse_gradle_settings_dedupes_colon_and_bare_include_spellings() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.gradle"),
-        "include ':app'\ninclude 'app'\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("settings.gradle"), "include ':app'\ninclude 'app'\n").unwrap();
 
     let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes.len(), 1);
@@ -420,11 +371,7 @@ fn parse_gradle_properties_colon_separator() {
 #[test]
 fn parse_gradle_properties_inline_comment() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("gradle.properties"),
-        "version=1.2 # release\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("gradle.properties"), "version=1.2 # release\n").unwrap();
 
     let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("1.2".to_string()));
@@ -445,11 +392,7 @@ fn parse_gradle_properties_value_contains_hash() {
     // `#` inside the value (no preceding whitespace)
     // is part of the value, not a comment introducer.
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("gradle.properties"),
-        "version=1.0#snapshot\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("gradle.properties"), "version=1.0#snapshot\n").unwrap();
     let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("1.0#snapshot".to_string()));
 }
@@ -459,11 +402,7 @@ fn parse_gradle_properties_real_comment_line_skipped() {
     // A `# ...` comment line never matches `strip_prefix("version")`, so
     // a real comment cannot leak through as a version value.
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("gradle.properties"),
-        "# version=2.0\nversion=3.0\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("gradle.properties"), "# version=2.0\nversion=3.0\n").unwrap();
     let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("3.0".to_string()));
 }
@@ -490,11 +429,7 @@ fn parse_gradle_build_description() {
 #[test]
 fn parse_gradle_build_bare_method() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("build.gradle"),
-        "description \"Bare method form\"\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("build.gradle"), "description \"Bare method form\"\n").unwrap();
 
     let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("Bare method form".to_string()));
@@ -505,11 +440,8 @@ fn parse_gradle_build_bare_method_url_in_description() {
     // A `//` inside the quoted value (URL) must not
     // be stripped as a trailing comment.
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("build.gradle"),
-        "description \"see https://example.com\"\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("build.gradle"), "description \"see https://example.com\"\n")
+        .unwrap();
 
     let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("see https://example.com".to_string()));
@@ -520,11 +452,8 @@ fn parse_gradle_build_bare_method_trailing_comment_ignored() {
     // `extract_quoted` terminates at the closing
     // quote, so any trailing `// ...` is naturally outside the result.
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("build.gradle"),
-        "description \"My project\" // primary\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("build.gradle"), "description \"My project\" // primary\n")
+        .unwrap();
 
     let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("My project".to_string()));
@@ -560,10 +489,7 @@ fn parse_gradle_build_root_description_wins_over_task_block() {
     .unwrap();
 
     let b = parse_gradle_build(&canon(&dir)).unwrap();
-    assert_eq!(
-        b.description,
-        Some("The real project description".to_string())
-    );
+    assert_eq!(b.description, Some("The real project description".to_string()));
 }
 
 /// With no root-level assignment, a nested one must not be
@@ -734,10 +660,7 @@ fn gradle_provider_provide_settings_without_root_project_name_falls_back_to_dir_
 /// line and the construct left open at the end.
 fn strip_all(lines: &[&str]) -> (Vec<String>, Option<&'static str>) {
     let mut stripper = MultilineStripper::default();
-    let stripped = lines
-        .iter()
-        .map(|line| stripper.strip(line).into_owned())
-        .collect();
+    let stripped = lines.iter().map(|line| stripper.strip(line).into_owned()).collect();
     (stripped, stripper.unterminated())
 }
 
@@ -777,10 +700,7 @@ fn multiline_stripper_empties_triple_quoted_strings() {
 #[test]
 fn multiline_stripper_reports_the_construct_left_open() {
     assert_eq!(strip_all(&["a /* never closed"]).1, Some("block comment"));
-    assert_eq!(
-        strip_all(&[r#"a = """never closed"#]).1,
-        Some("triple-quoted string")
-    );
+    assert_eq!(strip_all(&[r#"a = """never closed"#]).1, Some("triple-quoted string"));
 }
 
 /// A block-commented `include` and `rootProject.name` are dead code: neither

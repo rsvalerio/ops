@@ -41,8 +41,7 @@ fn is_id(token: &str) -> bool {
 }
 
 fn ids_in(line: &str) -> impl Iterator<Item = &str> {
-    line.split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
-        .filter(|token| is_id(token))
+    line.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').filter(|token| is_id(token))
 }
 
 fn scan_source(path: &str, source: &str) -> Vec<Finding> {
@@ -82,11 +81,7 @@ pub fn run_doc_ids(root: &Path, w: &mut dyn Write) -> anyhow::Result<ExitCode> {
             continue;
         }
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-        let shown = path
-            .strip_prefix(root)
-            .unwrap_or(path)
-            .display()
-            .to_string();
+        let shown = path.strip_prefix(root).unwrap_or(path).display().to_string();
         findings.extend(scan_source(&shown, &String::from_utf8_lossy(&bytes)));
     }
     findings.sort_by(|a, b| (&a.path, a.line, &a.id).cmp(&(&b.path, b.line, &b.id)));
@@ -106,10 +101,7 @@ mod tests {
     use super::*;
 
     fn ids(source: &str) -> Vec<(usize, String)> {
-        scan_source("f.rs", source)
-            .into_iter()
-            .map(|f| (f.line, f.id))
-            .collect()
+        scan_source("f.rs", source).into_iter().map(|f| (f.line, f.id)).collect()
     }
 
     #[test]
@@ -122,21 +114,13 @@ mod tests {
         );
         assert_eq!(
             ids(source),
-            [
-                (1, "TASK-12".to_owned()),
-                (3, "SEC-13".to_owned()),
-                (3, "ERR-5".to_owned())
-            ]
+            [(1, "TASK-12".to_owned()), (3, "SEC-13".to_owned()), (3, "ERR-5".to_owned())]
         );
     }
 
     #[test]
     fn plain_comments_and_code_are_not_doc_comments() {
-        let source = concat!(
-            "// TASK-12\n",
-            "//// TASK-13\n",
-            "let s = \"/// TASK-14\";\n"
-        );
+        let source = concat!("// TASK-12\n", "//// TASK-13\n", "let s = \"/// TASK-14\";\n");
         assert!(ids(source).is_empty());
     }
 
@@ -164,10 +148,7 @@ mod tests {
         assert_eq!(run_doc_ids(root, &mut out).unwrap(), ExitCode::FAILURE);
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("nested/src/lib.rs:1: TASK-7"), "{text}");
-        assert!(
-            !text.contains("gen.rs") && !text.contains("notes.txt"),
-            "{text}"
-        );
+        assert!(!text.contains("gen.rs") && !text.contains("notes.txt"), "{text}");
     }
 
     #[test]
@@ -175,9 +156,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("lib.rs"), "/// Plain docs, UTF-8.\n").unwrap();
         let mut out = Vec::new();
-        assert_eq!(
-            run_doc_ids(dir.path(), &mut out).unwrap(),
-            ExitCode::SUCCESS
-        );
+        assert_eq!(run_doc_ids(dir.path(), &mut out).unwrap(), ExitCode::SUCCESS);
     }
 }

@@ -59,9 +59,7 @@ impl<K: Ord> LruVictimQueue<K> {
     /// An empty victim queue.
     #[must_use = "store the returned queue; each call allocates a fresh, empty one"]
     pub const fn new() -> Self {
-        Self {
-            heap: BinaryHeap::new(),
-        }
+        Self { heap: BinaryHeap::new() }
     }
 
     /// Drop every queued entry. Intended for test-only resets where the
@@ -181,11 +179,7 @@ where
     /// least-recently-used one when a *new* key would exceed the cap.
     #[must_use = "store the returned cache; each call allocates a fresh, empty one"]
     pub fn new(cap: usize) -> Self {
-        Self {
-            map: HashMap::new(),
-            victim_queue: LruVictimQueue::new(),
-            cap,
-        }
+        Self { map: HashMap::new(), victim_queue: LruVictimQueue::new(), cap }
     }
 
     /// The soft cap this cache was built with.
@@ -253,8 +247,7 @@ where
     /// the entry's — the freshness closure shared by compaction and
     /// eviction.
     fn stamp_is_fresh(map: &HashMap<K, BoundedEntry<V, Q>>, key: &Q, tick: u64) -> bool {
-        map.get(key.borrow())
-            .is_some_and(|entry| entry.last_accessed == tick)
+        map.get(key.borrow()).is_some_and(|entry| entry.last_accessed == tick)
     }
 
     /// Push a fresh `(tick, queue_key)` stamp and compact the queue once it
@@ -267,15 +260,10 @@ where
     /// would compact away the stamp it just pushed.
     fn push_stamp(&mut self, queue_key: Q, tick: u64) {
         self.victim_queue.push(tick, queue_key);
-        let threshold = self
-            .map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(VICTIM_QUEUE_SLACK);
+        let threshold = self.map.len().saturating_mul(2).saturating_add(VICTIM_QUEUE_SLACK);
         if self.victim_queue.len() > threshold {
             let map = &self.map;
-            self.victim_queue
-                .retain_fresh(|key, tick| Self::stamp_is_fresh(map, key, tick));
+            self.victim_queue.retain_fresh(|key, tick| Self::stamp_is_fresh(map, key, tick));
         }
     }
 
@@ -330,9 +318,7 @@ where
     /// entries, and the caller's policy (e.g. never duplicating an in-flight
     /// read) is worth more than the cap.
     pub fn evict_lru_where(&mut self, can_evict: impl Fn(&V) -> bool) -> Option<Q> {
-        let Self {
-            map, victim_queue, ..
-        } = self;
+        let Self { map, victim_queue, .. } = self;
         let mut pinned: Vec<(u64, Q)> = Vec::new();
         let victim = loop {
             let Some(candidate) =
@@ -389,11 +375,7 @@ where
         let tick = next_lru_tick();
         self.map.insert(
             key,
-            BoundedEntry {
-                value,
-                last_accessed: tick,
-                queue_key: Q::clone(&queue_key),
-            },
+            BoundedEntry { value, last_accessed: tick, queue_key: Q::clone(&queue_key) },
         );
         // Stamp after the map update — `push_stamp`'s compaction validates
         // stamps against the live entry.
@@ -528,10 +510,7 @@ mod tests {
             assert_eq!(cache.len(), 3, "the cap must hold");
             assert!(cache.contains_key(&"a"), "hot key must survive eviction");
             assert!(cache.contains_key(&"d"), "newly inserted key must remain");
-            assert!(
-                !cache.contains_key(&"b"),
-                "the coldest key must be the victim"
-            );
+            assert!(!cache.contains_key(&"b"), "the coldest key must be the victim");
         }
 
         /// Stamping on every hit must not leak stamps
@@ -543,10 +522,7 @@ mod tests {
             for _ in 0..500 {
                 assert!(cache.touch(&1).is_some());
             }
-            let bound = cache
-                .len()
-                .saturating_mul(2)
-                .saturating_add(VICTIM_QUEUE_SLACK);
+            let bound = cache.len().saturating_mul(2).saturating_add(VICTIM_QUEUE_SLACK);
             assert!(
                 cache.victim_queue_len() <= bound,
                 "victim queue holds {} stamps after 500 hits on one key; expected at most {bound}",
@@ -590,10 +566,7 @@ mod tests {
             cache.insert("y", 4);
             assert!(cache.contains_key(&"kept"));
             assert!(cache.contains_key(&"y"));
-            assert!(
-                !cache.contains_key(&"x"),
-                "the coldest live key is the victim"
-            );
+            assert!(!cache.contains_key(&"x"), "the coldest live key is the victim");
         }
 
         // `lock_recovering`'s hook-once-per-poisoning

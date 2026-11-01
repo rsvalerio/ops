@@ -1,4 +1,4 @@
-//! Matrix commands (TASK-2277): one exec step that runs once per cell.
+//! Matrix commands: one exec step that runs once per cell.
 //!
 //! A command with `[commands.<name>.strategy]` is a single leaf to the plan
 //! around it — scheduling (`exclusive` stages, the plan's `fail_fast`) treats
@@ -62,10 +62,8 @@ impl MatrixRun {
             })
             .collect();
         // Unset means "all at once", still under the runner-wide cap.
-        let max_parallel = strategy
-            .max_parallel
-            .unwrap_or_else(resolve_max_parallel)
-            .clamp(1, cells.len().max(1));
+        let max_parallel =
+            strategy.max_parallel.unwrap_or_else(resolve_max_parallel).clamp(1, cells.len().max(1));
         Some(Ok(Self {
             id: CommandId::from(id),
             cells,
@@ -119,12 +117,7 @@ pub(super) async fn run_matrix(
 ) -> StepResult {
     let (outer_abort, budget) = enclosing.map_or((None, None), |e| (Some(e.abort), Some(e.budget)));
     let start = Instant::now();
-    let MatrixRun {
-        id,
-        cells,
-        max_parallel,
-        fail_fast,
-    } = run;
+    let MatrixRun { id, cells, max_parallel, fail_fast } = run;
     let mut states = vec![CellState::Pending; cells.len()];
     if outer_abort.is_some_and(|a| a.is_set()) {
         finish_pending(&cells, &mut states, &tx).await;
@@ -138,11 +131,8 @@ pub(super) async fn run_matrix(
     let abort = Arc::new(AbortSignal::new());
     let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel));
     let mut join_set = tokio::task::JoinSet::new();
-    let index_by_id: HashMap<CommandId, usize> = cells
-        .iter()
-        .enumerate()
-        .map(|(i, cell)| (cell.id.clone(), i))
-        .collect();
+    let index_by_id: HashMap<CommandId, usize> =
+        cells.iter().enumerate().map(|(i, cell)| (cell.id.clone(), i)).collect();
     let mut index_by_task: HashMap<tokio::task::Id, usize> = HashMap::with_capacity(cells.len());
     // Cells launch from this loop, in cell order, each once a permit is
     // free: spawning them all up front would let the runtime's polling
@@ -238,10 +228,7 @@ async fn finish_pending(cells: &[Cell], states: &mut [CellState], tx: &mpsc::Sen
         let ev = match *state {
             CellState::Pending => {
                 *state = CellState::Skipped;
-                RunnerEvent::StepSkipped {
-                    id: cell.id.clone(),
-                    display_cmd,
-                }
+                RunnerEvent::StepSkipped { id: cell.id.clone(), display_cmd }
             }
             CellState::Panicked => RunnerEvent::StepFailed {
                 id: cell.id.clone(),
@@ -262,12 +249,10 @@ async fn finish_pending(cells: &[Cell], states: &mut [CellState], tx: &mpsc::Sen
 fn label_cell_event(ev: &mut RunnerEvent) -> Option<(CommandId, CellState)> {
     let (id, display_cmd, state) = match ev {
         RunnerEvent::StepStarted { id, display_cmd } => (id, display_cmd, CellState::Pending),
-        RunnerEvent::StepFinished {
-            id, display_cmd, ..
-        } => (id, display_cmd, CellState::Succeeded),
-        RunnerEvent::StepFailed {
-            id, display_cmd, ..
-        } => (id, display_cmd, CellState::Failed),
+        RunnerEvent::StepFinished { id, display_cmd, .. } => {
+            (id, display_cmd, CellState::Succeeded)
+        }
+        RunnerEvent::StepFailed { id, display_cmd, .. } => (id, display_cmd, CellState::Failed),
         RunnerEvent::StepSkipped { id, display_cmd } => (id, display_cmd, CellState::Skipped),
         _ => return None,
     };
@@ -294,11 +279,7 @@ fn aggregate(
     if failed.is_empty() && skipped == 0 {
         return StepResult::success_with_stdout(id, duration, String::new());
     }
-    let skipped_note = if skipped > 0 {
-        format!("; {skipped} skipped")
-    } else {
-        String::new()
-    };
+    let skipped_note = if skipped > 0 { format!("; {skipped} skipped") } else { String::new() };
     let message = format!(
         "{} of {} cells failed: {}{skipped_note}",
         failed.len(),
@@ -315,11 +296,7 @@ pub(super) async fn run_matrix_raw(run: MatrixRun, env: &ExecEnv) -> StepResult 
     let mut states = vec![CellState::Skipped; run.cells.len()];
     for (cell, state) in run.cells.iter().zip(states.iter_mut()) {
         let result = exec_command_raw(cell.id.as_str(), &cell.spec, env).await;
-        *state = if result.success {
-            CellState::Succeeded
-        } else {
-            CellState::Failed
-        };
+        *state = if result.success { CellState::Succeeded } else { CellState::Failed };
         if !result.success && run.fail_fast {
             break;
         }

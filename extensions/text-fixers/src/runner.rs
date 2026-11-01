@@ -87,18 +87,10 @@ fn run_fixer(
         )
     })?;
 
-    let mut report = FixerReport {
-        check_only: opts.check,
-        ..FixerReport::default()
-    };
+    let mut report = FixerReport { check_only: opts.check, ..FixerReport::default() };
     report_discovery_issues(&mut report, writer, label, &opts.root, &mut discovered)?;
 
-    let mut ctx = RunContext {
-        label,
-        check: opts.check,
-        root: &opts.root,
-        writer,
-    };
+    let mut ctx = RunContext { label, check: opts.check, root: &opts.root, writer };
     // Every counter below tallies entries of `discovered.files`, an in-memory
     // `Vec` from one discovery pass, so the totals are bounded by its length
     // and the `saturating_add` guards can never actually saturate.
@@ -170,12 +162,7 @@ fn report_discovery_issues(
         )
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
-    report_walk_errors(
-        report,
-        writer,
-        label,
-        std::mem::take(&mut discovered.walk_errors),
-    )?;
+    report_walk_errors(report, writer, label, std::mem::take(&mut discovered.walk_errors))?;
     if discovered.undecodable_paths > 0 {
         writeln!(
             writer,
@@ -235,11 +222,7 @@ fn record_outcome(
         }
         FileOutcome::Failed { kind, message } => {
             let display = relative_to(path, ctx.root);
-            let failure = FailedFile {
-                path: display,
-                kind,
-                message,
-            };
+            let failure = FailedFile { path: display, kind, message };
             record_failure(report, ctx.writer, ctx.label, failure)?;
         }
         FileOutcome::NeedsWrite { fixed, metadata } => {

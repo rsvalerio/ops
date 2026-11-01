@@ -198,11 +198,7 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
 fn parent_fsync_after_create(path: &Path) {
     let Some(parent) = path.parent() else { return };
     // Empty parent path means cwd; open(".") instead.
-    let parent = if parent.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        parent
-    };
+    let parent = if parent.as_os_str().is_empty() { Path::new(".") } else { parent };
     // A failing parent fsync (ENOSPC, EIO) is non-fatal
     // because the file write has already returned success, but it is the only
     // signal that crash-safety is currently broken. Warn rather than swallow.
@@ -290,10 +286,7 @@ mod tests {
         let parsed: ops_core::config::Config = toml::from_str(&content).expect("valid config");
         assert_eq!(parsed.cargo.workspaces(), [".", "fuzz"]);
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            output.contains("Detected 2 cargo workspaces (., fuzz)"),
-            "{output}"
-        );
+        assert!(output.contains("Detected 2 cargo workspaces (., fuzz)"), "{output}");
     }
 
     /// `--commands` writes the defaults verbatim; on load those copies must
@@ -333,17 +326,11 @@ mod tests {
         let mut content = String::new();
         append_cargo_workspaces(
             &mut content,
-            &[(
-                "a\nb/c".to_string(),
-                "excluded from the a\nb workspace".to_string(),
-            )],
+            &[("a\nb/c".to_string(), "excluded from the a\nb workspace".to_string())],
         );
         let parsed: ops_core::config::Config = toml::from_str(&content).expect("valid TOML");
         assert_eq!(parsed.cargo.workspaces(), [".", "a\nb/c"]);
-        assert!(
-            content.contains("# excluded from the a\\x0ab workspace"),
-            "{content}"
-        );
+        assert!(content.contains("# excluded from the a\\x0ab workspace"), "{content}");
     }
 
     #[test]
@@ -359,14 +346,8 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         run_init(false, &default_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(
-            content.contains("[output]"),
-            "should contain output section"
-        );
-        assert!(
-            !content.contains("[themes.classic]"),
-            "default init should not contain themes"
-        );
+        assert!(content.contains("[output]"), "should contain output section");
+        assert!(!content.contains("[themes.classic]"), "default init should not contain themes");
     }
 
     #[test]
@@ -375,14 +356,8 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         run_init(false, &all_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(
-            content.contains("[output]"),
-            "should contain output section"
-        );
-        assert!(
-            content.contains("[themes.classic]"),
-            "should contain classic theme"
-        );
+        assert!(content.contains("[output]"), "should contain output section");
+        assert!(content.contains("[themes.classic]"), "should contain classic theme");
     }
 
     /// Without `--force` the template is not rewritten, but the backlog
@@ -407,10 +382,7 @@ mod tests {
         let (dir, _guard) = crate::test_utils::with_temp_config("existing");
         run_init(true, &default_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(
-            content.contains("[output]"),
-            "file should be overwritten with defaults"
-        );
+        assert!(content.contains("[output]"), "file should be overwritten with defaults");
     }
 
     /// Both `write_init` branches must reach the parent
@@ -435,10 +407,7 @@ mod tests {
 
         let a = std::fs::read(&path_a).expect("read a");
         let b = std::fs::read(&path_b).expect("read b");
-        assert_eq!(
-            a, b,
-            "force and no-force paths must produce identical bytes"
-        );
+        assert_eq!(a, b, "force and no-force paths must produce identical bytes");
         assert_eq!(a, bytes, "and the bytes must be exactly what was written");
     }
 
@@ -469,10 +438,7 @@ mod tests {
         );
         // Verify the file was actually overwritten
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(
-            content.contains("[output]"),
-            "should be new content, got: {content}"
-        );
+        assert!(content.contains("[output]"), "should be new content, got: {content}");
     }
 
     #[test]
@@ -484,10 +450,7 @@ mod tests {
         let sections = ops_core::config::InitSections::from_flags(true, false, true);
         run_init_to(false, &sections, &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            output.contains("Add commands"),
-            "no-stack message expected, got: {output}"
-        );
+        assert!(output.contains("Add commands"), "no-stack message expected, got: {output}");
     }
 
     /// A malformed `.ops.toml` must not abort `ops init` (the early-load
@@ -622,9 +585,6 @@ mod tests {
         let sections = ops_core::config::InitSections::from_flags(true, false, true);
         run_init_to(false, &sections, &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            output.contains("detected stack"),
-            "expected stack message, got: {output}"
-        );
+        assert!(output.contains("detected stack"), "expected stack message, got: {output}");
     }
 }

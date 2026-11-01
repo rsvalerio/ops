@@ -69,11 +69,7 @@ impl Deadline {
         budget: Duration,
         expires_at: Instant,
     ) -> Self {
-        Self {
-            provider,
-            budget,
-            expires_at,
-        }
+        Self { provider, budget, expires_at }
     }
 
     /// When this dispatch's budget runs out.

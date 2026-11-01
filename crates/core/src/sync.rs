@@ -94,13 +94,10 @@ mod tests {
             .join()
         });
         assert!(joined.is_err(), "the poisoning thread must have panicked");
-        assert!(
-            m.is_poisoned(),
-            "lock must be poisoned for this test to mean anything"
-        );
+        assert!(m.is_poisoned(), "lock must be poisoned for this test to mean anything");
     }
 
-    /// TEST-15 / TASK-1664: this is the deterministic replacement for
+    /// This is the deterministic replacement for
     /// `expand::tests::ops_root_cache_len_surfaces_poison_breadcrumb`, which
     /// poisoned the *process-global* `OPS_ROOT` cache and asserted on the
     /// breadcrumb. `lock_recover_warn` calls `clear_poison`, so a poisoned
@@ -125,10 +122,7 @@ mod tests {
         });
 
         assert_eq!(value, 7, "recovered guard must still expose the value");
-        assert!(
-            logs.contains("test_seam"),
-            "warn breadcrumb must name the seam, got: {logs}"
-        );
+        assert!(logs.contains("test_seam"), "warn breadcrumb must name the seam, got: {logs}");
         assert!(
             logs.contains("poisoned"),
             "warn breadcrumb must mention the poison recovery, got: {logs}"
@@ -160,18 +154,12 @@ mod tests {
             crate::test_utils::capture_tracing(tracing::Level::WARN, || *lock_recover(&m));
 
         assert_eq!(value, 7, "recovered guard must still expose the value");
-        assert!(
-            logs.is_empty(),
-            "lock_recover must stay silent, got: {logs}"
-        );
-        assert!(
-            !m.is_poisoned(),
-            "poison must be cleared so later callers take the fast path"
-        );
+        assert!(logs.is_empty(), "lock_recover must stay silent, got: {logs}");
+        assert!(!m.is_poisoned(), "poison must be cleared so later callers take the fast path");
     }
 
-    /// DUP-1 / TASK-2258 (ported from the deleted
-    /// `ops_about::lru::lock_recovering` test): the hook runs once per
+    /// Ported from the deleted
+    /// `ops_about::lru::lock_recovering` test: the hook runs once per
     /// *observed* poisoning — `clear_poison` means a later acquisition is a
     /// plain healthy lock and must not re-run it.
     #[test]

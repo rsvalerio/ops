@@ -1,10 +1,10 @@
 ---
 id: TASK-2334
 title: 'code-review-plan-wave35'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-28 15:07'
-updated_date: '2026-09-28 15:24'
+updated_date: '2026-11-01 13:17'
 labels:
   - code-review-wave
 dependencies:
@@ -40,5 +40,7 @@ Overlaps: TASK-2331/wave32 (crates/cli/src/args.rs, crates/cli/src/subcommands.r
 Branch: code-review/TASK-2334
 
 Code landed on code-review/run-20260928 (fceb23f2, 01237b74, c886bf1d). Wave left In Progress: TASK-2328 AC#2 forge-side replacement is out of repo (task moved to To Do for re-triage). Follow-up filed: TASK-2337 (Triage). Worktree ../.wave-TASK-2334 and branch code-review/TASK-2334 left in place (fully merged, clean).
+
+Closing 2026-11-01: the only outstanding item, TASK-2328 AC#2 (forge-side lint-actions replacement), landed as rsvalerio/forge#35. Code was already on main via code-review/run-20260928; worktree and branch were removed earlier.
 
 <!-- SECTION:NOTES:END -->

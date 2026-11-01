@@ -1,7 +1,7 @@
 //! Command handlers: plain option structs (no clap), writer-injectable
 //! cores following the CLI crate's `_to` idom.
 //!
-//! Errors are `anyhow` with the file path attached (ERR-13); the CLI prints
+//! Errors are `anyhow` with the file path attached; the CLI prints
 //! them as `ops: error: …`.
 
 pub mod about;
@@ -67,13 +67,8 @@ pub(crate) fn confirm<W: Write>(
     write!(out, "{prompt} [y/N] ").context("printing the confirmation prompt")?;
     out.flush().context("flushing the confirmation prompt")?;
     let mut answer = String::new();
-    input
-        .read_line(&mut answer)
-        .context("reading the confirmation answer")?;
-    Ok(matches!(
-        answer.trim().to_ascii_lowercase().as_str(),
-        "y" | "yes"
-    ))
+    input.read_line(&mut answer).context("reading the confirmation answer")?;
+    Ok(matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
 }
 
 /// Write `contents` to `path` so the destination is never observable
@@ -122,20 +117,14 @@ fn stage_contents(path: &std::path::Path, contents: &str) -> anyhow::Result<std:
     let Some(name) = path.file_name() else {
         anyhow::bail!("{} has no file name to stage a write under", path.display());
     };
-    let staging = path.with_file_name(format!(
-        ".{}.{}.tmp",
-        name.to_string_lossy(),
-        std::process::id()
-    ));
+    let staging =
+        path.with_file_name(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
     let mut handle = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&staging)
         .with_context(|| format!("staging {}", path.display()))?;
-    if let Err(err) = handle
-        .write_all(contents.as_bytes())
-        .and_then(|()| handle.sync_all())
-    {
+    if let Err(err) = handle.write_all(contents.as_bytes()).and_then(|()| handle.sync_all()) {
         std::fs::remove_file(&staging).ok();
         return Err(err).with_context(|| format!("staging {}", path.display()));
     }
@@ -166,10 +155,7 @@ pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> 
     if let Err(err) = std::fs::hard_link(&staging, path) {
         std::fs::remove_file(&staging).ok();
         if err.kind() == std::io::ErrorKind::AlreadyExists {
-            anyhow::bail!(
-                "{} already exists; refusing to overwrite it",
-                path.display()
-            );
+            anyhow::bail!("{} already exists; refusing to overwrite it", path.display());
         }
         return Err(err).with_context(|| format!("claiming {}", path.display()));
     }

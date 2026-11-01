@@ -33,7 +33,7 @@ use ops_extension::{Context, DataProviderError, DataRegistry};
 /// process-global current directory) and sets `refresh` on the result.
 ///
 /// `subpage` names the caller so the `current_dir` failure is attributable
-/// (ERR-4) instead of surfacing the same bare OS error from five different
+///  instead of surfacing the same bare OS error from five different
 /// subcommands.
 ///
 /// # Errors
@@ -130,9 +130,8 @@ where
         // `Path`'s Display renders the root as "."; spell that out rather
         // than emitting a message that trails off in a bare dot.
         let at = if path == "." { "<root>" } else { path.as_str() };
-        anyhow::Error::new(e.into_inner()).context(format!(
-            "provider `{provider}` payload did not match {target} (at `{at}`)"
-        ))
+        anyhow::Error::new(e.into_inner())
+            .context(format!("provider `{provider}` payload did not match {target} (at `{at}`)"))
     })
 }
 
@@ -162,10 +161,7 @@ mod tests {
     #[test]
     fn subpage_context_uses_the_cwd_and_an_empty_config() {
         let ctx = subpage_context("units").expect("cwd is readable in the test harness");
-        assert_eq!(
-            ctx.working_directory(),
-            std::env::current_dir().unwrap().as_path()
-        );
+        assert_eq!(ctx.working_directory(), std::env::current_dir().unwrap().as_path());
         let empty = ops_core::config::Config::empty();
         assert_eq!(
             ctx.config().commands.len(),
@@ -233,17 +229,15 @@ mod tests {
         units: Vec<UnitCoverageStub>,
     }
 
-    /// ERR-4 + ERR-14: a payload-shape failure must name the
+    /// A payload-shape failure must name the
     /// provider that produced it, the type it was being read into, and the
     /// concrete field path. A bare `invalid type: string, expected f64` is
     /// unattributable across four subpages and a hundred fields.
     #[test]
     fn load_or_default_error_names_provider_and_field_path() {
         let mut registry = DataRegistry::new();
-        let _ = registry.register(
-            "project_coverage",
-            Box::new(DriftedProvider("project_coverage")),
-        );
+        let _ =
+            registry.register("project_coverage", Box::new(DriftedProvider("project_coverage")));
 
         let mut ctx = test_ctx();
         let err = load_or_default::<CoverageStub>(&mut ctx, &registry, "project_coverage")
@@ -276,10 +270,7 @@ mod tests {
         let err = deserialize_payload::<CoverageStub>("project_coverage", &serde_json::json!(7))
             .expect_err("an integer is not a CoverageStub");
         let rendered = format!("{err:#}");
-        assert!(
-            rendered.contains("`<root>`"),
-            "root mismatch must be labelled; got {rendered}"
-        );
+        assert!(rendered.contains("`<root>`"), "root mismatch must be labelled; got {rendered}");
         assert!(rendered.contains("project_coverage"), "got {rendered}");
     }
 

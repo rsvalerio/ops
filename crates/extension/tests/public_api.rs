@@ -43,9 +43,7 @@ fn data_registry_provide_unknown_returns_error() {
 /// hashbrown's randomised iteration order would break that pin.
 #[test]
 fn data_registry_into_iter_yields_insertion_order_and_is_stable() {
-    let names = [
-        "zeta", "alpha", "delta", "mu", "beta", "lambda", "gamma", "epsilon",
-    ];
+    let names = ["zeta", "alpha", "delta", "mu", "beta", "lambda", "gamma", "epsilon"];
     let build = || {
         let mut r = DataRegistry::new();
         for n in names {
@@ -82,20 +80,14 @@ fn data_registry_register_duplicate_records_audit_and_keeps_first() {
     let mut registry = DataRegistry::new();
     let _ = registry.register("stub", Box::new(StubProvider));
     let _ = registry.register("stub", Box::new(StubProvider));
-    assert!(
-        registry.get("stub").is_some(),
-        "first-write-wins must keep the original provider"
-    );
+    assert!(registry.get("stub").is_some(), "first-write-wins must keep the original provider");
     let dups = registry.take_duplicate_inserts();
     assert_eq!(
         dups,
         vec!["stub".to_string()],
         "the rejected name must be recorded for the wiring layer to warn on"
     );
-    assert!(
-        registry.take_duplicate_inserts().is_empty(),
-        "draining the audit trail clears it"
-    );
+    assert!(registry.take_duplicate_inserts().is_empty(), "draining the audit trail clears it");
 }
 
 #[test]
@@ -138,26 +130,16 @@ fn provider_panic_does_not_poison_the_context() {
     }
 
     let mut registry = DataRegistry::new();
-    let _ = registry.register(
-        "panic-first",
-        Box::new(PanickingFirstProvider {
-            calls: AtomicUsize::new(0),
-        }),
-    );
+    let _ = registry
+        .register("panic-first", Box::new(PanickingFirstProvider { calls: AtomicUsize::new(0) }));
     let mut ctx = test_context();
 
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         registry.provide("panic-first", &mut ctx)
     }));
-    assert!(
-        unwound.is_err(),
-        "the first dispatch must unwind, not return"
-    );
+    assert!(unwound.is_err(), "the first dispatch must unwind, not return");
 
-    assert!(
-        ctx.deadline().is_none(),
-        "no deadline may survive the panicked dispatch"
-    );
+    assert!(ctx.deadline().is_none(), "no deadline may survive the panicked dispatch");
 
     let second = registry.provide("panic-first", &mut ctx);
     let value = second.expect("second dispatch of the same key must succeed, not Cycle");
@@ -188,29 +170,16 @@ fn context_get_or_provide_refresh_bypasses_cache() {
 
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = DataRegistry::new();
-    let _ = registry.register(
-        "counter",
-        Box::new(CountingProvider {
-            calls: Arc::clone(&calls),
-        }),
-    );
+    let _ = registry.register("counter", Box::new(CountingProvider { calls: Arc::clone(&calls) }));
 
     let mut ctx = test_context();
     ctx.get_or_provide("counter", &registry).expect("first");
     ctx.get_or_provide("counter", &registry).expect("cached");
-    assert_eq!(
-        calls.load(Ordering::Relaxed),
-        1,
-        "second call must be cached"
-    );
+    assert_eq!(calls.load(Ordering::Relaxed), 1, "second call must be cached");
 
     let mut refreshing = test_context().with_refresh();
-    refreshing
-        .get_or_provide("counter", &registry)
-        .expect("refresh-first");
-    refreshing
-        .get_or_provide("counter", &registry)
-        .expect("refresh-second");
+    refreshing.get_or_provide("counter", &registry).expect("refresh-first");
+    refreshing.get_or_provide("counter", &registry).expect("refresh-second");
     assert_eq!(
         calls.load(Ordering::Relaxed),
         3,
@@ -227,9 +196,7 @@ fn context_get_or_provide_caches() {
     let mut ctx = test_context();
 
     let v1 = ctx.get_or_provide("stub", &registry).expect("first call");
-    let v2 = ctx
-        .get_or_provide("stub", &registry)
-        .expect("second call (cached)");
+    let v2 = ctx.get_or_provide("stub", &registry).expect("second call (cached)");
     assert_eq!(*v1, *v2);
     assert!(ctx.cached("stub").is_some());
 }
@@ -257,13 +224,8 @@ fn context_get_or_provide_detects_provider_cycle() {
             self.name
         }
         fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-            let reg_handle = self
-                .registry
-                .lock()
-                .unwrap()
-                .as_ref()
-                .expect("registry wired")
-                .clone();
+            let reg_handle =
+                self.registry.lock().unwrap().as_ref().expect("registry wired").clone();
             let _ = ctx.get_or_provide(self.other, &reg_handle)?;
             Ok(serde_json::json!({"unreachable": self.name}))
         }
@@ -273,37 +235,24 @@ fn context_get_or_provide_detects_provider_cycle() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "alpha",
-        Box::new(ChainProvider {
-            name: "alpha",
-            other: "beta",
-            registry: Arc::clone(&shared),
-        }),
+        Box::new(ChainProvider { name: "alpha", other: "beta", registry: Arc::clone(&shared) }),
     );
     let _ = registry.register(
         "beta",
-        Box::new(ChainProvider {
-            name: "beta",
-            other: "alpha",
-            registry: Arc::clone(&shared),
-        }),
+        Box::new(ChainProvider { name: "beta", other: "alpha", registry: Arc::clone(&shared) }),
     );
     let registry = Arc::new(registry);
     *shared.lock().unwrap() = Some(Arc::clone(&registry));
 
     let mut ctx = test_context();
-    let err = ctx
-        .get_or_provide("alpha", &registry)
-        .expect_err("cycle must surface as an error");
+    let err = ctx.get_or_provide("alpha", &registry).expect_err("cycle must surface as an error");
     match err {
         DataProviderError::Cycle { key } => assert_eq!(key, "alpha"),
         other => panic!("expected Cycle{{alpha}}, got {other:?}"),
     }
     // After the cycle bottom-out, the in-flight set must be drained so a
     // subsequent unrelated call is not poisoned.
-    assert!(
-        ctx.cached("alpha").is_none(),
-        "failed cycle must not poison the cache"
-    );
+    assert!(ctx.cached("alpha").is_none(), "failed cycle must not poison the cache");
 }
 
 #[test]
@@ -320,10 +269,7 @@ fn context_get_or_provide_unknown_errors() {
 #[test]
 fn data_provider_error_computation_failed() {
     let err = DataProviderError::computation_failed("test computation error");
-    assert_eq!(
-        err.to_string(),
-        "data computation failed: test computation error"
-    );
+    assert_eq!(err.to_string(), "data computation failed: test computation error");
     assert!(matches!(err, DataProviderError::ComputationMessage(_)));
 }
 
@@ -420,10 +366,7 @@ fn computation_failed_alternate_display_surfaces_root_cause() {
 fn computation_failed_plain_display_flattens_chain() {
     let inner = anyhow::anyhow!("root cause").context("outer context");
     let e = DataProviderError::from(inner);
-    assert_eq!(
-        e.to_string(),
-        "data computation failed: outer context: root cause"
-    );
+    assert_eq!(e.to_string(), "data computation failed: outer context: root cause");
 }
 
 /// `SharedError` itself is alternate-aware: `{:#}` walks the source chain,
@@ -757,14 +700,8 @@ fn data_registry_default() {
 fn command_registry_from_iter_drains_duplicate_audit_trail() {
     let id = CommandId::new("dup");
     let entries: Vec<(CommandId, CommandSpec)> = vec![
-        (
-            id.clone(),
-            CommandSpec::Exec(ExecCommandSpec::new("a", ["x"])),
-        ),
-        (
-            id.clone(),
-            CommandSpec::Exec(ExecCommandSpec::new("b", ["y"])),
-        ),
+        (id.clone(), CommandSpec::Exec(ExecCommandSpec::new("a", ["x"]))),
+        (id.clone(), CommandSpec::Exec(ExecCommandSpec::new("b", ["y"]))),
     ];
 
     let mut reg: CommandRegistry = entries.into_iter().collect();
@@ -855,13 +792,7 @@ impl DataProvider for RegistryChainProvider {
         self.name
     }
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let reg = self
-            .registry
-            .lock()
-            .unwrap()
-            .as_ref()
-            .expect("registry wired")
-            .clone();
+        let reg = self.registry.lock().unwrap().as_ref().expect("registry wired").clone();
         let _ = reg.provide(self.other, ctx)?;
         Ok(serde_json::json!({ "unreachable": self.name }))
     }
@@ -903,9 +834,7 @@ fn cyclic_registry() -> Arc<DataRegistry> {
 fn data_registry_provide_detects_cycle_without_the_cache_wrapper() {
     let registry = cyclic_registry();
     let mut ctx = test_context();
-    let err = registry
-        .provide("alpha", &mut ctx)
-        .expect_err("cycle must surface as an error");
+    let err = registry.provide("alpha", &mut ctx).expect_err("cycle must surface as an error");
     match err {
         DataProviderError::Cycle { key } => assert_eq!(key, "alpha"),
         other => panic!("expected Cycle{{alpha}}, got {other:?}"),
@@ -922,9 +851,7 @@ fn dyn_data_provider_obtained_from_get_still_bottoms_out_on_cycle() {
     let registry = cyclic_registry();
     let mut ctx = test_context();
     let provider = registry.get("alpha").expect("alpha registered");
-    let err = provider
-        .provide(&mut ctx)
-        .expect_err("cycle must surface as an error");
+    let err = provider.provide(&mut ctx).expect_err("cycle must surface as an error");
     match err {
         DataProviderError::Cycle { key } => assert_eq!(
             key, "beta",
@@ -958,17 +885,10 @@ fn failed_provider_clears_its_in_flight_marker() {
 
     let calls = Arc::new(AtomicUsize::new(0));
     let mut registry = DataRegistry::new();
-    let _ = registry.register(
-        "flaky",
-        Box::new(FlakyProvider {
-            calls: Arc::clone(&calls),
-        }),
-    );
+    let _ = registry.register("flaky", Box::new(FlakyProvider { calls: Arc::clone(&calls) }));
     let mut ctx = test_context();
     assert!(ctx.get_or_provide("flaky", &registry).is_err());
-    let v = ctx
-        .get_or_provide("flaky", &registry)
-        .expect("retry must not report a phantom cycle");
+    let v = ctx.get_or_provide("flaky", &registry).expect("retry must not report a phantom cycle");
     assert_eq!(v.as_ref(), &serde_json::json!({ "ok": true }));
 }
 
@@ -992,9 +912,7 @@ impl DataProvider for NamedProvider {
 fn register_returns_none_on_fresh_insert_and_the_rejected_provider_on_duplicate() {
     let mut registry = DataRegistry::new();
     assert!(
-        registry
-            .register("thing", Box::new(NamedProvider("first")))
-            .is_none(),
+        registry.register("thing", Box::new(NamedProvider("first"))).is_none(),
         "a fresh key must report the no-op variant"
     );
 
@@ -1063,13 +981,7 @@ fn provider_cannot_change_the_context_its_siblings_observe() {
                 .push((ctx.is_refreshing(), ctx.working_directory().to_path_buf()));
             // The only mutation surface a provider has is the cache, via
             // `get_or_provide`. There is no `ctx.refresh = …` to write here.
-            let reg = self
-                .registry
-                .lock()
-                .unwrap()
-                .as_ref()
-                .expect("registry wired")
-                .clone();
+            let reg = self.registry.lock().unwrap().as_ref().expect("registry wired").clone();
             let _ = ctx.get_or_provide("inner", &reg)?;
             Ok(serde_json::Value::Null)
         }
@@ -1080,17 +992,9 @@ fn provider_cannot_change_the_context_its_siblings_observe() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "outer",
-        Box::new(Outer {
-            observed: Arc::clone(&observed),
-            registry: Arc::clone(&shared),
-        }),
+        Box::new(Outer { observed: Arc::clone(&observed), registry: Arc::clone(&shared) }),
     );
-    let _ = registry.register(
-        "inner",
-        Box::new(Inner {
-            observed: Arc::clone(&observed),
-        }),
-    );
+    let _ = registry.register("inner", Box::new(Inner { observed: Arc::clone(&observed) }));
     let registry = Arc::new(registry);
     *shared.lock().unwrap() = Some(Arc::clone(&registry));
 
@@ -1101,10 +1005,7 @@ fn provider_cannot_change_the_context_its_siblings_observe() {
     let seen = observed.lock().unwrap().clone();
     assert_eq!(seen.len(), 2, "both providers must have run");
     for (refreshing, dir) in seen {
-        assert!(
-            refreshing,
-            "every provider observes the caller's refresh flag"
-        );
+        assert!(refreshing, "every provider observes the caller's refresh flag");
         assert_eq!(dir, cwd, "every provider observes the caller's cwd");
     }
 }
@@ -1141,10 +1042,7 @@ fn data_registry_debug_names_its_providers_and_pending_audit_entries() {
     // Registration order, not sorted order.
     let zeta = rendered.find("\"zeta\"").expect("zeta named");
     let alpha = rendered.find("\"alpha\"").expect("alpha named");
-    assert!(
-        zeta < alpha,
-        "providers print in registration order: {rendered}"
-    );
+    assert!(zeta < alpha, "providers print in registration order: {rendered}");
     assert!(
         rendered.contains("duplicate_inserts"),
         "the pending audit trail must be visible: {rendered}"
@@ -1159,14 +1057,8 @@ fn context_debug_lists_keys_but_never_cached_values() {
     ctx.get_or_provide("stub", &registry).expect("provide");
 
     let rendered = format!("{ctx:?}");
-    for expected in [
-        "Context",
-        "/tmp/debug-ctx",
-        "refresh",
-        "cached_keys",
-        "\"stub\"",
-        "in_flight",
-    ] {
+    for expected in ["Context", "/tmp/debug-ctx", "refresh", "cached_keys", "\"stub\"", "in_flight"]
+    {
         assert!(
             rendered.contains(expected),
             "Debug output must mention `{expected}`; got: {rendered}"
@@ -1220,10 +1112,8 @@ fn boxed_named_extension(name: &'static str) -> Box<dyn Extension> {
 #[test]
 fn sort_compiled_extensions_pins_the_collision_winner_regardless_of_input_order() {
     let build = |order: [&'static str; 2]| {
-        let pairs: Vec<(&'static str, Box<dyn Extension>)> = order
-            .into_iter()
-            .map(|n| ("dup", boxed_named_extension(n)))
-            .collect();
+        let pairs: Vec<(&'static str, Box<dyn Extension>)> =
+            order.into_iter().map(|n| ("dup", boxed_named_extension(n))).collect();
         sort_compiled_extensions(pairs)
             .into_iter()
             .map(|(cfg, ext)| (cfg, ext.name()))
@@ -1244,14 +1134,10 @@ fn sort_compiled_extensions_pins_the_collision_winner_regardless_of_input_order(
 
 #[test]
 fn sort_compiled_extensions_orders_distinct_config_names() {
-    let pairs: Vec<(&'static str, Box<dyn Extension>)> = vec![
-        ("zeta", boxed_named_extension("z")),
-        ("alpha", boxed_named_extension("a")),
-    ];
-    let names: Vec<&str> = sort_compiled_extensions(pairs)
-        .into_iter()
-        .map(|(cfg, _)| cfg)
-        .collect();
+    let pairs: Vec<(&'static str, Box<dyn Extension>)> =
+        vec![("zeta", boxed_named_extension("z")), ("alpha", boxed_named_extension("a"))];
+    let names: Vec<&str> =
+        sort_compiled_extensions(pairs).into_iter().map(|(cfg, _)| cfg).collect();
     assert_eq!(names, vec!["alpha", "zeta"]);
 }
 
@@ -1337,10 +1223,7 @@ fn both_factory_arms_register_into_the_extension_registry() {
         .map(|(config_name, ext)| (config_name, ext.name()))
         .collect();
 
-    for expected in [
-        ("factory-full", "factory-full"),
-        ("factory-short", "factory-short"),
-    ] {
+    for expected in [("factory-full", "factory-full"), ("factory-short", "factory-short")] {
         assert!(
             found.contains(&expected),
             "EXTENSION_REGISTRY must contain a factory yielding {expected:?}; found: {found:?}"
@@ -1387,18 +1270,11 @@ fn command_registry_clone_copies_data_and_resets_the_audit_trail() {
     let id = CommandId::new("dup");
     let mut reg = CommandRegistry::new();
     assert!(
-        reg.insert(
-            id.clone(),
-            CommandSpec::Exec(ExecCommandSpec::new("a", ["x"]))
-        )
-        .is_none(),
+        reg.insert(id.clone(), CommandSpec::Exec(ExecCommandSpec::new("a", ["x"]))).is_none(),
         "a fresh id has no previous spec"
     );
     let previous = reg
-        .insert(
-            id.clone(),
-            CommandSpec::Exec(ExecCommandSpec::new("b", ["y"])),
-        )
+        .insert(id.clone(), CommandSpec::Exec(ExecCommandSpec::new("b", ["y"])))
         .expect("re-inserting must return the previous spec");
     if let CommandSpec::Exec(e) = previous {
         assert_eq!(e.program, "a");
@@ -1413,21 +1289,15 @@ fn command_registry_clone_copies_data_and_resets_the_audit_trail() {
         clone.take_duplicate_inserts().is_empty(),
         "the clone must not inherit the original's audit trail"
     );
-    assert_eq!(
-        reg.take_duplicate_inserts(),
-        vec![id],
-        "the original keeps its own audit trail"
-    );
+    assert_eq!(reg.take_duplicate_inserts(), vec![id], "the original keeps its own audit trail");
 }
 
 #[test]
 fn command_registry_ref_into_iter_yields_insertion_order() {
     let mut reg = CommandRegistry::new();
     for name in ["zeta", "alpha", "mu"] {
-        let _ = reg.insert(
-            CommandId::new(name),
-            CommandSpec::Exec(ExecCommandSpec::new("echo", [name])),
-        );
+        let _ = reg
+            .insert(CommandId::new(name), CommandSpec::Exec(ExecCommandSpec::new("echo", [name])));
     }
     let observed: Vec<&str> = (&reg).into_iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(observed, vec!["zeta", "alpha", "mu"]);
@@ -1461,8 +1331,7 @@ fn clear_provider_results_drops_cached_values() {
 
     // The in-flight set is cleared too, so the key is immediately requestable
     // again rather than reporting a phantom cycle.
-    ctx.get_or_provide("stub", &registry)
-        .expect("the key must be requestable after a clear");
+    ctx.get_or_provide("stub", &registry).expect("the key must be requestable after a clear");
 }
 
 // ---------------------------------------------------------------------------
@@ -1488,10 +1357,7 @@ mod sqlite_feature {
         // the test below for why calling `as_any()` on the `Arc` does not
         // reach the inner value.
         let erased: &dyn SqliteHandle = handle.as_ref();
-        let recovered = erased
-            .as_any()
-            .downcast_ref::<FakeDb>()
-            .expect("as_any must return self");
+        let recovered = erased.as_any().downcast_ref::<FakeDb>().expect("as_any must return self");
         assert_eq!(recovered, &FakeDb(7));
         assert!(
             erased.as_any().downcast_ref::<String>().is_none(),
@@ -1524,10 +1390,7 @@ mod sqlite_feature {
             "an Arc receiver does not reach the inner value"
         );
         assert!(
-            handle
-                .as_any()
-                .downcast_ref::<Arc<dyn SqliteHandle>>()
-                .is_some(),
+            handle.as_any().downcast_ref::<Arc<dyn SqliteHandle>>().is_some(),
             "it erases the Arc itself instead"
         );
     }
@@ -1569,10 +1432,7 @@ fn computation_failed_has_no_fabricated_io_source() {
     use std::error::Error;
 
     let err = DataProviderError::computation_failed("cargo metadata returned no packages");
-    assert!(
-        err.source().is_none(),
-        "a message-only failure has no cause to expose"
-    );
+    assert!(err.source().is_none(), "a message-only failure has no cause to expose");
 
     let mut current: Option<&(dyn Error + 'static)> = Some(&err);
     while let Some(e) = current {
@@ -1587,10 +1447,7 @@ fn computation_failed_has_no_fabricated_io_source() {
     // crate does expose: `SharedError` renders it and forwards its source.
     let real = DataProviderError::computation_error(std::io::Error::other("disk full"));
     assert!(real.to_string().contains("disk full"));
-    assert!(
-        real.source().is_some(),
-        "a wrapped source error is still exposed as a cause"
-    );
+    assert!(real.source().is_some(), "a wrapped source error is still exposed as a cause");
 }
 
 /// The `{0:#}` self-interpolation on `ComputationFailed` and
@@ -1604,10 +1461,7 @@ fn computation_failed_rendering_is_pinned_on_every_display_path() {
     let e = DataProviderError::from(inner);
 
     // Path 1 — `{e}` / `to_string()`: the whole chain, flattened.
-    assert_eq!(
-        e.to_string(),
-        "data computation failed: outer context: root cause"
-    );
+    assert_eq!(e.to_string(), "data computation failed: outer context: root cause");
     // Path 2 — `{e:#}` in `tracing::warn!` (about's warm-up and enrichment
     // sites): identical, because `{0:#}` applies the flag unconditionally.
     assert_eq!(format!("{e:#}"), e.to_string());
@@ -1621,10 +1475,7 @@ fn computation_failed_rendering_is_pinned_on_every_display_path() {
             "anyhow's debug report must surface `{layer}`; got: {report}"
         );
     }
-    assert!(
-        report.contains("Caused by"),
-        "anyhow must still walk the #[source] chain: {report}"
-    );
+    assert!(report.contains("Caused by"), "anyhow must still walk the #[source] chain: {report}");
 }
 
 /// The `Serialization` variant mirrors `ComputationFailed`; pin it too so the
@@ -1635,10 +1486,7 @@ fn serialization_rendering_flattens_its_chain() {
     let expected_root = json_err.to_string();
     let e = DataProviderError::from(json_err);
     let rendered = e.to_string();
-    assert!(
-        rendered.starts_with("data serialization error: "),
-        "got: {rendered}"
-    );
+    assert!(rendered.starts_with("data serialization error: "), "got: {rendered}");
     assert!(rendered.contains(&expected_root), "got: {rendered}");
     assert_eq!(format!("{e:#}"), rendered);
 }
@@ -1680,8 +1528,7 @@ impl DataProvider for SlowProvider {
                 ctx.check_deadline()?;
             }
             std::thread::sleep(self.step);
-            self.completed_steps
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.completed_steps.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         Ok(serde_json::json!({ "finished": true }))
     }
@@ -1700,24 +1547,16 @@ fn registry_with(name: &str, provider: Box<dyn DataProvider>) -> DataRegistry {
 fn a_fresh_context_carries_a_provider_budget() {
     let registry = registry_with("stub", Box::new(StubProvider));
     let mut ctx = test_context();
-    assert!(
-        ctx.deadline().is_none(),
-        "no dispatch is in flight, so no deadline is installed yet"
-    );
+    assert!(ctx.deadline().is_none(), "no dispatch is in flight, so no deadline is installed yet");
     let mut probe = DataRegistry::new();
     let _ = probe.register("probe", Box::new(DeadlineProbe));
-    let seen = probe
-        .provide("probe", &mut ctx)
-        .expect("probe provider must succeed");
+    let seen = probe.provide("probe", &mut ctx).expect("probe provider must succeed");
     assert_eq!(
         seen,
         serde_json::json!({ "deadline_installed": true }),
         "DataRegistry::provide must install a deadline for the dispatch"
     );
-    assert!(
-        ctx.deadline().is_none(),
-        "the deadline must be cleared once the dispatch returns"
-    );
+    assert!(ctx.deadline().is_none(), "the deadline must be cleared once the dispatch returns");
     // The default budget must not be so tight that ordinary providers trip it.
     assert!(registry.provide("stub", &mut ctx).is_ok());
 }
@@ -1778,10 +1617,7 @@ fn an_over_budget_provider_keeps_its_own_error() {
         }
         other => panic!("expected the provider's own error, got {other:?}"),
     }
-    assert!(
-        ctx.deadline().is_none(),
-        "the failed dispatch must still clear its deadline"
-    );
+    assert!(ctx.deadline().is_none(), "the failed dispatch must still clear its deadline");
 }
 
 /// A provider that honours `check_deadline` stops early, so the
@@ -1881,21 +1717,11 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "outer",
-        Box::new(Composing {
-            seen: Arc::clone(&seen),
-            registry: Arc::clone(&shared),
-        }),
+        Box::new(Composing { seen: Arc::clone(&seen), registry: Arc::clone(&shared) }),
     );
-    let _ = registry.register(
-        "inner",
-        Box::new(Inner {
-            seen: Arc::clone(&seen),
-        }),
-    );
+    let _ = registry.register("inner", Box::new(Inner { seen: Arc::clone(&seen) }));
     let registry = Arc::new(registry);
-    *shared
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&registry));
+    *shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&registry));
 
     let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(60)));
     match registry.provide("outer", &mut ctx) {
@@ -1903,9 +1729,7 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
         other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
     }
 
-    let seen = seen
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // [outer on entry, inner, outer after the nested dispatch, outer after the
     // deadline check].
     assert_eq!(seen.len(), 4, "got {seen:?}");
@@ -1914,14 +1738,8 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
         seen[0], seen[1],
         "the nested dispatch must inherit the outer deadline, not begin a fresh one"
     );
-    assert_eq!(
-        seen[0], seen[2],
-        "the nested dispatch must not clear a deadline it does not own"
-    );
-    assert_eq!(
-        seen[0], seen[3],
-        "the outer deadline must survive its own check"
-    );
+    assert_eq!(seen[0], seen[2], "the nested dispatch must not clear a deadline it does not own");
+    assert_eq!(seen[0], seen[3], "the outer deadline must survive its own check");
     assert!(
         ctx.deadline().is_none(),
         "the outermost dispatch owns the deadline and must clear it on the way out"
@@ -1938,10 +1756,7 @@ fn a_timed_out_dispatch_leaves_the_context_usable() {
     let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
 
     assert!(registry.provide("slow", &mut ctx).is_err());
-    assert!(
-        ctx.deadline().is_none(),
-        "a failed dispatch must not leave its deadline installed"
-    );
+    assert!(ctx.deadline().is_none(), "a failed dispatch must not leave its deadline installed");
     let v = registry
         .provide("stub", &mut ctx)
         .expect("a later provider must get its own budget, not the expired one");
@@ -1955,9 +1770,8 @@ fn a_timed_out_dispatch_leaves_the_context_usable() {
 fn an_unbounded_context_does_not_time_a_provider_out() {
     let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true)));
     let mut ctx = test_context().with_provider_budget(None);
-    let v = registry
-        .provide("slow", &mut ctx)
-        .expect("an unbounded dispatch must run to completion");
+    let v =
+        registry.provide("slow", &mut ctx).expect("an unbounded dispatch must run to completion");
     assert_eq!(v, serde_json::json!({ "finished": true }));
     assert!(ctx.deadline().is_none());
 }
@@ -2029,10 +1843,7 @@ fn context_with_budget_secs(secs: Option<u64>) -> Context {
 /// from config, so no call site has to remember to apply it.
 #[test]
 fn an_unconfigured_context_gets_the_compiled_in_default_budget() {
-    assert_eq!(
-        context_with_budget_secs(None).provider_budget(),
-        Some(DEFAULT_PROVIDER_BUDGET)
-    );
+    assert_eq!(context_with_budget_secs(None).provider_budget(), Some(DEFAULT_PROVIDER_BUDGET));
 }
 
 /// The operator on a slow filesystem tightening the bound — the case the
@@ -2066,10 +1877,7 @@ fn a_zero_budget_means_unbounded_not_instantly_expired() {
 fn with_provider_budget_overrides_the_configured_value() {
     let ctx = context_with_budget_secs(Some(90))
         .with_provider_budget(Some(std::time::Duration::from_secs(5)));
-    assert_eq!(
-        ctx.provider_budget(),
-        Some(std::time::Duration::from_secs(5))
-    );
+    assert_eq!(ctx.provider_budget(), Some(std::time::Duration::from_secs(5)));
 }
 
 // ---------------------------------------------------------------------------
@@ -2115,10 +1923,7 @@ fn a_detached_deadline_reports_the_same_timeout_as_the_context() {
             let from_handle = deadline.check().expect_err("the budget has been spent");
             let from_ctx = ctx.check_deadline().expect_err("the budget has been spent");
             seen.handle_matches_context = from_handle.to_string() == from_ctx.to_string();
-            *self
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = seen;
+            *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = seen;
             Err(from_handle)
         }
     }
@@ -2131,21 +1936,13 @@ fn a_detached_deadline_reports_the_same_timeout_as_the_context() {
         other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
     }
 
-    let seen = *observed
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let seen = *observed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(
         !seen.expired_at_entry,
         "a fresh dispatch must not hand the walker an already-spent deadline"
     );
-    assert!(
-        seen.expires_at_matches,
-        "the handle must carry the context's own expiry"
-    );
-    assert!(
-        seen.expired_after_sleep,
-        "the handle must observe the budget running out"
-    );
+    assert!(seen.expires_at_matches, "the handle must carry the context's own expiry");
+    assert!(seen.expired_after_sleep, "the handle must observe the budget running out");
     assert!(
         seen.handle_matches_context,
         "a detached deadline must report the same failure the context would"
@@ -2202,10 +1999,7 @@ fn context_added_on_top_of_a_typed_error_is_dropped_by_the_downcast() {
 fn an_unrelated_anyhow_error_still_becomes_a_computation_failure() {
     let boxed = anyhow::anyhow!("disk on fire").context("reading Cargo.toml");
     let converted = DataProviderError::from(boxed);
-    assert!(
-        matches!(converted, DataProviderError::ComputationFailed(_)),
-        "got {converted:?}"
-    );
+    assert!(matches!(converted, DataProviderError::ComputationFailed(_)), "got {converted:?}");
     let rendered = format!("{converted:#}");
     assert!(rendered.contains("reading Cargo.toml"), "{rendered}");
 }

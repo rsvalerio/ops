@@ -47,28 +47,14 @@ fn exit_one_lists_each_dependency_with_package_and_manifest() {
     let entries = interpret(Some(1), FOUND_STDOUT, PROGRESS_STDERR).expect("exit 1 parses");
     let got: Vec<(&str, &str, &str)> = entries
         .iter()
-        .map(|e| {
-            (
-                e.package.as_str(),
-                e.manifest_path.as_str(),
-                e.dependency.as_str(),
-            )
-        })
+        .map(|e| (e.package.as_str(), e.manifest_path.as_str(), e.dependency.as_str()))
         .collect();
     assert_eq!(
         got,
         [
             ("ops-deps", "./extensions-rust/deps/Cargo.toml", "linkme"),
-            (
-                "ops-run-before-push",
-                "./extensions/run-before-push/Cargo.toml",
-                "anyhow"
-            ),
-            (
-                "ops-run-before-push",
-                "./extensions/run-before-push/Cargo.toml",
-                "linkme"
-            ),
+            ("ops-run-before-push", "./extensions/run-before-push/Cargo.toml", "anyhow"),
+            ("ops-run-before-push", "./extensions/run-before-push/Cargo.toml", "linkme"),
         ]
     );
 }
@@ -91,10 +77,7 @@ fn manifest_error_on_stderr_fails_closed_even_at_exit_zero() {
     let err = interpret(Some(0), CLEAN_STDOUT, stderr).expect_err("broken manifest must surface");
     let msg = err.to_string();
     assert!(msg.contains("could not analyse a manifest"), "{msg}");
-    assert!(
-        msg.contains("./Cargo.toml"),
-        "must name the manifest: {msg}"
-    );
+    assert!(msg.contains("./Cargo.toml"), "must name the manifest: {msg}");
 }
 
 #[test]

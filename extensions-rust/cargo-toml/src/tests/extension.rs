@@ -9,7 +9,7 @@ ops_extension::test_datasource_extension!(
     data_provider: "cargo_toml"
 );
 
-/// TEST-11 / TASK-1800: drive the *registered* provider and assert it parsed
+/// Drive the *registered* provider and assert it parsed
 /// the manifest at the configured root.
 ///
 /// The previous body asserted only `provider.name() == "cargo_toml"`, which
@@ -20,7 +20,7 @@ ops_extension::test_datasource_extension!(
 /// branch left the test green. That wiring is how `about` and
 /// `create-review-tasks` pin the provider to a root they resolved
 /// themselves, and losing it silently sends both back to auto-discovery from
-/// the working directory (the TASK-0501 "empty units/coverage" failure).
+/// the working directory (the "empty units/coverage" failure).
 #[test]
 fn extension_with_root_propagates_to_provider() {
     let root_dir = tempfile::tempdir().expect("create root temp dir");
@@ -51,10 +51,7 @@ version = "9.9.9"
     ext.register_data_providers(&mut registry);
 
     let provider = registry.get("cargo_toml").expect("provider registered");
-    let mut ctx = Context::new(
-        Arc::new(Config::empty()),
-        cwd_dir.path().canonicalize().unwrap(),
-    );
+    let mut ctx = Context::new(Arc::new(Config::empty()), cwd_dir.path().canonicalize().unwrap());
     let value = provider.provide(&mut ctx).expect("provider should provide");
     let manifest: CargoToml = serde_json::from_value(value).expect("should deserialize");
 
@@ -66,7 +63,7 @@ version = "9.9.9"
     assert_ne!(manifest.package_name(), Some("wrong-crate"));
 }
 
-/// TEST-11 / TASK-1800: the companion — with no configured root, the same
+/// The companion — with no configured root, the same
 /// registration path *does* auto-discover from the working directory. Without
 /// this, the assertion above could pass for a provider that ignored the
 /// context entirely.
@@ -87,10 +84,7 @@ version = "0.1.0"
     ext.register_data_providers(&mut registry);
 
     let provider = registry.get("cargo_toml").expect("provider registered");
-    let mut ctx = Context::new(
-        Arc::new(Config::empty()),
-        cwd_dir.path().canonicalize().unwrap(),
-    );
+    let mut ctx = Context::new(Arc::new(Config::empty()), cwd_dir.path().canonicalize().unwrap());
     let value = provider.provide(&mut ctx).expect("provider should provide");
     let manifest: CargoToml = serde_json::from_value(value).expect("should deserialize");
 

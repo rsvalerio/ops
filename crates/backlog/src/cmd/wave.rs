@@ -94,12 +94,8 @@ pub fn run_wave_list<W: Write>(
     }
     // Done waves are collapsed unless the terminal status was asked for by
     // name — an explicit filter means the user wants those rows after all.
-    let terminal = super::cleanup::terminal_status(&cfg.statuses).filter(|t| {
-        !opts
-            .statuses
-            .iter()
-            .any(|wanted| wanted.eq_ignore_ascii_case(t))
-    });
+    let terminal = super::cleanup::terminal_status(&cfg.statuses)
+        .filter(|t| !opts.statuses.iter().any(|wanted| wanted.eq_ignore_ascii_case(t)));
     let (done, open): (Vec<TaskEntry>, Vec<TaskEntry>) = match terminal {
         Some(terminal) => waves
             .into_iter()
@@ -148,17 +144,11 @@ pub fn run_wave_members<W: Write>(
     let deps = &wave.doc.frontmatter.dependencies;
     let missing: Vec<String> = deps
         .iter()
-        .filter(|dep| {
-            !entries
-                .iter()
-                .any(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(dep))
-        })
+        .filter(|dep| !entries.iter().any(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(dep)))
         .cloned()
         .collect();
-    let members: Vec<TaskEntry> = entries
-        .into_iter()
-        .filter(|entry| is_member(entry, &wave.doc))
-        .collect();
+    let members: Vec<TaskEntry> =
+        entries.into_iter().filter(|entry| is_member(entry, &wave.doc)).collect();
 
     if opts.json {
         render::list_json(out, &members, &cfg.statuses).context("writing wave member JSON")?;
@@ -180,11 +170,8 @@ pub fn run_wave_members<W: Write>(
 fn is_member(entry: &TaskEntry, wave: &TaskDoc) -> bool {
     let fm = &entry.doc.frontmatter;
     let wave_id = &wave.frontmatter.id;
-    let is_dependency = wave
-        .frontmatter
-        .dependencies
-        .iter()
-        .any(|dep| dep.eq_ignore_ascii_case(&fm.id));
+    let is_dependency =
+        wave.frontmatter.dependencies.iter().any(|dep| dep.eq_ignore_ascii_case(&fm.id));
     let links_here = fm
         .extra_scalar("parent_task_id")
         .is_some_and(|parent| parent.eq_ignore_ascii_case(wave_id));
@@ -261,9 +248,8 @@ fn select_waves<'a>(
             selected.push(wave);
         }
     }
-    let open_waves = entries
-        .iter()
-        .filter(|entry| is_wave(entry, marker) && is_open(entry, terminal));
+    let open_waves =
+        entries.iter().filter(|entry| is_wave(entry, marker) && is_open(entry, terminal));
     let mut compared: Vec<&TaskEntry> = selected.clone();
     for wave in open_waves {
         if !compared.iter().any(|w| std::ptr::eq(*w, wave)) {
@@ -285,10 +271,8 @@ fn overlap_rows(
     selected: &[&TaskEntry],
     compared: &[&TaskEntry],
 ) -> Vec<render::WaveOverlapRow> {
-    let scopes: Vec<(&TaskEntry, std::collections::BTreeSet<&str>)> = compared
-        .iter()
-        .map(|wave| (*wave, file_scope(entries, &wave.doc)))
-        .collect();
+    let scopes: Vec<(&TaskEntry, std::collections::BTreeSet<&str>)> =
+        compared.iter().map(|wave| (*wave, file_scope(entries, &wave.doc))).collect();
     let mut rows: Vec<(usize, render::WaveOverlapRow)> = selected
         .iter()
         .map(|wave| {
@@ -343,16 +327,14 @@ fn file_scope<'a>(entries: &'a [TaskEntry], wave: &TaskDoc) -> std::collections:
         .collect()
 }
 
-/// Task ids in numeric order (`TASK-999` before `TASK-1000`), falling back
+/// Task ids in numeric order (the number, so 999 before 1000), falling back
 /// to a case-insensitive string order for ids without a numeric suffix.
 fn id_order(a: &str, b: &str) -> std::cmp::Ordering {
     fn key(id: &str) -> (String, Option<u64>, String) {
         match id.rsplit_once('-') {
-            Some((prefix, number)) => (
-                prefix.to_ascii_lowercase(),
-                number.parse::<u64>().ok(),
-                id.to_ascii_lowercase(),
-            ),
+            Some((prefix, number)) => {
+                (prefix.to_ascii_lowercase(), number.parse::<u64>().ok(), id.to_ascii_lowercase())
+            }
             None => (id.to_ascii_lowercase(), None, id.to_ascii_lowercase()),
         }
     }
@@ -428,11 +410,8 @@ fn migrate_with<W: Write>(
     let (plans, mut writes) = plan_migration(&entries, &wave_ids, &opts.marker);
 
     if plans.is_empty() {
-        writeln!(
-            out,
-            "Nothing to migrate: no wave carries the assignee overload."
-        )
-        .context("printing the nothing-to-do notice")?;
+        writeln!(out, "Nothing to migrate: no wave carries the assignee overload.")
+            .context("printing the nothing-to-do notice")?;
         return Ok(());
     }
 
@@ -445,12 +424,8 @@ fn migrate_with<W: Write>(
     let stamp = UtcStamp::now()?;
     let updated = format!("{} {}", stamp.date, stamp.minutes);
     write_migrations(&mut writes, &updated)?;
-    writeln!(
-        out,
-        "Migrated {} waves and {member_count} members.",
-        plans.len()
-    )
-    .context("printing the migrated summary")?;
+    writeln!(out, "Migrated {} waves and {member_count} members.", plans.len())
+        .context("printing the migrated summary")?;
     Ok(())
 }
 
@@ -519,11 +494,7 @@ fn already_written_summary(written: &[std::path::PathBuf]) -> String {
     if written.is_empty() {
         "none".to_string()
     } else {
-        written
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
+        written.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
     }
 }
 
@@ -541,9 +512,8 @@ fn plan_migration(
     let mut plans: Vec<WavePlan> = Vec::new();
     let mut writes: Vec<PendingWrite> = Vec::new();
     for wave_id in wave_ids {
-        let Some(wave) = entries
-            .iter()
-            .find(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(wave_id))
+        let Some(wave) =
+            entries.iter().find(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(wave_id))
         else {
             continue;
         };
@@ -561,9 +531,7 @@ fn plan_migration(
         for entry in entries.iter().filter(|e| has_assignee(&e.doc, wave_id)) {
             let member_id = &entry.doc.frontmatter.id;
             let mut member_doc = entry.doc.clone();
-            member_doc
-                .frontmatter
-                .set_extra_scalar("parent_task_id", wave_id);
+            member_doc.frontmatter.set_extra_scalar("parent_task_id", wave_id);
             retain_assignees_except(&mut member_doc, wave_id);
             // Keep both directions in agreement: a member discovered through
             // the assignee overload but absent from the wave's dependency
@@ -573,10 +541,7 @@ fn plan_migration(
                 deps.push(member_id.clone());
             }
             member_ids.push(member_id.clone());
-            writes.push(PendingWrite {
-                path: entry.path.clone(),
-                doc: member_doc,
-            });
+            writes.push(PendingWrite { path: entry.path.clone(), doc: member_doc });
         }
 
         if !add_label && !drop_assignee && member_ids.is_empty() {
@@ -589,10 +554,7 @@ fn plan_migration(
             drop_assignee,
             members: member_ids,
         });
-        writes.push(PendingWrite {
-            path: wave.path.clone(),
-            doc: wave_doc,
-        });
+        writes.push(PendingWrite { path: wave.path.clone(), doc: wave_doc });
     }
     (plans, writes)
 }
@@ -614,14 +576,8 @@ fn report_plan<W: Write>(plans: &[WavePlan], out: &mut W) -> anyhow::Result<()> 
             changes.push("-assignee".to_string());
         }
         changes.push(format!("{} members", plan.members.len()));
-        writeln!(
-            out,
-            "  - {}: {} ({})",
-            plan.id,
-            plan.title,
-            changes.join(", ")
-        )
-        .context("printing a wave row")?;
+        writeln!(out, "  - {}: {} ({})", plan.id, plan.title, changes.join(", "))
+            .context("printing a wave row")?;
     }
     Ok(())
 }
@@ -668,18 +624,14 @@ fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow
                  drop the assignees that no longer apply, then re-run",
                 fm.id,
                 claimed_by.len(),
-                claimed_by
-                    .iter()
-                    .map(|id| id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                claimed_by.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ")
             );
         }
     }
     Ok(())
 }
 
-/// Does this look like a task id (`TASK-0042`) rather than a person?
+/// Does this look like a task id rather than a person?
 fn looks_like_task_id(value: &str) -> bool {
     let Some((_, number)) = value.rsplit_once('-') else {
         return false;
@@ -694,23 +646,15 @@ pub(crate) fn is_wave(entry: &TaskEntry, marker: &str) -> bool {
 }
 
 fn has_label(doc: &TaskDoc, marker: &str) -> bool {
-    doc.frontmatter
-        .labels
-        .iter()
-        .any(|label| label.eq_ignore_ascii_case(marker))
+    doc.frontmatter.labels.iter().any(|label| label.eq_ignore_ascii_case(marker))
 }
 
 fn has_assignee(doc: &TaskDoc, wanted: &str) -> bool {
-    doc.frontmatter
-        .assignees
-        .iter()
-        .any(|assignee| assignee.eq_ignore_ascii_case(wanted))
+    doc.frontmatter.assignees.iter().any(|assignee| assignee.eq_ignore_ascii_case(wanted))
 }
 
 fn retain_assignees_except(doc: &mut TaskDoc, unwanted: &str) {
-    doc.frontmatter
-        .assignees
-        .retain(|assignee| !assignee.eq_ignore_ascii_case(unwanted));
+    doc.frontmatter.assignees.retain(|assignee| !assignee.eq_ignore_ascii_case(unwanted));
 }
 
 #[cfg(test)]
@@ -773,10 +717,7 @@ mod tests {
         let mut input = answer.as_bytes();
         migrate_with(
             store,
-            &WaveMigrateOptions {
-                marker: DEFAULT_WAVE_MARKER.to_string(),
-                dry_run,
-            },
+            &WaveMigrateOptions { marker: DEFAULT_WAVE_MARKER.to_string(), dry_run },
             &mut input,
             &mut out,
         )?;
@@ -787,20 +728,11 @@ mod tests {
     /// back through its own assignee.
     fn old_shape() -> Vec<(&'static str, String)> {
         vec![
-            (
-                "task-0119 - wave.md",
-                task("TASK-0119", &["code-review-wave"], &[], &["TASK-0120"]),
-            ),
-            (
-                "task-0120 - member.md",
-                task("TASK-0120", &["TASK-0119"], &[], &[]),
-            ),
+            ("task-0119 - wave.md", task("TASK-0119", &["code-review-wave"], &[], &["TASK-0120"])),
+            ("task-0120 - member.md", task("TASK-0120", &["TASK-0119"], &[], &[])),
             // A member linked to the wave but missing from its dependency
             // list — migration must add it, or it would vanish.
-            (
-                "task-0121 - stray.md",
-                task("TASK-0121", &["TASK-0119"], &[], &[]),
-            ),
+            ("task-0121 - stray.md", task("TASK-0121", &["TASK-0119"], &[], &[])),
         ]
     }
 
@@ -813,10 +745,7 @@ mod tests {
 
         let wave = doc_of(&dir, "task-0119 - wave.md");
         assert!(wave.frontmatter.assignees.is_empty());
-        assert_eq!(
-            wave.frontmatter.labels,
-            vec!["code-review-wave".to_string()]
-        );
+        assert_eq!(wave.frontmatter.labels, vec!["code-review-wave".to_string()]);
         assert_eq!(
             wave.frontmatter.dependencies,
             vec!["TASK-0120".to_string(), "TASK-0121".to_string()],
@@ -826,10 +755,7 @@ mod tests {
         for name in ["task-0120 - member.md", "task-0121 - stray.md"] {
             let member = doc_of(&dir, name);
             assert!(member.frontmatter.assignees.is_empty());
-            assert_eq!(
-                member.frontmatter.extra_scalar("parent_task_id"),
-                Some("TASK-0119")
-            );
+            assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
         }
     }
 
@@ -905,10 +831,7 @@ mod tests {
         );
         // The named file landed whole; the blocked and later ones did not.
         let member = doc_of(&dir, "task-0120 - member.md");
-        assert_eq!(
-            member.frontmatter.extra_scalar("parent_task_id"),
-            Some("TASK-0119")
-        );
+        assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
         assert!(member.frontmatter.assignees.is_empty());
         let stray = doc_of(&dir, "task-0121 - stray.md");
         assert_eq!(
@@ -920,10 +843,7 @@ mod tests {
 
     #[test]
     fn assignee_naming_a_non_wave_task_aborts() {
-        let tasks = vec![(
-            "task-0120 - member.md",
-            task("TASK-0120", &["TASK-0777"], &[], &[]),
-        )];
+        let tasks = vec![("task-0120 - member.md", task("TASK-0120", &["TASK-0777"], &[], &[]))];
         let (_dir, store) = scratch(&tasks);
         let err = migrate(&store, false, "y\n").expect_err("dangling wave");
         assert!(err.to_string().contains("TASK-0777"));
@@ -975,11 +895,7 @@ mod tests {
             run_wave_list(
                 &store,
                 &cfg(),
-                &WaveListOptions {
-                    marker: DEFAULT_WAVE_MARKER.to_string(),
-                    statuses,
-                    json,
-                },
+                &WaveListOptions { marker: DEFAULT_WAVE_MARKER.to_string(), statuses, json },
                 &mut out,
             )
             .expect("list");
@@ -1016,10 +932,7 @@ mod tests {
             run_wave_members(
                 store,
                 &cfg(),
-                &WaveMembersOptions {
-                    wave_id: "TASK-0119".to_string(),
-                    json: false,
-                },
+                &WaveMembersOptions { wave_id: "TASK-0119".to_string(), json: false },
                 &mut out,
             )
             .expect("members");
@@ -1045,18 +958,9 @@ mod tests {
     #[test]
     fn member_claimed_by_two_waves_aborts_before_any_write() {
         let tasks = vec![
-            (
-                "task-0119 - wave-a.md",
-                task("TASK-0119", &["code-review-wave"], &[], &[]),
-            ),
-            (
-                "task-0130 - wave-b.md",
-                task("TASK-0130", &["code-review-wave"], &[], &[]),
-            ),
-            (
-                "task-0120 - member.md",
-                task("TASK-0120", &["TASK-0119", "TASK-0130"], &[], &[]),
-            ),
+            ("task-0119 - wave-a.md", task("TASK-0119", &["code-review-wave"], &[], &[])),
+            ("task-0130 - wave-b.md", task("TASK-0130", &["code-review-wave"], &[], &[])),
+            ("task-0120 - member.md", task("TASK-0120", &["TASK-0119", "TASK-0130"], &[], &[])),
         ];
         let (dir, store) = scratch(&tasks);
         let before = doc_of(&dir, "task-0120 - member.md");
@@ -1090,10 +994,7 @@ mod tests {
         run_wave_members(
             &store,
             &cfg(),
-            &WaveMembersOptions {
-                wave_id: "TASK-0119".to_string(),
-                json: false,
-            },
+            &WaveMembersOptions { wave_id: "TASK-0119".to_string(), json: false },
             &mut out,
         )
         .expect("members");
@@ -1108,10 +1009,7 @@ mod tests {
         let err = run_wave_members(
             &store,
             &cfg(),
-            &WaveMembersOptions {
-                wave_id: "TASK-9999".to_string(),
-                json: false,
-            },
+            &WaveMembersOptions { wave_id: "TASK-9999".to_string(), json: false },
             &mut out,
         )
         .expect_err("unknown wave");
@@ -1145,10 +1043,7 @@ mod tests {
 
     fn overlap_tree() -> (tempfile::TempDir, Store) {
         scratch(&[
-            (
-                "task-10 - w.md",
-                wave("TASK-10", "To Do", &["TASK-1", "TASK-2"]),
-            ),
+            ("task-10 - w.md", wave("TASK-10", "To Do", &["TASK-1", "TASK-2"])),
             ("task-11 - w.md", wave("TASK-11", "To Do", &["TASK-3"])),
             ("task-12 - w.md", wave("TASK-12", "To Do", &["TASK-4"])),
             ("task-13 - w.md", wave("TASK-13", "Done", &["TASK-5"])),
@@ -1202,10 +1097,7 @@ mod tests {
         let text = overlap(&store, &["task-11"], false);
         assert!(text.starts_with("TASK-11 - "), "got: {text}");
         assert!(text.contains("  overlaps TASK-10: c.rs\n"), "got: {text}");
-        assert!(
-            text.ends_with("Suggested merge order: TASK-11\n"),
-            "got: {text}"
-        );
+        assert!(text.ends_with("Suggested merge order: TASK-11\n"), "got: {text}");
     }
 
     /// AC #3: the JSON envelope is versioned and parses.
@@ -1216,10 +1108,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["kind"], "wave-overlap");
-        assert_eq!(
-            value["mergeOrder"],
-            serde_json::json!(["TASK-12", "TASK-10", "TASK-11"])
-        );
+        assert_eq!(value["mergeOrder"], serde_json::json!(["TASK-12", "TASK-10", "TASK-11"]));
         assert_eq!(value["waves"][0]["overlaps"], serde_json::json!([]));
         assert_eq!(
             value["waves"][1]["overlaps"][0],

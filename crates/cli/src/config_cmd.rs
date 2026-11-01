@@ -23,13 +23,14 @@ pub fn run_config(root: &Path, action: &ConfigAction) -> anyhow::Result<ExitCode
     }
 }
 
-/// `ops config check`: compare the config against `--as`, else `mise.toml`'s
-/// `ops` pin, and always print the minimum accepting version. Without a
-/// target there is nothing to reject, so that is all it reports.
+/// `ops config check`: compare the config against `--as`, else the
+/// project's mise `ops` pin, and always print the minimum accepting
+/// version. Without a target there is nothing to reject, so that is all it
+/// reports.
 ///
 /// # Errors
 ///
-/// A config file or `mise.toml` cannot be read or parsed, or the pin names
+/// A config file or mise file cannot be read or parsed, or the pin names
 /// no exact release and `--as` was not given.
 fn run_config_check(root: &Path, target: Option<OpsVersion>) -> anyhow::Result<ExitCode> {
     run_check_to(root, target, &mut std::io::stdout().lock())
@@ -41,8 +42,8 @@ fn run_check_to(
     w: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
     let target = match target {
-        Some(version) => Some((version, "--as")),
-        None => mise_ops_pin(root)?.map(|version| (version, "mise.toml pin")),
+        Some(version) => Some((version, "--as".to_owned())),
+        None => mise_ops_pin(root)?.map(|pin| (pin.version, format!("{} pin", pin.file))),
     };
     let fields = fields_used(root)?;
     let minimum = minimum_version(&fields);
@@ -59,11 +60,7 @@ fn run_check_to(
         }
     }
     writeln!(w, "Minimum ops version for this config: {minimum}")?;
-    Ok(if rejected == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(if rejected == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 /// Field names and fragment file names come from the repo's own files.
@@ -139,10 +136,7 @@ mod tests {
 
     #[test]
     fn a_hostile_key_stays_on_one_inert_line() {
-        let dir = project(
-            "[commands.\"a\\u001b[31m\\nb\"]\nprogram = \"x\"\nraw = true\n",
-            None,
-        );
+        let dir = project("[commands.\"a\\u001b[31m\\nb\"]\nprogram = \"x\"\nraw = true\n", None);
         let (_, out) = check(&dir, Some("0.1.0"));
         assert!(!out.contains('\u{1b}'), "{out:?}");
         assert_eq!(out.lines().count(), 3, "{out:?}");

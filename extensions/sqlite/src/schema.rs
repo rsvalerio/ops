@@ -170,8 +170,7 @@ mod tests {
         let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         let conn = db.lock().unwrap();
-        conn.execute("SELECT 1 FROM data_sources LIMIT 0", [])
-            .unwrap();
+        conn.execute("SELECT 1 FROM data_sources LIMIT 0", []).unwrap();
     }
 
     /// The checksum stored for `(source_name, workspace_root)`, if any.
@@ -219,7 +218,7 @@ mod tests {
         assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
     }
 
-    /// ERR-1 (TASK-0885): the column must hold i64 so counts exceeding
+    /// The column must hold i64 so counts exceeding
     /// `i32::MAX` round-trip without truncation or driver-level bind error
     /// (SQLite INTEGER is i64 natively).
     #[test]
@@ -269,10 +268,7 @@ mod tests {
             ),
         )
         .unwrap();
-        assert_eq!(
-            stored_checksum(&db, "metadata", "/ws").as_deref(),
-            Some("abc123")
-        );
+        assert_eq!(stored_checksum(&db, "metadata", "/ws").as_deref(), Some("abc123"));
 
         upsert_data_source(
             &db,
@@ -285,9 +281,6 @@ mod tests {
             ),
         )
         .unwrap();
-        assert_eq!(
-            stored_checksum(&db, "metadata", "/ws").as_deref(),
-            Some("def456")
-        );
+        assert_eq!(stored_checksum(&db, "metadata", "/ws").as_deref(), Some("def456"));
     }
 }

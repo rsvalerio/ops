@@ -48,10 +48,7 @@ fn classify_code(code: &str) -> Option<DiagClass> {
 /// can treat them as config hygiene: a `warning` never fails it, while
 /// `unused-allowed-license = "deny"` (an `error`) still does.
 fn is_unused_license_config(code: &str) -> bool {
-    matches!(
-        code,
-        "license-not-encountered" | "license-exception-not-encountered"
-    )
+    matches!(code, "license-not-encountered" | "license-exception-not-encountered")
 }
 
 /// Run `cargo deny check` and parse the JSON output.
@@ -210,8 +207,7 @@ impl DenyParseDiagnostics {
     /// Candidates dropped by the missing-`code` path or by `classify_code`
     /// returning `None`.
     const fn dropped(&self) -> usize {
-        self.candidate_diagnostics
-            .saturating_sub(self.entries_emitted)
+        self.candidate_diagnostics.saturating_sub(self.entries_emitted)
     }
 }
 
@@ -242,9 +238,7 @@ fn check_partial_decode_loss(diag: &DenyParseDiagnostics, stderr: &str) -> anyho
     // comparison total rather than a debug-only panic.
     if dropped > 0
         && dropped.saturating_mul(MAX_DROPPED_SHARE_DEN)
-            > diag
-                .candidate_diagnostics
-                .saturating_mul(MAX_DROPPED_SHARE_NUM)
+            > diag.candidate_diagnostics.saturating_mul(MAX_DROPPED_SHARE_NUM)
     {
         tracing::warn!(
             candidate_diagnostics = diag.candidate_diagnostics,
@@ -428,11 +422,8 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
         );
         return None;
     };
-    let severity = resolve_severity(
-        &code,
-        fields.severity,
-        fields.message.as_deref().unwrap_or(""),
-    );
+    let severity =
+        resolve_severity(&code, fields.severity, fields.message.as_deref().unwrap_or(""));
     Some(DecodedDiagnostic {
         code,
         severity,
@@ -474,11 +465,7 @@ fn resolve_package(diag: &DecodedDiagnostic) -> String {
                 .and_then(|g| g.krate.as_ref())
                 .map(|k| k.name.clone())
         })
-        .or_else(|| {
-            is_unused_license_config(&diag.code)
-                .then(|| label_subject(diag))
-                .flatten()
-        })
+        .or_else(|| is_unused_license_config(&diag.code).then(|| label_subject(diag)).flatten())
         .unwrap_or_else(|| {
             tracing::debug!(
                 code = %diag.code,
@@ -494,13 +481,7 @@ fn resolve_package(diag: &DecodedDiagnostic) -> String {
 /// The first label's `span` — for a config-level diagnostic, the `deny.toml`
 /// value it is about (e.g. the unused license `0BSD`).
 fn label_subject(diag: &DecodedDiagnostic) -> Option<String> {
-    diag.labels
-        .as_ref()?
-        .get(0)?
-        .get("span")?
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
+    diag.labels.as_ref()?.get(0)?.get("span")?.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
 /// Parse newline-delimited JSON from `cargo deny --format json check` stderr.
@@ -554,12 +535,7 @@ fn push_diagnostic(result: &mut DenyResult, class: DiagClass, diag: DecodedDiagn
         DiagClass::Advisory => push_advisory(&mut result.advisories, package, diag),
         DiagClass::License => push_wrapped(&mut result.licenses, LicenseEntry, package, diag),
         DiagClass::UnusedLicenseAllowance => {
-            push_wrapped(
-                &mut result.unused_license_allowances,
-                LicenseEntry,
-                package,
-                diag,
-            );
+            push_wrapped(&mut result.unused_license_allowances, LicenseEntry, package, diag);
         }
         DiagClass::Ban => push_wrapped(&mut result.bans, BanEntry, package, diag),
         DiagClass::Source => push_wrapped(&mut result.sources, SourceEntry, package, diag),
@@ -575,12 +551,7 @@ fn push_advisory(section: &mut Vec<AdvisoryEntry>, package: String, diag: Decode
         Some(adv) => (adv.id, adv.title.unwrap_or(diag.message)),
         None => (diag.code, diag.message),
     };
-    section.push(AdvisoryEntry {
-        id,
-        package,
-        severity: diag.severity,
-        title,
-    });
+    section.push(AdvisoryEntry { id, package, severity: diag.severity, title });
 }
 
 /// Push a plain [`DenyEntry`]-shaped finding into its section.
@@ -595,11 +566,7 @@ fn push_wrapped<T>(
     package: String,
     diag: DecodedDiagnostic,
 ) {
-    section.push(wrap(DenyEntry {
-        package,
-        message: diag.message,
-        severity: diag.severity,
-    }));
+    section.push(wrap(DenyEntry { package, message: diag.message, severity: diag.severity }));
 }
 
 #[cfg(test)]

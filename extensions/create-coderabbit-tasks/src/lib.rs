@@ -162,10 +162,7 @@ pub fn run_coderabbit_reviews(
     let root = workspace_root
         .canonicalize()
         .with_context(|| format!("resolving {}", workspace_root.display()))?;
-    let within = root
-        .strip_prefix(&top)
-        .unwrap_or_else(|_| Path::new(""))
-        .to_path_buf();
+    let within = root.strip_prefix(&top).unwrap_or_else(|_| Path::new("")).to_path_buf();
     let run = TargetRun {
         backlog,
         workspace_root,
@@ -202,19 +199,11 @@ fn preflight(program: &OsStr, cwd: &Path) -> anyhow::Result<()> {
                 }
             })?;
         if !output.status.success() {
-            anyhow::bail!(
-                "{what} ({}): {} — {hint}",
-                output.status,
-                display_output(&output)
-            );
+            anyhow::bail!("{what} ({}): {} — {hint}", output.status, display_output(&output));
         }
         Ok(())
     };
-    check(
-        &["auth", "status"],
-        "coderabbit is not authenticated",
-        "run `coderabbit auth login`",
-    )?;
+    check(&["auth", "status"], "coderabbit is not authenticated", "run `coderabbit auth login`")?;
     check(
         &["usage"],
         "coderabbit usage check failed",
@@ -281,11 +270,7 @@ impl TargetRun<'_> {
     /// lives exactly as long as this call.
     fn review(&self, target: &ReviewTarget, out: &mut dyn Write) -> anyhow::Result<()> {
         self.check_interrupted()?;
-        writeln!(
-            out,
-            "reviewing {} ({}) with coderabbit",
-            target.name, target.path
-        )?;
+        writeln!(out, "reviewing {} ({}) with coderabbit", target.name, target.path)?;
         let worktree = ReviewWorktree::create(self.top, &target.name)?;
         self.check_interrupted()?;
         let stdout = self.run_coderabbit(&worktree, target)?;
@@ -313,17 +298,9 @@ impl TargetRun<'_> {
         if !filed.is_empty() {
             let commit = CommitOptions {
                 task_ids: filed.clone(),
-                message: format!(
-                    "chore(backlog): file CodeRabbit findings for {}",
-                    target.name
-                ),
+                message: format!("chore(backlog): file CodeRabbit findings for {}", target.name),
             };
-            run_commit(
-                self.backlog.store,
-                self.workspace_root,
-                &commit,
-                &mut &mut *out,
-            )?;
+            run_commit(self.backlog.store, self.workspace_root, &commit, &mut &mut *out)?;
         }
         writeln!(
             out,
@@ -347,13 +324,7 @@ impl TargetRun<'_> {
         let mut command = Command::new(self.opts.program);
         command
             .current_dir(&workspace)
-            .args([
-                "review",
-                "--agent",
-                "--uncommitted",
-                "--include-untracked",
-                "--dir",
-            ])
+            .args(["review", "--agent", "--uncommitted", "--include-untracked", "--dir"])
             .arg(&crate_dir);
         let agents = workspace.join("AGENTS.md");
         if agents.is_file() {
@@ -417,10 +388,7 @@ mod tests {
             "--unless-exists coderabbit:ops-core:<file>:<hash>",
             "git branch -D cr-full-ops-core",
         ] {
-            assert!(
-                steps.contains(expected),
-                "missing {expected:?} in:\n{steps}"
-            );
+            assert!(steps.contains(expected), "missing {expected:?} in:\n{steps}");
         }
     }
 }

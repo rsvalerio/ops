@@ -162,11 +162,7 @@ mod tests {
     #[test]
     fn parses_module_and_go_version() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\ngo 1.22\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module example.com/m\n\ngo 1.22\n").unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
@@ -246,11 +242,8 @@ mod tests {
     #[test]
     fn whitespace_handling() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "  module   example.com/ws  \n\n  go   1.23  \n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "  module   example.com/ws  \n\n  go   1.23  \n")
+            .unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.module.as_deref(), Some("example.com/ws"));
         assert_eq!(m.go_version.as_deref(), Some("1.23"));
@@ -305,19 +298,13 @@ mod tests {
     #[test]
     fn parses_quoted_module_directives() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module \"example.com/m\"\n\ngo \"1.22\"\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module \"example.com/m\"\n\ngo \"1.22\"\n")
+            .unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
         // The About-card name derives from the unquoted path.
-        assert_eq!(
-            crate::modules::last_segment(m.module.as_deref()).as_deref(),
-            Some("m")
-        );
+        assert_eq!(crate::modules::last_segment(m.module.as_deref()).as_deref(), Some("m"));
     }
 
     /// Verb and argument are separated by arbitrary whitespace, so
@@ -401,17 +388,8 @@ mod tests {
         let rendered = ops_core::test_utils::capture_warn(|| {
             parse(dir.path());
         });
-        assert!(
-            rendered.contains("go.mod"),
-            "warn should name the manifest: {rendered}"
-        );
-        assert!(
-            rendered.contains("unterminated"),
-            "warn should say what is wrong: {rendered}"
-        );
-        assert!(
-            rendered.contains("replace"),
-            "warn should name the directive: {rendered}"
-        );
+        assert!(rendered.contains("go.mod"), "warn should name the manifest: {rendered}");
+        assert!(rendered.contains("unterminated"), "warn should say what is wrong: {rendered}");
+        assert!(rendered.contains("replace"), "warn should name the directive: {rendered}");
     }
 }

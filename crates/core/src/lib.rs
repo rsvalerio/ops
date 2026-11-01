@@ -41,8 +41,5 @@ pub mod text;
 pub mod ui;
 
 #[cfg(any(test, feature = "test-support"))]
-#[expect(
-    unsafe_code,
-    reason = "test support: process env and cwd guards, and a geteuid probe"
-)]
+#[expect(unsafe_code, reason = "test support: process env and cwd guards, and a geteuid probe")]
 pub mod test_utils;

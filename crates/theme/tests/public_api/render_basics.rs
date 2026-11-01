@@ -37,12 +37,7 @@ fn render_prefix_width_matches_helper_components_for_multi_char_icon() {
 #[test]
 fn classic_theme_success_with_duration() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
-    let line = render_line(
-        &theme,
-        StepStatus::Succeeded,
-        "cargo build --all-targets",
-        Some(0.35),
-    );
+    let line = render_line(&theme, StepStatus::Succeeded, "cargo build --all-targets", Some(0.35));
     assert!(line.starts_with(" ├── ◆ cargo build"));
     assert!(line.contains("0.35s"));
     assert!(line.contains('─'), "classic uses box-drawing separator");
@@ -105,9 +100,8 @@ fn classic_plan_header_tree() {
 #[test]
 fn classic_plan_header_wraps_under_rail() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
-    let ids: Vec<String> = ["fmt-check", "clippy", "build", "check-json", "doc"]
-        .map(String::from)
-        .into();
+    let ids: Vec<String> =
+        ["fmt-check", "clippy", "build", "check-json", "doc"].map(String::from).into();
     let lines = theme.render_plan_header(&ids, 30);
     assert_eq!(
         lines,
@@ -128,15 +122,7 @@ fn plain_plan_header_wraps_under_first_id() {
     let theme = ConfigurableTheme::new(cfg);
     let ids: Vec<String> = ["fmt-check", "clippy", "build"].map(String::from).into();
     let lines = theme.render_plan_header(&ids, 31);
-    assert_eq!(
-        lines,
-        vec![
-            "",
-            " 🚀 Running: fmt-check, clippy,",
-            "             build",
-            ""
-        ]
-    );
+    assert_eq!(lines, vec!["", " 🚀 Running: fmt-check, clippy,", "             build", ""]);
 }
 
 #[test]
@@ -235,10 +221,7 @@ fn label_color_does_not_affect_non_tty_output() {
     cfg.label_color = "cyan".into();
     let theme = ConfigurableTheme::new(cfg);
     let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
-    assert!(
-        !line.contains('\x1b'),
-        "color-disabled output must not contain ANSI escapes"
-    );
+    assert!(!line.contains('\x1b'), "color-disabled output must not contain ANSI escapes");
     assert!(line.contains("cargo build"));
 }
 
@@ -270,10 +253,7 @@ fn classic_error_detail_with_stderr() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let detail = ErrorDetail::new(
         "exit status: 101".to_string(),
-        vec![
-            "thread 'main' panicked at ...".to_string(),
-            "error: test failed".to_string(),
-        ],
+        vec!["thread 'main' panicked at ...".to_string(), "error: test failed".to_string()],
     );
     let lines = theme.render_error_detail(&detail, 80);
     assert_eq!(lines[0], " │   ┌─");

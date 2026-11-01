@@ -48,9 +48,7 @@ pub fn home_dir() -> Option<PathBuf> {
     let from_home = std::env::var_os("HOME");
     #[cfg(not(unix))]
     {
-        from_home
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
+        from_home.or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)
     }
     #[cfg(unix)]
     {
@@ -63,7 +61,7 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
-    /// ARCH-2 / TASK-0891: on non-Windows targets `USERPROFILE` must be
+    /// on non-Windows targets `USERPROFILE` must be
     /// ignored even when `HOME` is unset — the previous unconditional
     /// chain let a polluted `USERPROFILE` redirect every `~` expansion.
     #[cfg(unix)]
@@ -89,9 +87,6 @@ mod tests {
                 None => std::env::remove_var("USERPROFILE"),
             }
         }
-        assert!(
-            resolved.is_none(),
-            "USERPROFILE must NOT be honored on Unix; got {resolved:?}"
-        );
+        assert!(resolved.is_none(), "USERPROFILE must NOT be honored on Unix; got {resolved:?}");
     }
 }

@@ -81,10 +81,7 @@ impl CargoToml {
         resolve_vec_field(&mut pkg.keywords, &ws_pkg.keywords);
         resolve_vec_field(&mut pkg.categories, &ws_pkg.categories);
 
-        if matches!(
-            &pkg.authors,
-            InheritableField::Inherited { workspace: true }
-        ) {
+        if matches!(&pkg.authors, InheritableField::Inherited { workspace: true }) {
             pkg.authors = InheritableField::Value(ws_pkg.authors.clone());
         }
 
@@ -200,12 +197,10 @@ fn resolve_dep_from_workspace(
     ws_deps: &BTreeMap<String, DepSpec>,
     section: &'static str,
 ) -> Result<DepSpec, InheritanceError> {
-    let ws_dep = ws_deps
-        .get(name)
-        .ok_or_else(|| InheritanceError::MissingWorkspaceDependency {
-            name: name.to_string(),
-            section,
-        })?;
+    let ws_dep = ws_deps.get(name).ok_or_else(|| InheritanceError::MissingWorkspaceDependency {
+        name: name.to_string(),
+        section,
+    })?;
 
     let resolved = match ws_dep {
         DepSpec::Simple(v) => resolve_from_simple_dep(v, local),

@@ -366,11 +366,7 @@ mod tests {
         // byte budget is met, so an oversized stream legitimately closes
         // the pipe under the writer — only BrokenPipe is tolerated.
         if let Err(e) = child.stdin.take().unwrap().write_all(stdin.as_bytes()) {
-            assert_eq!(
-                e.kind(),
-                std::io::ErrorKind::BrokenPipe,
-                "unexpected stdin write error"
-            );
+            assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "unexpected stdin write error");
         }
         let out = child.wait_with_output().unwrap();
         (
@@ -419,11 +415,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-push");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
-        let status = std::process::Command::new("/bin/sh")
-            .arg("-n")
-            .arg(&script)
-            .status()
-            .unwrap();
+        let status = std::process::Command::new("/bin/sh").arg("-n").arg(&script).status().unwrap();
         assert!(status.success(), "HOOK_SCRIPT must parse under `sh -n`");
     }
 
@@ -479,14 +471,8 @@ mod tests {
 
         assert!(!status.success(), "a hook that cannot verify must not pass");
         assert!(stderr.contains("ops"), "stderr must name ops: {stderr}");
-        assert!(
-            stderr.contains(".git/hooks/pre-push"),
-            "stderr must name the hook: {stderr}"
-        );
-        assert!(
-            stderr.contains(SKIP_ENV_VAR),
-            "stderr must name the bypass: {stderr}"
-        );
+        assert!(stderr.contains(".git/hooks/pre-push"), "stderr must name the hook: {stderr}");
+        assert!(stderr.contains(SKIP_ENV_VAR), "stderr must name the bypass: {stderr}");
     }
 
     /// When the ref-update capture fails (here: `head` unavailable on a
@@ -532,10 +518,7 @@ mod tests {
             "a failed capture must never skip the configured checks"
         );
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            stderr.contains("pre-push"),
-            "the diagnostic must name the hook: {stderr}"
-        );
+        assert!(stderr.contains("pre-push"), "the diagnostic must name the hook: {stderr}");
         assert!(
             stderr.contains("ref-update"),
             "the diagnostic must name what could not be read: {stderr}"
@@ -566,10 +549,8 @@ mod tests {
 
         // 2000 lines x ~131 bytes ≈ 262 KB — twice the per-string exec cap,
         // which an unbounded capture would hit with E2BIG around n=1200.
-        let line = format!(
-            "refs/heads/branch-{:04} {SHA1_A} refs/heads/branch-{:04} {SHA1_B}",
-            0, 0
-        );
+        let line =
+            format!("refs/heads/branch-{:04} {SHA1_A} refs/heads/branch-{:04} {SHA1_B}", 0, 0);
         let stream = format!("{line}\n").repeat(2000);
 
         // The fake ops (printf only) shadows any real one; `head` for the
@@ -621,11 +602,7 @@ mod tests {
 
         // 96000 non-newline bytes, a newline at byte 96001, then more stream
         // — head stops at 96001 bytes, holding exactly one trailing newline.
-        let stream = format!(
-            "{}\n{}",
-            "a".repeat(96_000),
-            "refs/heads/x 1111 refs/heads/x 2222\n"
-        );
+        let stream = format!("{}\n{}", "a".repeat(96_000), "refs/heads/x 1111 refs/heads/x 2222\n");
 
         let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
         let (status, stdout, stderr) = run_hook_script(dir.path(), &path_value, &stream, &[]);
@@ -669,11 +646,7 @@ mod tests {
         for value in ["1", "true", "TRUE", "Yes", "on"] {
             let (status, _stdout, stderr) =
                 run_hook_script(dir.path(), &path_value, "", &[(SKIP_ENV_VAR, value)]);
-            assert_eq!(
-                status.code(),
-                Some(0),
-                "{value:?} must skip cleanly, stderr was: {stderr}"
-            );
+            assert_eq!(status.code(), Some(0), "{value:?} must skip cleanly, stderr was: {stderr}");
         }
 
         // A value `should_skip` rejects must still reach the probe and fail.
@@ -703,11 +676,8 @@ mod tests {
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-push"),
-            "#!/bin/sh\nexec ops before-push\n",
-        )
-        .unwrap();
+        std::fs::write(git_dir.join("hooks/pre-push"), "#!/bin/sh\nexec ops before-push\n")
+            .unwrap();
 
         let mut buf = Vec::new();
         let path = install_hook(&git_dir, &mut buf).expect("install_hook");
@@ -773,10 +743,7 @@ mod tests {
             );
         }
         assert!(
-            HOOK_CONFIG
-                .legacy_markers
-                .iter()
-                .any(|m| HOOK_SCRIPT.contains(*m)),
+            HOOK_CONFIG.legacy_markers.iter().any(|m| HOOK_SCRIPT.contains(*m)),
             "the current HOOK_SCRIPT must be covered by a legacy marker"
         );
     }

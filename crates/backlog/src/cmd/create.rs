@@ -44,7 +44,7 @@ const CREATE_ATTEMPTS: usize = 8;
 ///
 /// # Errors
 ///
-/// The clock is unreadable (ERR-6), the key is blank, the allocation lock
+/// The clock is unreadable, the key is blank, the allocation lock
 /// cannot be taken, a task file does not parse during the key check, or the
 /// file cannot be written — errors name the path.
 pub fn run_create<W: Write>(
@@ -87,10 +87,7 @@ pub fn create_task(
     // file.
     let _lock = match opts.unless_exists.as_deref() {
         Some(key) => {
-            anyhow::ensure!(
-                !key.trim().is_empty(),
-                "--unless-exists needs a non-blank key"
-            );
+            anyhow::ensure!(!key.trim().is_empty(), "--unless-exists needs a non-blank key");
             let lock = store.lock_allocation()?;
             if let Some(id) = open_task_with_key(store, cfg, key)? {
                 return Ok(Created::Exists(id));
@@ -144,10 +141,7 @@ fn render_new_task(
     let mut frontmatter = Frontmatter {
         id: id.to_string(),
         title: opts.title.clone(),
-        status: opts
-            .status
-            .clone()
-            .unwrap_or_else(|| cfg.default_status.clone()),
+        status: opts.status.clone().unwrap_or_else(|| cfg.default_status.clone()),
         assignees: opts.assignees.clone(),
         created_date: format!("{} {}", stamp.date, stamp.minutes),
         updated_date: None,
@@ -172,11 +166,7 @@ fn render_new_task(
         opts.plan.as_deref(),
         opts.notes.as_deref(),
     );
-    TaskDoc {
-        frontmatter,
-        body: Body { raw: body },
-    }
-    .render()
+    TaskDoc { frontmatter, body: Body { raw: body } }.render()
 }
 
 /// The id of an open task in `tasks/` whose `dedup_key` equals `key`.
@@ -228,18 +218,14 @@ mod tests {
         run_create(&store, &cfg, &opts, &mut out).expect("create");
         assert_eq!(String::from_utf8_lossy(&out), "Created TASK-0001\n");
         let written = std::fs::read_to_string(
-            dir.path()
-                .join(".backlog/tasks/task-0001 - OWASP-1-something.md"),
+            dir.path().join(".backlog/tasks/task-0001 - OWASP-1-something.md"),
         )
         .expect("read back");
         let doc = crate::model::TaskDoc::parse(&written).expect("re-parse");
         assert_eq!(doc.frontmatter.status, "Triage");
         assert_eq!(doc.frontmatter.priority.as_deref(), Some("high"));
         assert_eq!(doc.frontmatter.labels, vec!["code-review-rust", "security"]);
-        assert_eq!(
-            doc.frontmatter.modified_files,
-            vec!["crates/foo/src/lib.rs"]
-        );
+        assert_eq!(doc.frontmatter.modified_files, vec!["crates/foo/src/lib.rs"]);
         assert_eq!(doc.body.ac_items().len(), 2);
         assert!(written.contains("- [ ] #1 criterion one"));
     }
@@ -252,10 +238,7 @@ mod tests {
             "---\nid: TASK-0010\ntitle: 't'\nstatus: To Do\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n",
         )
         .expect("seed");
-        let opts = CreateOptions {
-            title: "next".to_string(),
-            ..CreateOptions::default()
-        };
+        let opts = CreateOptions { title: "next".to_string(), ..CreateOptions::default() };
         let mut out = Vec::new();
         run_create(&store, &cfg, &opts, &mut out).expect("create");
         assert_eq!(String::from_utf8_lossy(&out), "Created TASK-0011\n");
@@ -284,10 +267,7 @@ mod tests {
     fn task_count(dir: &tempfile::TempDir) -> usize {
         std::fs::read_dir(dir.path().join(".backlog/tasks"))
             .expect("tasks dir")
-            .filter(|e| {
-                e.as_ref()
-                    .is_ok_and(|e| e.path().extension().is_some_and(|x| x == "md"))
-            })
+            .filter(|e| e.as_ref().is_ok_and(|e| e.path().extension().is_some_and(|x| x == "md")))
             .count()
     }
 
@@ -297,14 +277,8 @@ mod tests {
     #[test]
     fn unless_exists_reports_the_open_task_instead_of_filing() {
         let (dir, store, cfg) = scratch();
-        assert_eq!(
-            create_to_string(&store, &cfg, &keyed("first", KEY)),
-            "Created TASK-0001\n"
-        );
-        assert_eq!(
-            create_to_string(&store, &cfg, &keyed("again", KEY)),
-            "Exists TASK-0001\n"
-        );
+        assert_eq!(create_to_string(&store, &cfg, &keyed("first", KEY)), "Created TASK-0001\n");
+        assert_eq!(create_to_string(&store, &cfg, &keyed("again", KEY)), "Exists TASK-0001\n");
         assert_eq!(task_count(&dir), 1);
         // A different key files normally.
         assert_eq!(
@@ -321,17 +295,11 @@ mod tests {
     #[test]
     fn unless_exists_files_again_once_the_keyed_task_is_done() {
         let (dir, store, cfg) = scratch();
-        assert_eq!(
-            create_to_string(&store, &cfg, &keyed("first", KEY)),
-            "Created TASK-0001\n"
-        );
+        assert_eq!(create_to_string(&store, &cfg, &keyed("first", KEY)), "Created TASK-0001\n");
         let path = dir.path().join(".backlog/tasks/task-0001 - first.md");
         let src = std::fs::read_to_string(&path).expect("read");
         std::fs::write(&path, src.replace("status: Triage", "status: Done")).expect("mark done");
-        assert_eq!(
-            create_to_string(&store, &cfg, &keyed("second", KEY)),
-            "Created TASK-0002\n"
-        );
+        assert_eq!(create_to_string(&store, &cfg, &keyed("second", KEY)), "Created TASK-0002\n");
         assert_eq!(task_count(&dir), 2);
     }
 
@@ -358,22 +326,10 @@ mod tests {
                     })
                 })
                 .collect();
-            handles
-                .into_iter()
-                .map(|h| h.join().expect("join"))
-                .collect()
+            handles.into_iter().map(|h| h.join().expect("join")).collect()
         });
         assert_eq!(task_count(&dir), 1);
-        assert_eq!(
-            outputs.iter().filter(|o| o.starts_with("Created ")).count(),
-            1
-        );
-        assert_eq!(
-            outputs
-                .iter()
-                .filter(|o| *o == "Exists TASK-0001\n")
-                .count(),
-            7
-        );
+        assert_eq!(outputs.iter().filter(|o| o.starts_with("Created ")).count(), 1);
+        assert_eq!(outputs.iter().filter(|o| *o == "Exists TASK-0001\n").count(), 7);
     }
 }

@@ -34,12 +34,12 @@ pub fn priority_rank(priority: Option<&str>) -> u8 {
 /// First-letter-capitalized form for the view body: `Priority: Low`.
 fn priority_capitalized(priority: &str) -> String {
     let mut chars = priority.chars();
-    chars.next().map_or_else(String::new, |first| {
-        first.to_uppercase().collect::<String>() + chars.as_str()
-    })
+    chars
+        .next()
+        .map_or_else(String::new, |first| first.to_uppercase().collect::<String>() + chars.as_str())
 }
 
-/// TIME-5 / TASK-2103: an RFC 3339 timestamp is emitted only when the raw
+/// an RFC 3339 timestamp is emitted only when the raw
 /// frontmatter value actually parses as one — both the `HH:MM` and the
 /// `HH:MM:SS` form, via [`crate::cmd::cleanup::parse_frontmatter_date`].
 /// A value that does not parse yields `None` (rendered as JSON `null`): the
@@ -135,11 +135,7 @@ pub fn view_plain<W: Write>(
     writeln!(w, "Task {} - {}", fm.id, fm.title)?;
     writeln!(w, "{HEAVY_RULE}")?;
     writeln!(w)?;
-    let mark = if fm.status.eq_ignore_ascii_case("Done") {
-        "✔"
-    } else {
-        "○"
-    };
+    let mark = if fm.status.eq_ignore_ascii_case("Done") { "✔" } else { "○" };
     writeln!(w, "Status: {mark} {}", fm.status)?;
     if let Some(priority) = &fm.priority {
         writeln!(w, "Priority: {}", priority_capitalized(priority))?;
@@ -225,22 +221,14 @@ pub fn view_json<W: Write>(
     resolved: &dyn Fn(&str) -> Option<String>,
 ) -> std::io::Result<()> {
     let fm = &entry.doc.frontmatter;
-    let parent = fm
-        .extras
-        .iter()
-        .find(|(k, _)| k == "parent_task_id")
-        .map(|(_, v)| match v {
-            crate::model::FmValue::Scalar(s) => s.clone(),
-            crate::model::FmValue::List(items) => items.join(","),
-        });
-    let task_type = fm
-        .extras
-        .iter()
-        .find(|(k, _)| k == "type")
-        .map(|(_, v)| match v {
-            crate::model::FmValue::Scalar(s) => s.clone(),
-            crate::model::FmValue::List(items) => items.join(","),
-        });
+    let parent = fm.extras.iter().find(|(k, _)| k == "parent_task_id").map(|(_, v)| match v {
+        crate::model::FmValue::Scalar(s) => s.clone(),
+        crate::model::FmValue::List(items) => items.join(","),
+    });
+    let task_type = fm.extras.iter().find(|(k, _)| k == "type").map(|(_, v)| match v {
+        crate::model::FmValue::Scalar(s) => s.clone(),
+        crate::model::FmValue::List(items) => items.join(","),
+    });
     let ordinal = fm.ordinal.as_deref().and_then(|o| o.parse::<u64>().ok());
 
     let mut s = String::with_capacity(1024);
@@ -250,11 +238,7 @@ pub fn view_json<W: Write>(
         entry,
         root,
         readiness,
-        &ExtrasScalars {
-            task_type: task_type.as_deref(),
-            parent: parent.as_deref(),
-            ordinal,
-        },
+        &ExtrasScalars { task_type: task_type.as_deref(), parent: parent.as_deref(), ordinal },
     );
     push_field(&mut s, "dependencies", &str_list(&fm.dependencies), false);
     push_dependency_graph(&mut s, entry, resolved);
@@ -279,21 +263,13 @@ pub fn view_json<W: Write>(
     push_field(
         &mut s,
         "implementationPlan",
-        &entry
-            .doc
-            .body
-            .plan()
-            .map_or_else(|| "null".to_string(), jstr),
+        &entry.doc.body.plan().map_or_else(|| "null".to_string(), jstr),
         false,
     );
     push_field(
         &mut s,
         "implementationNotes",
-        &entry
-            .doc
-            .body
-            .notes()
-            .map_or_else(|| "null".to_string(), jstr),
+        &entry.doc.body.notes().map_or_else(|| "null".to_string(), jstr),
         false,
     );
     push_field(&mut s, "comments", "[]", false);
@@ -342,17 +318,10 @@ fn push_scalar_fields(
     push_field(
         s,
         "ordinal",
-        &extras
-            .ordinal
-            .map_or_else(|| "null".to_string(), |o| o.to_string()),
+        &extras.ordinal.map_or_else(|| "null".to_string(), |o| o.to_string()),
         false,
     );
-    push_field(
-        s,
-        "createdAt",
-        &opt_jstr_date(json_date(&fm.created_date)),
-        false,
-    );
+    push_field(s, "createdAt", &opt_jstr_date(json_date(&fm.created_date)), false);
     push_field(
         s,
         "updatedAt",
@@ -365,11 +334,7 @@ fn push_scalar_fields(
     push_field(
         s,
         "description",
-        &entry
-            .doc
-            .body
-            .description()
-            .map_or_else(|| "null".to_string(), jstr),
+        &entry.doc.body.description().map_or_else(|| "null".to_string(), jstr),
         false,
     );
 }
@@ -473,10 +438,7 @@ fn str_list_at(items: &[String], field_indent: usize) -> String {
     }
     let pad = " ".repeat(field_indent);
     let item_pad = " ".repeat(field_indent.saturating_add(2));
-    let rendered: Vec<String> = items
-        .iter()
-        .map(|i| format!("{item_pad}{}", jstr(i)))
-        .collect();
+    let rendered: Vec<String> = items.iter().map(|i| format!("{item_pad}{}", jstr(i))).collect();
     format!("[\n{}\n{pad}]", rendered.join(",\n"))
 }
 
@@ -500,10 +462,8 @@ fn order_for_listing<'a>(
     }
     let mut grouped = Vec::new();
     for status in &order {
-        let mut group: Vec<&TaskEntry> = entries
-            .iter()
-            .filter(|e| &e.doc.frontmatter.status == status)
-            .collect();
+        let mut group: Vec<&TaskEntry> =
+            entries.iter().filter(|e| &e.doc.frontmatter.status == status).collect();
         if group.is_empty() {
             continue;
         }
@@ -518,7 +478,7 @@ fn order_for_listing<'a>(
 }
 
 /// Render `task list --plain`: one `Status:` header per status (config
-/// order), rows `  [HIGH] TASK-1656 - title (ac: 5/5)` sorted by priority
+/// order), rows ` [HIGH] TASK-<id> - title (ac: 5/5)` sorted by priority
 /// rank then id.
 ///
 /// # Errors
@@ -546,11 +506,8 @@ pub fn list_plain<W: Write>(
             };
             // The CLI omits the ac suffix entirely for tasks with no
             // criteria — `(ac: 0/0)` never appears in its output.
-            let ac_suffix = if ac.is_empty() {
-                String::new()
-            } else {
-                format!(" (ac: {}/{})", done, ac.len())
-            };
+            let ac_suffix =
+                if ac.is_empty() { String::new() } else { format!(" (ac: {}/{})", done, ac.len()) };
             writeln!(w, "  {tag}{} - {}{}", fm.id, fm.title, ac_suffix)?;
         }
         writeln!(w)?;
@@ -572,10 +529,8 @@ pub fn list_json<W: Write>(
     entries: &[TaskEntry],
     statuses: &[String],
 ) -> std::io::Result<()> {
-    let ordered: Vec<&TaskEntry> = order_for_listing(entries, statuses)
-        .into_iter()
-        .flat_map(|(_, group)| group)
-        .collect();
+    let ordered: Vec<&TaskEntry> =
+        order_for_listing(entries, statuses).into_iter().flat_map(|(_, group)| group).collect();
     // The same lookup `run_view` hands `readiness_of`, so list and view
     // agree: a dependency missing from the scanned set (moved to
     // `completed/` or archived) does not block, only an unresolved non-Done
@@ -616,43 +571,18 @@ pub fn list_json<W: Write>(
         push_row_field(&mut s, "reporter", "null", false);
         push_row_field(&mut s, "labels", &str_list_at(&fm.labels, 6), false);
         push_row_field(&mut s, "milestone", "null", false);
-        push_row_field(
-            &mut s,
-            "parentTaskId",
-            &opt_str(fm.extra_scalar("parent_task_id")),
-            false,
-        );
-        push_row_field(
-            &mut s,
-            "acceptanceCriteriaCompleted",
-            &done.to_string(),
-            false,
-        );
-        push_row_field(
-            &mut s,
-            "acceptanceCriteriaCount",
-            &ac.len().to_string(),
-            false,
-        );
+        push_row_field(&mut s, "parentTaskId", &opt_str(fm.extra_scalar("parent_task_id")), false);
+        push_row_field(&mut s, "acceptanceCriteriaCompleted", &done.to_string(), false);
+        push_row_field(&mut s, "acceptanceCriteriaCount", &ac.len().to_string(), false);
         push_row_field(&mut s, "references", "[]", false);
-        push_row_field(
-            &mut s,
-            "modifiedFiles",
-            &str_list_at(&fm.modified_files, 6),
-            false,
-        );
+        push_row_field(&mut s, "modifiedFiles", &str_list_at(&fm.modified_files, 6), false);
         push_row_field(
             &mut s,
             "ordinal",
             &ordinal.map_or_else(|| "null".to_string(), |o| o.to_string()),
             false,
         );
-        push_row_field(
-            &mut s,
-            "createdAt",
-            &opt_jstr_date(json_date(&fm.created_date)),
-            false,
-        );
+        push_row_field(&mut s, "createdAt", &opt_jstr_date(json_date(&fm.created_date)), false);
         push_row_field(
             &mut s,
             "updatedAt",
@@ -696,14 +626,7 @@ pub struct WaveOverlapRow {
 /// Writing to `out` failed.
 pub fn wave_overlap_plain<W: Write>(w: &mut W, rows: &[WaveOverlapRow]) -> std::io::Result<()> {
     for row in rows {
-        writeln!(
-            w,
-            "{} - {} [{}] ({} files)",
-            row.id,
-            row.title,
-            row.status,
-            row.files.len()
-        )?;
+        writeln!(w, "{} - {} [{}] ({} files)", row.id, row.title, row.status, row.files.len())?;
         if row.files.is_empty() {
             writeln!(w, "  files: none recorded")?;
         } else {
@@ -755,11 +678,7 @@ pub fn wave_overlap_json<W: Write>(w: &mut W, rows: &[WaveOverlapRow]) -> std::i
                 str_list_at(shared, 10)
             );
         }
-        s.push_str(if row.overlaps.is_empty() {
-            "]\n"
-        } else {
-            "\n      ]\n"
-        });
+        s.push_str(if row.overlaps.is_empty() { "]\n" } else { "\n      ]\n" });
         s.push_str("    }");
     }
     s.push_str(if rows.is_empty() { "],\n" } else { "\n  ],\n" });
@@ -803,11 +722,7 @@ pub fn score_entry(entry: &TaskEntry, query: &str) -> f64 {
             total += 0.35;
         } else if fm.title.to_ascii_lowercase().contains(token) {
             total += 0.30;
-        } else if fm
-            .labels
-            .iter()
-            .any(|l| l.to_ascii_lowercase().contains(token))
-        {
+        } else if fm.labels.iter().any(|l| l.to_ascii_lowercase().contains(token)) {
             total += 0.15;
         } else if entry
             .doc
@@ -816,12 +731,7 @@ pub fn score_entry(entry: &TaskEntry, query: &str) -> f64 {
             .is_some_and(|d| d.to_ascii_lowercase().contains(token))
         {
             total += 0.10;
-        } else if entry
-            .doc
-            .body
-            .notes()
-            .is_some_and(|n| n.to_ascii_lowercase().contains(token))
-        {
+        } else if entry.doc.body.notes().is_some_and(|n| n.to_ascii_lowercase().contains(token)) {
             total += 0.05;
         }
     }
@@ -844,7 +754,7 @@ pub fn sort_hits(hits: &mut [SearchHit<'_>]) {
 }
 
 /// Render `search --plain`: `Tasks:` header, rows
-/// `  TASK-1766 - title (Done) [LOW] [score 0.671]`; the score suffix only
+/// ` TASK-<id> - title (Done) [LOW] [score 0.671]`; the score suffix only
 /// when a query was given.
 ///
 /// # Errors
@@ -863,11 +773,7 @@ pub fn search_plain<W: Write>(
             .as_ref()
             .map(|p| format!(" [{}]", p.to_ascii_uppercase()))
             .unwrap_or_default();
-        let score = if with_score {
-            format!(" [score {:.3}]", hit.score)
-        } else {
-            String::new()
-        };
+        let score = if with_score { format!(" [score {:.3}]", hit.score) } else { String::new() };
         writeln!(w, "  {} - {} ({}){tag}{score}", fm.id, fm.title, fm.status)?;
     }
     Ok(())
@@ -908,17 +814,8 @@ pub fn search_json<W: Write>(
         push_row_field(&mut s, "status", &jstr(&fm.status), false);
         push_row_field(&mut s, "priority", &opt_str(fm.priority.as_deref()), false);
         push_row_field(&mut s, "labels", &str_list_at(&fm.labels, 6), false);
-        push_row_field(
-            &mut s,
-            "modifiedFiles",
-            &str_list_at(&fm.modified_files, 6),
-            false,
-        );
-        let score = if with_score {
-            format!("{:.3}", hit.score)
-        } else {
-            "null".to_string()
-        };
+        push_row_field(&mut s, "modifiedFiles", &str_list_at(&fm.modified_files, 6), false);
+        let score = if with_score { format!("{:.3}", hit.score) } else { "null".to_string() };
         push_row_field(&mut s, "score", &score, true);
         s.push_str("    }");
         if !last {
@@ -942,10 +839,7 @@ mod tests {
         // TaskEntry needs an owned path, and the tempdir itself is dropped
         // harmlessly after (nothing reads the file back).
         std::mem::forget(dir);
-        TaskEntry {
-            path,
-            doc: TaskDoc::parse(src).expect("parse"),
-        }
+        TaskEntry { path, doc: TaskDoc::parse(src).expect("parse") }
     }
 
     const VIEW_SAMPLE: &str = "\
@@ -981,20 +875,13 @@ priority: low
     fn view_plain_first_line_is_the_absolute_path() {
         let entry = doc_from(VIEW_SAMPLE);
         let mut out = Vec::new();
-        let readiness = Readiness {
-            is_ready: true,
-            blocking: vec![],
-            missing: vec![],
-        };
+        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
         view_plain(&mut out, &entry, &readiness).expect("render");
         let text = String::from_utf8(out).expect("utf8");
         let mut lines = text.lines();
         let first = lines.next().expect("first line");
         let path = first.strip_prefix("File: ").expect("File: prefix");
-        assert!(
-            path.contains("task-0001"),
-            "path must name the file: {path}"
-        );
+        assert!(path.contains("task-0001"), "path must name the file: {path}");
         assert!(path.starts_with('/'), "path must be absolute: {path}");
         assert_eq!(lines.next(), Some(""), "blank line after File:");
         assert_eq!(lines.next(), Some("Task TASK-2069 - DUP-3: scaffolds"));
@@ -1014,11 +901,7 @@ priority: low
             "{VIEW_SAMPLE}\n## Definition of Done\n<!-- DOD:BEGIN -->\n- [x] #1 gate one\n- [ ] #2 gate two\n<!-- DOD:END -->\n"
         );
         let entry = doc_from(&src);
-        let readiness = Readiness {
-            is_ready: true,
-            blocking: vec![],
-            missing: vec![],
-        };
+        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
 
         let mut out = Vec::new();
         view_plain(&mut out, &entry, &readiness).expect("render");
@@ -1044,11 +927,7 @@ priority: low
     #[test]
     fn dod_placeholder_stands_for_a_task_without_items() {
         let entry = doc_from(VIEW_SAMPLE);
-        let readiness = Readiness {
-            is_ready: true,
-            blocking: vec![],
-            missing: vec![],
-        };
+        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
         let mut out = Vec::new();
         view_plain(&mut out, &entry, &readiness).expect("render");
         let text = String::from_utf8(out).expect("utf8");
@@ -1060,11 +939,7 @@ priority: low
         let src = VIEW_SAMPLE.replacen("status: Done", "status: In Progress", 1);
         let entry = doc_from(&src);
         let mut out = Vec::new();
-        let readiness = Readiness {
-            is_ready: true,
-            blocking: vec![],
-            missing: vec![],
-        };
+        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
         view_plain(&mut out, &entry, &readiness).expect("render");
         let text = String::from_utf8(out).expect("utf8");
         assert!(text.contains("Status: ○ In Progress"));
@@ -1073,11 +948,7 @@ priority: low
     #[test]
     fn view_json_envelope_field_order() {
         let entry = doc_from(VIEW_SAMPLE);
-        let readiness = Readiness {
-            is_ready: true,
-            blocking: vec![],
-            missing: vec![],
-        };
+        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
         let mut out = Vec::new();
         view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
         let text = String::from_utf8(out).expect("utf8");
@@ -1087,10 +958,7 @@ priority: low
         assert_eq!(value["task"]["id"], "TASK-2069");
         assert_eq!(value["task"]["createdAt"], "2026-08-29T18:21:00Z");
         assert_eq!(value["task"]["priority"], "low");
-        assert_eq!(
-            value["task"]["modifiedFiles"],
-            serde_json::json!(["crates/foo/src/lib.rs"])
-        );
+        assert_eq!(value["task"]["modifiedFiles"], serde_json::json!(["crates/foo/src/lib.rs"]));
         assert_eq!(value["task"]["acceptanceCriteriaCompleted"], 1);
         assert_eq!(value["task"]["acceptanceCriteriaCount"], 2);
         // Field order pins: id before title before status.
@@ -1106,11 +974,7 @@ priority: low
     fn view_json_dependency_graph_with_edges_parses() {
         let src = VIEW_SAMPLE.replacen("dependencies: []", "dependencies:\n  - TASK-0001", 1);
         let entry = doc_from(&src);
-        let readiness = Readiness {
-            is_ready: true,
-            blocking: vec![],
-            missing: vec![],
-        };
+        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
         let mut out = Vec::new();
         view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
         let text = String::from_utf8(out).expect("utf8");
@@ -1127,17 +991,11 @@ priority: low
 
     #[test]
     fn json_date_handles_seconds_and_minutes() {
-        assert_eq!(
-            json_date("2026-08-29 18:21").as_deref(),
-            Some("2026-08-29T18:21:00Z")
-        );
-        assert_eq!(
-            json_date("2026-04-10 07:15:00").as_deref(),
-            Some("2026-04-10T07:15:00Z")
-        );
+        assert_eq!(json_date("2026-08-29 18:21").as_deref(), Some("2026-08-29T18:21:00Z"));
+        assert_eq!(json_date("2026-04-10 07:15:00").as_deref(), Some("2026-04-10T07:15:00Z"));
     }
 
-    /// TIME-5 / TASK-2103: an unparseable frontmatter date must not be
+    /// an unparseable frontmatter date must not be
     /// reshaped into a pseudo-timestamp — pre-fix, `"back then"` rendered as
     /// `"backTthenZ"` in the JSON envelopes' `createdAt`/`updatedAt`.
     #[test]
@@ -1160,11 +1018,7 @@ priority: low
         list_plain(
             &mut out,
             &[a, b, c],
-            &[
-                "Triage".to_string(),
-                "To Do".to_string(),
-                "Done".to_string(),
-            ],
+            &["Triage".to_string(), "To Do".to_string(), "Done".to_string()],
         )
         .expect("render");
         let text = String::from_utf8(out).expect("utf8");
@@ -1185,38 +1039,23 @@ Done:
         let hit = doc_from(VIEW_SAMPLE);
         let exact = score_entry(&hit, "task-2069");
         let token = score_entry(&hit, "scaffolds");
-        assert!(
-            (exact - 1.0).abs() < 1e-12,
-            "exact id scores 1.0, got {exact}"
-        );
-        assert!(
-            (token - 0.30).abs() < 1e-9,
-            "title token scores 0.30, got {token}"
-        );
+        assert!((exact - 1.0).abs() < 1e-12, "exact id scores 1.0, got {exact}");
+        assert!((token - 0.30).abs() < 1e-9, "title token scores 0.30, got {token}");
         assert!(exact > token);
     }
 
     #[test]
     fn search_plain_row_shape() {
         let entry = doc_from(VIEW_SAMPLE);
-        let hits = [SearchHit {
-            entry: &entry,
-            score: 0.671,
-        }];
+        let hits = [SearchHit { entry: &entry, score: 0.671 }];
         let mut out = Vec::new();
         search_plain(&mut out, &hits, true).expect("render");
         let text = String::from_utf8(out).expect("utf8");
-        assert_eq!(
-            text,
-            "Tasks:\n  TASK-2069 - DUP-3: scaffolds (Done) [LOW] [score 0.671]\n"
-        );
+        assert_eq!(text, "Tasks:\n  TASK-2069 - DUP-3: scaffolds (Done) [LOW] [score 0.671]\n");
         // No query → no score suffix.
         let mut out = Vec::new();
         search_plain(&mut out, &hits, false).expect("render");
         let text = String::from_utf8(out).expect("utf8");
-        assert_eq!(
-            text,
-            "Tasks:\n  TASK-2069 - DUP-3: scaffolds (Done) [LOW]\n"
-        );
+        assert_eq!(text, "Tasks:\n  TASK-2069 - DUP-3: scaffolds (Done) [LOW]\n");
     }
 }

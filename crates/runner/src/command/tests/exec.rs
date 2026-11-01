@@ -7,9 +7,7 @@ async fn run_plan_echo_success() {
     let mut runner = test_runner(HashMap::new());
     runner.register_commands(vec![("echo_hi".into(), CommandSpec::Exec(echo_cmd("hi")))]);
     let mut events = Vec::new();
-    let results = runner
-        .run_plan(&["echo_hi".into()], true, &mut |e| events.push(e))
-        .await;
+    let results = runner.run_plan(&["echo_hi".into()], true, &mut |e| events.push(e)).await;
     assert!(results.iter().all(|r| r.success));
     events.assert_has_event(
         |e| matches!(e, RunnerEvent::StepFinished { .. }),
@@ -58,17 +56,10 @@ async fn run_exec_timeout() {
     spec.timeout_secs = Some(1);
     let spec = Arc::new(spec);
     let mut events = Vec::new();
-    let result = runner
-        .run_exec("sleep_cmd", &spec, &mut |e| events.push(e))
-        .await;
+    let result = runner.run_exec("sleep_cmd", &spec, &mut |e| events.push(e)).await;
     assert!(!result.success);
-    assert!(result
-        .message
-        .as_ref()
-        .is_some_and(|m| m.contains("timed out")));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, RunnerEvent::StepFailed { .. })));
+    assert!(result.message.as_ref().is_some_and(|m| m.contains("timed out")));
+    assert!(events.iter().any(|e| matches!(e, RunnerEvent::StepFailed { .. })));
 }
 
 #[tokio::test]
@@ -107,7 +98,7 @@ mod exec_unit_tests {
         assert!(result.is_ok());
     }
 
-    /// CONC-9 / TASK-1064: when the surrounding parallel task is aborted while
+    /// When the surrounding parallel task is aborted while
     /// the child is wedged (e.g. `fail_fast` tripped after a sibling failed and
     /// the current child is stuck on `child.wait()`), the per-stream pipe
     /// drains spawned inside `spawn_capped` must die with the parent rather
@@ -134,11 +125,9 @@ mod exec_unit_tests {
         let start = std::time::Instant::now();
         outer.abort_all();
         // Drain the JoinSet — every aborted handle yields a JoinError(cancelled).
-        timeout(Duration::from_secs(2), async {
-            while outer.join_next().await.is_some() {}
-        })
-        .await
-        .expect("aborting parent JoinSet must release spawn_capped within 2s");
+        timeout(Duration::from_secs(2), async { while outer.join_next().await.is_some() {} })
+            .await
+            .expect("aborting parent JoinSet must release spawn_capped within 2s");
         let elapsed = start.elapsed();
         assert!(
             elapsed < Duration::from_secs(2),
@@ -146,7 +135,7 @@ mod exec_unit_tests {
         );
     }
 
-    /// PERF-1 / TASK-0764: a child that floods stdout past the configured cap
+    /// a child that floods stdout past the configured cap
     /// must not buffer the full output. `spawn_capped` reads up to `cap` and
     /// drains the rest into a sink — the resulting `CommandOutput.stdout` is
     /// bounded near `cap` (head + the marker line) regardless of how much the
@@ -156,11 +145,9 @@ mod exec_unit_tests {
         let cap: usize = 1024;
         let total: usize = 256 * 1024;
         let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c")
-            .arg(format!("head -c {total} /dev/zero | tr '\\0' a"));
-        let output = crate::command::exec::spawn_capped_for_test(&mut cmd, cap)
-            .await
-            .expect("spawn_capped");
+        cmd.arg("-c").arg(format!("head -c {total} /dev/zero | tr '\\0' a"));
+        let output =
+            crate::command::exec::spawn_capped_for_test(&mut cmd, cap).await.expect("spawn_capped");
         assert!(output.success);
         // Head + a single short marker line; bound generously to absorb
         // platform-dependent marker punctuation.
@@ -175,7 +162,7 @@ mod exec_unit_tests {
         );
     }
 
-    /// ASYNC-6 / TASK-1918: the captured path must hand the child a *null*
+    /// The captured path must hand the child a *null*
     /// stdin, so a step that reads stdin terminates immediately instead of
     /// blocking on `read(0)` forever (`timeout_secs` is opt-in, so nothing
     /// else bounds it).
@@ -210,7 +197,7 @@ mod exec_unit_tests {
         );
     }
 
-    /// CONC-9 / TASK-1919: a timed-out step must take its whole process
+    /// a timed-out step must take its whole process
     /// *tree* with it, not just the direct child.
     ///
     /// The step forks a long-lived grandchild and records its pid, then
@@ -224,10 +211,7 @@ mod exec_unit_tests {
     async fn timed_out_step_kills_the_whole_process_group() {
         let dir = tempfile::tempdir().unwrap();
         let pid_file = dir.path().join("grandchild.pid");
-        let script = format!(
-            "sleep 30 & echo $! > {}; sleep 30",
-            pid_file.to_str().unwrap()
-        );
+        let script = format!("sleep 30 & echo $! > {}; sleep 30", pid_file.to_str().unwrap());
         let runner = test_runner(HashMap::new());
         let mut spec = exec_spec("sh", &["-c", &script]);
         spec.timeout_secs = Some(1);
@@ -266,13 +250,10 @@ mod exec_unit_tests {
             // SAFETY: as above; `pid` is the recorded grandchild.
             unsafe { libc::kill(pid, libc::SIGKILL) };
         }
-        assert!(
-            !alive,
-            "grandchild {pid} survived cancellation of its parent step"
-        );
+        assert!(!alive, "grandchild {pid} survived cancellation of its parent step");
     }
 
-    /// CONC-9 / TASK-1919: `child.wait()` returning does not close the
+    /// `child.wait()` returning does not close the
     /// capture pipes. Here the leader exits at once while a backgrounded
     /// grandchild keeps the inherited write end open, so `read_capped` never
     /// sees EOF. Pre-fix the step hung forever (and, with `timeout_secs`
@@ -411,7 +392,7 @@ mod exec_unit_tests {
         assert_eq!(stderr_events, 1);
     }
 
-    /// PERF-3 / TASK-0732: a 10k-line stderr step must reuse a single
+    /// a 10k-line stderr step must reuse a single
     /// shared `Arc<str>` across every emitted `StepOutput` event so the
     /// per-line cost is an `Arc::clone` (atomic refcount inc) rather than
     /// a fresh heap allocation. We can't observe allocator counts from
@@ -420,7 +401,7 @@ mod exec_unit_tests {
     /// future refactor reverts to per-line String allocations, line addresses
     /// diverge across events and this fails.
     ///
-    /// TEST-15 / TASK-1664: a second, wall-clock assertion was removed; see
+    /// a second, wall-clock assertion was removed; see
     /// the note at the end of the body.
     #[test]
     fn emit_output_events_shares_buffer_across_lines() {
@@ -437,9 +418,7 @@ mod exec_unit_tests {
         let lines: Vec<&crate::command::OutputLine> = events
             .iter()
             .filter_map(|e| match e {
-                RunnerEvent::StepOutput {
-                    line, stderr: true, ..
-                } => Some(line),
+                RunnerEvent::StepOutput { line, stderr: true, .. } => Some(line),
                 _ => None,
             })
             .collect();
@@ -472,7 +451,7 @@ mod exec_unit_tests {
         // the line addresses diverge.
     }
 
-    /// PERF-3 / TASK-0838: explicit `Arc::ptr_eq` + `strong_count` assertion.
+    /// Explicit `Arc::ptr_eq` + `strong_count` assertion.
     /// All emitted lines must share *one* backing `Arc<str>` per stream and
     /// the `strong_count` must reflect (1 buffer + N line events).
     #[test]
@@ -484,11 +463,7 @@ mod exec_unit_tests {
         let lines: Vec<&crate::command::OutputLine> = events
             .iter()
             .filter_map(|e| match e {
-                RunnerEvent::StepOutput {
-                    line,
-                    stderr: false,
-                    ..
-                } => Some(line),
+                RunnerEvent::StepOutput { line, stderr: false, .. } => Some(line),
                 _ => None,
             })
             .collect();
@@ -521,27 +496,20 @@ mod exec_unit_tests {
             .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: false, .. }))
             .count();
 
-        assert_eq!(
-            stdout_events, 3,
-            "should include empty line from trailing newline"
-        );
+        assert_eq!(stdout_events, 3, "should include empty line from trailing newline");
     }
 
     #[test]
     fn build_command_includes_env_vars() {
         let mut spec = exec_spec("echo", &["test"]);
-        spec.env
-            .insert("MY_VAR".to_string(), "my_value".to_string());
+        spec.env.insert("MY_VAR".to_string(), "my_value".to_string());
         let cmd = build_command(&spec, std::path::Path::new("."), &test_vars()).unwrap();
         let env = cmd.as_std().get_envs().collect::<Vec<_>>();
-        assert!(
-            env.iter().any(|(k, _)| k.to_string_lossy() == "MY_VAR"),
-            "env var should be set"
-        );
+        assert!(env.iter().any(|(k, _)| k.to_string_lossy() == "MY_VAR"), "env var should be set");
     }
 }
 
-/// TASK-0450 / ERR-1: a non-UTF-8 env value referenced via `${VAR}` in argv
+/// a non-UTF-8 env value referenced via `${VAR}` in argv
 /// or cwd must surface as a `StepFailed` with a user-visible message instead
 /// of silently flowing the literal `${VAR}` into the spawned command.
 #[cfg(unix)]
@@ -559,9 +527,7 @@ async fn run_exec_fails_loudly_on_non_utf8_env_var() {
     let runner = test_runner(HashMap::new());
     let spec = Arc::new(exec_spec("echo", &[&format!("${{{key}}}/payload")]));
     let mut events = Vec::new();
-    let result = runner
-        .run_exec("bad_var", &spec, &mut |e| events.push(e))
-        .await;
+    let result = runner.run_exec("bad_var", &spec, &mut |e| events.push(e)).await;
 
     // SAFETY: test-only guard via #[serial] attribute.
     unsafe { std::env::remove_var(key) };
@@ -573,9 +539,7 @@ async fn run_exec_fails_loudly_on_non_utf8_env_var() {
         "user-visible message must not contain the unexpanded literal, got: {msg}"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
+        events.iter().any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
         "should emit StepFailed for expansion failure"
     );
 }
@@ -588,15 +552,11 @@ mod error_path_tests {
         let runner = test_runner(HashMap::new());
         let spec = Arc::new(exec_spec("nonexistent_program_xyz123", &[]));
         let mut events = Vec::new();
-        let result = runner
-            .run_exec("bad_cmd", &spec, &mut |e| events.push(e))
-            .await;
+        let result = runner.run_exec("bad_cmd", &spec, &mut |e| events.push(e)).await;
         assert!(!result.success, "should fail for nonexistent program");
         assert!(result.message.is_some());
         assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
+            events.iter().any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
             "should emit StepFailed event"
         );
     }
@@ -628,15 +588,11 @@ mod error_path_tests {
         let runner = test_runner(HashMap::new());
         let spec = Arc::new(exec_spec(script.to_str().unwrap(), &[]));
         let mut events = Vec::new();
-        let result = runner
-            .run_exec("perm_denied", &spec, &mut |e| events.push(e))
-            .await;
+        let result = runner.run_exec("perm_denied", &spec, &mut |e| events.push(e)).await;
         assert!(!result.success, "should fail for non-executable file");
         assert!(result.message.is_some());
         assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
+            events.iter().any(|e| matches!(e, RunnerEvent::StepFailed { .. })),
             "should emit StepFailed event for permission denied"
         );
     }
@@ -644,22 +600,13 @@ mod error_path_tests {
     #[test]
     fn list_command_ids_includes_all_commands() {
         let mut commands = HashMap::new();
-        commands.insert(
-            "build".to_string(),
-            CommandSpec::Exec(exec_spec("cargo", &["build"])),
-        );
-        commands.insert(
-            "test".to_string(),
-            CommandSpec::Exec(exec_spec("cargo", &["test"])),
-        );
+        commands.insert("build".to_string(), CommandSpec::Exec(exec_spec("cargo", &["build"])));
+        commands.insert("test".to_string(), CommandSpec::Exec(exec_spec("cargo", &["test"])));
         let runner = test_runner(commands);
         let ids = runner.list_command_ids();
         assert!(ids.contains(&"build".into()));
         assert!(ids.contains(&"test".into()));
-        assert!(
-            ids.len() >= 2,
-            "should have at least build and test commands"
-        );
+        assert!(ids.len() >= 2, "should have at least build and test commands");
     }
 
     #[test]

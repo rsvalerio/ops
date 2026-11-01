@@ -233,9 +233,7 @@ pub fn find_workspace_root_strict_with_depth(
     max_depth: usize,
 ) -> Result<PathBuf, FindWorkspaceRootError> {
     walk_ancestors(start, max_depth, |current, cargo_toml, start_canonical| {
-        strict_candidate_action(current, &cargo_toml, start_canonical, &|p| {
-            fs::canonicalize(p)
-        })
+        strict_candidate_action(current, &cargo_toml, start_canonical, &|p| fs::canonicalize(p))
     })
 }
 
@@ -385,10 +383,7 @@ fn walk_ancestors(
     if let Some(root) = first_cargo_toml {
         return Ok(root);
     }
-    Err(FindWorkspaceRootError::NotFound {
-        start: start.to_path_buf(),
-        depth: max_depth,
-    })
+    Err(FindWorkspaceRootError::NotFound { start: start.to_path_buf(), depth: max_depth })
 }
 
 /// Canonicalise the walk's start directory, mapping both failure modes to
@@ -403,15 +398,11 @@ fn canonicalize_start(start: &Path, max_depth: usize) -> Result<PathBuf, FindWor
                 start = ?start.display(),
                 "find_workspace_root: start path is unreachable (canonicalize NotFound); reporting NotFound"
             );
-            Err(FindWorkspaceRootError::NotFound {
-                start: start.to_path_buf(),
-                depth: max_depth,
-            })
+            Err(FindWorkspaceRootError::NotFound { start: start.to_path_buf(), depth: max_depth })
         }
-        Err(source) => Err(FindWorkspaceRootError::CanonicalizeFailed {
-            path: start.to_path_buf(),
-            source,
-        }),
+        Err(source) => {
+            Err(FindWorkspaceRootError::CanonicalizeFailed { path: start.to_path_buf(), source })
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 //! SQL utilities for tokei code statistics.
 //!
-//! # Security (SEC-001)
+//! # Security
 //!
 //! Identifier validation is handled by `ops_sqlite::sql` (shared
 //! defense-in-depth validation), and the staged JSON reaches the engine as
@@ -60,10 +60,7 @@ mod tests {
             sql.contains("CREATE TABLE \"tokei_files\" (\"language\" TEXT NOT NULL"),
             "expected quoted text column: {sql}"
         );
-        assert!(
-            sql.contains("\"file\" TEXT NOT NULL"),
-            "expected quoted file column: {sql}"
-        );
+        assert!(sql.contains("\"file\" TEXT NOT NULL"), "expected quoted file column: {sql}");
         assert!(
             sql.contains("\"code\" INTEGER NOT NULL")
                 && sql.contains("\"comments\" INTEGER NOT NULL")
@@ -88,13 +85,7 @@ mod tests {
     #[test]
     fn tokei_languages_view_sql_quotes_identifiers() {
         let sql = tokei_languages_view_sql().to_string();
-        assert!(
-            sql.contains("\"tokei_languages\""),
-            "view name should be double-quoted: {sql}"
-        );
-        assert!(
-            sql.contains("\"tokei_files\""),
-            "table name should be double-quoted: {sql}"
-        );
+        assert!(sql.contains("\"tokei_languages\""), "view name should be double-quoted: {sql}");
+        assert!(sql.contains("\"tokei_files\""), "table name should be double-quoted: {sql}");
     }
 }

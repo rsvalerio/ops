@@ -3,10 +3,7 @@
 use super::*;
 
 fn theme_with_pad(pad: usize) -> ConfigurableTheme {
-    ConfigurableTheme::new(ThemeConfig {
-        left_pad: pad,
-        ..ThemeConfig::compact()
-    })
+    ConfigurableTheme::new(ThemeConfig { left_pad: pad, ..ThemeConfig::compact() })
 }
 
 #[test]
@@ -35,15 +32,9 @@ fn left_pad_prepends_spaces_to_summary() {
 fn left_pad_zero_produces_no_padding() {
     let theme = theme_with_pad(0);
     let line = render_line(&theme, StepStatus::Succeeded, "cargo test", Some(1.0));
-    assert!(
-        line.starts_with("  ✓"),
-        "should start with step_indent, no extra pad"
-    );
+    assert!(line.starts_with("  ✓"), "should start with step_indent, no extra pad");
 
     let padded = theme_with_pad(2);
     let padded_line = render_line(&padded, StepStatus::Succeeded, "cargo test", Some(1.0));
-    assert!(
-        padded_line.starts_with("    ✓"),
-        "should have 2-space pad + step_indent"
-    );
+    assert!(padded_line.starts_with("    ✓"), "should have 2-space pad + step_indent");
 }

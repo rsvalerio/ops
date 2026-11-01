@@ -124,11 +124,7 @@ fn append_matrix(target: &str, spec: &mut ExecCommandSpec, extra: &Matrix) -> an
              no [commands.{target}.strategy]"
         );
     };
-    if let Some(key) = extra
-        .axes
-        .keys()
-        .find(|key| !strategy.matrix.axes.contains_key(*key))
-    {
+    if let Some(key) = extra.axes.keys().find(|key| !strategy.matrix.axes.contains_key(*key)) {
         let axes: Vec<&str> = strategy.matrix.axes.keys().map(String::as_str).collect();
         anyhow::bail!(
             "[extend.{target}]: matrix.{key} names no axis of '{target}' (axes: {})",
@@ -264,10 +260,7 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
             let mut extended = default_spec.clone();
             apply_to_spec(target, &mut extended, entry)?;
             config.commands.insert(target.clone(), extended);
-            config
-                .provenance
-                .extended_stack_defaults
-                .push(target.clone());
+            config.provenance.extended_stack_defaults.push(target.clone());
         } else {
             anyhow::bail!(
                 "[extend.{target}]: no command named '{target}' to extend \
@@ -340,7 +333,7 @@ mod tests {
         assert_eq!(verify.commands.last().map(String::as_str), Some("extra"));
     }
 
-    /// TASK-2280: extending a stack default records it in the provenance, so
+    /// Extending a stack default records it in the provenance, so
     /// a plan can name the default the materialized entry came from; a
     /// config-defined target is not recorded (it was never a default).
     #[test]
@@ -353,16 +346,10 @@ mod tests {
         );
         config.extend.insert(
             "own".to_string(),
-            ExtendEntry {
-                commands: vec!["extra".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["extra".to_string()], ..ExtendEntry::default() },
         );
         apply(&mut config, dir.path()).expect("extend must apply");
-        assert_eq!(
-            config.provenance.extended_stack_defaults,
-            vec!["verify".to_string()]
-        );
+        assert_eq!(config.provenance.extended_stack_defaults, vec!["verify".to_string()]);
     }
 
     /// The stack defaults live in a process-wide memoized cache; extending
@@ -421,14 +408,11 @@ mod tests {
         let mut config = config_with_extend("fmt", &["extra"]);
         let err = apply(&mut config, dir.path()).expect_err("exec target must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("exec command"),
-            "error must say only composites extend: {msg}"
-        );
+        assert!(msg.contains("exec command"), "error must say only composites extend: {msg}");
         assert!(msg.contains("fmt"), "error must name the target: {msg}");
     }
 
-    /// TASK-2272 #2: the motivating hazard. A naive append to the rust
+    /// The motivating hazard. A naive append to the rust
     /// `clippy` default would land after the `--` separator and be read as a
     /// lint flag, not a cargo flag — the extension must splice in before it.
     #[test]
@@ -481,10 +465,7 @@ mod tests {
         let mut config = config_with_extend_args("doc", &["--document-private-items"]);
         config.commands.insert(
             "doc".to_string(),
-            CommandSpec::Exec(crate::config::ExecCommandSpec::new(
-                "cargo",
-                ["doc", "--no-deps"],
-            )),
+            CommandSpec::Exec(crate::config::ExecCommandSpec::new("cargo", ["doc", "--no-deps"])),
         );
         apply(&mut config, dir.path()).unwrap();
 
@@ -502,7 +483,7 @@ mod tests {
         );
     }
 
-    /// TASK-2272 #3: `args` on a composite is the exec/composite mismatch in
+    /// `args` on a composite is the exec/composite mismatch in
     /// its other form — same copy-paste mistake, same named error.
     #[test]
     fn composite_target_with_args_errors() {
@@ -510,10 +491,7 @@ mod tests {
         let mut config = config_with_extend_args("verify", &["--flag"]);
         let err = apply(&mut config, dir.path()).expect_err("args on composite must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("composite"),
-            "error must say only exec commands take args: {msg}"
-        );
+        assert!(msg.contains("composite"), "error must say only exec commands take args: {msg}");
         assert!(msg.contains("verify"), "error must name the target: {msg}");
     }
 
@@ -524,18 +502,13 @@ mod tests {
     fn entry_with_neither_commands_nor_args_errors() {
         let dir = rust_workspace();
         let mut config = Config::empty();
-        config
-            .extend
-            .insert("verify".to_string(), ExtendEntry::default());
+        config.extend.insert("verify".to_string(), ExtendEntry::default());
         let err = apply(&mut config, dir.path()).expect_err("empty entry must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("none of"),
-            "error must say the entry sets nothing: {msg}"
-        );
+        assert!(msg.contains("none of"), "error must say the entry sets nothing: {msg}");
     }
 
-    /// TASK-2274 AC #1: `[extend.<name>] help = "..."` replaces the target's
+    /// `[extend.<name>] help = "..."` replaces the target's
     /// help verbatim — no auto-suffix, because the override is the user's
     /// statement of what the command now runs.
     #[test]
@@ -562,7 +535,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274 AC #2: extending a composite's `commands` without a help
+    /// Extending a composite's `commands` without a help
     /// override extends the help to name the appended commands, so the
     /// default rust `verify` help can never silently understate the plan
     /// (`ops --help` and `ops verify --dry-run` agree on what runs).
@@ -587,7 +560,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274: a help-only entry overrides the text without appending
+    /// a help-only entry overrides the text without appending
     /// anything — the one way to fix a stack default's help short of
     /// restating the composite (which `[extend]` exists to avoid).
     #[test]
@@ -606,10 +579,7 @@ mod tests {
         let Some(CommandSpec::Composite(verify)) = config.commands.get("verify") else {
             panic!("verify must be materialized");
         };
-        assert_eq!(
-            verify.help.as_deref(),
-            Some("The workspace verification gate")
-        );
+        assert_eq!(verify.help.as_deref(), Some("The workspace verification gate"));
         let default_len = crate::stack::Stack::Rust
             .default_commands_ref()
             .get("verify")
@@ -625,7 +595,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274: `category` overrides for symmetry, on an exec target —
+    /// `category` overrides for symmetry, on an exec target —
     /// help/category apply to either kind.
     #[test]
     fn category_and_help_override_exec_target() {
@@ -644,14 +614,11 @@ mod tests {
         let Some(CommandSpec::Exec(clippy)) = config.commands.get("clippy") else {
             panic!("clippy must be materialized as a config exec");
         };
-        assert_eq!(
-            clippy.help.as_deref(),
-            Some("Lint with the workspace's flags")
-        );
+        assert_eq!(clippy.help.as_deref(), Some("Lint with the workspace's flags"));
         assert_eq!(clippy.category.as_deref(), Some("Code Quality"));
     }
 
-    /// TASK-2274: extending a composite that has *no* help leaves help
+    /// Extending a composite that has *no* help leaves help
     /// unset — the help fallback already renders the materialized `commands`
     /// list, so there is nothing to keep accurate.
     #[test]
@@ -664,10 +631,7 @@ mod tests {
         );
         config.extend.insert(
             "gate".to_string(),
-            ExtendEntry {
-                commands: vec!["build".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["build".to_string()], ..ExtendEntry::default() },
         );
         apply(&mut config, dir.path()).expect("extend must apply");
 
@@ -695,18 +659,12 @@ mod tests {
         let mut config = Config::empty();
         config.extend.insert(
             "verify".to_string(),
-            ExtendEntry {
-                commands: vec!["first".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["first".to_string()], ..ExtendEntry::default() },
         );
         let overlay = super::super::ConfigOverlay {
             extend: Some(IndexMap::from([(
                 "verify".to_string(),
-                ExtendEntry {
-                    commands: vec!["second".to_string()],
-                    ..ExtendEntry::default()
-                },
+                ExtendEntry { commands: vec!["second".to_string()], ..ExtendEntry::default() },
             )])),
             ..Default::default()
         };
@@ -717,14 +675,12 @@ mod tests {
             panic!("verify must be materialized");
         };
         let len = verify.commands.len();
-        let tail: Vec<&str> = verify.commands[len.saturating_sub(2)..]
-            .iter()
-            .map(String::as_str)
-            .collect();
+        let tail: Vec<&str> =
+            verify.commands[len.saturating_sub(2)..].iter().map(String::as_str).collect();
         assert_eq!(tail, vec!["first", "second"]);
     }
 
-    /// TASK-2274 regression (found in review of PR #63): an explicit `help`
+    /// Regression (found in review of PR #63): an explicit `help`
     /// earlier layer must not mask the auto-suffix for commands a *later*
     /// layer appends without setting `help`. Before the merge-time suffix,
     /// the merged entry carried the earlier override, `apply_to_spec` saw
@@ -747,10 +703,7 @@ mod tests {
         let overlay = super::super::ConfigOverlay {
             extend: Some(IndexMap::from([(
                 "verify".to_string(),
-                ExtendEntry {
-                    commands: vec!["second".to_string()],
-                    ..ExtendEntry::default()
-                },
+                ExtendEntry { commands: vec!["second".to_string()], ..ExtendEntry::default() },
             )])),
             ..Default::default()
         };

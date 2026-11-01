@@ -376,10 +376,9 @@ fn read_capped_to_string(path: &Path, cap: u64) -> Option<String> {
 /// True when `gitdir/gitdir` names `pointer` — the reverse link `git worktree
 /// add` writes alongside the forward `gitdir:` pointer.
 fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
-    let Some(recorded) = read_capped_to_string(
-        &gitdir.join(GITDIR_BACKREFERENCE),
-        MAX_GITDIR_BACKREFERENCE_BYTES,
-    ) else {
+    let Some(recorded) =
+        read_capped_to_string(&gitdir.join(GITDIR_BACKREFERENCE), MAX_GITDIR_BACKREFERENCE_BYTES)
+    else {
         return false;
     };
     let Some(canonical_pointer) = canonicalize_gitdir_target(pointer) else {
@@ -633,20 +632,11 @@ mod tests {
     #[test]
     fn anchor_ancestor_is_floored_below_the_filesystem_root() {
         // Deep enough: the full MAX_GITDIR_PARENT_TRAVERSAL climb applies.
-        assert_eq!(
-            anchor_ancestor(Path::new("/a/b/c/d")),
-            Some(Path::new("/a/b"))
-        );
+        assert_eq!(anchor_ancestor(Path::new("/a/b/c/d")), Some(Path::new("/a/b")));
         // Shallow: the unfloored climb would land on `/`, which contains
         // everything. Floor at the deepest non-root ancestor instead.
-        assert_eq!(
-            anchor_ancestor(Path::new("/srv/checkout")),
-            Some(Path::new("/srv"))
-        );
-        assert_eq!(
-            anchor_ancestor(Path::new("/repo")),
-            Some(Path::new("/repo"))
-        );
+        assert_eq!(anchor_ancestor(Path::new("/srv/checkout")), Some(Path::new("/srv")));
+        assert_eq!(anchor_ancestor(Path::new("/repo")), Some(Path::new("/repo")));
         // Nothing but the root is available — refuse rather than admit
         // every path on the machine.
         assert_eq!(anchor_ancestor(Path::new("/")), None);
@@ -665,11 +655,8 @@ mod tests {
 
         // Sanity: this fixture really is the shallow shape the finding
         // describes — without the floor the anchor would be the root.
-        let unfloored = dir
-            .path()
-            .ancestors()
-            .nth(MAX_GITDIR_PARENT_TRAVERSAL)
-            .unwrap_or_else(|| dir.path());
+        let unfloored =
+            dir.path().ancestors().nth(MAX_GITDIR_PARENT_TRAVERSAL).unwrap_or_else(|| dir.path());
         if unfloored.parent().is_some() {
             // TMPDIR is nested deeper than /tmp on this machine, so the
             // degenerate case cannot be reproduced here. The lexical test
@@ -800,11 +787,8 @@ mod tests {
         std::fs::write(planted.join("HEAD"), "ref: refs/heads/main\n").unwrap();
 
         let canonical = std::fs::canonicalize(&planted).unwrap();
-        std::fs::write(
-            worktree.join(".git"),
-            format!("gitdir: {}\n", canonical.display()),
-        )
-        .unwrap();
+        std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", canonical.display()))
+            .unwrap();
 
         assert_eq!(find_git_dir(&worktree), None);
     }
@@ -826,11 +810,7 @@ mod tests {
         let pointer = worktree.join(".git");
 
         let canonical_gitdir = std::fs::canonicalize(&gitdir).unwrap();
-        std::fs::write(
-            &pointer,
-            format!("gitdir: {}\n", canonical_gitdir.display()),
-        )
-        .unwrap();
+        std::fs::write(&pointer, format!("gitdir: {}\n", canonical_gitdir.display())).unwrap();
         // The reverse link git writes at the same time.
         std::fs::write(
             gitdir.join("gitdir"),
@@ -856,10 +836,7 @@ mod tests {
         std::fs::write(&honest_pointer, "gitdir: whatever\n").unwrap();
         std::fs::write(
             gitdir.join("gitdir"),
-            format!(
-                "{}\n",
-                std::fs::canonicalize(&honest_pointer).unwrap().display()
-            ),
+            format!("{}\n", std::fs::canonicalize(&honest_pointer).unwrap().display()),
         )
         .unwrap();
 
@@ -869,10 +846,7 @@ mod tests {
         let pointer = attacker.join(".git");
         std::fs::write(
             &pointer,
-            format!(
-                "gitdir: {}\n",
-                std::fs::canonicalize(&gitdir).unwrap().display()
-            ),
+            format!("gitdir: {}\n", std::fs::canonicalize(&gitdir).unwrap().display()),
         )
         .unwrap();
 

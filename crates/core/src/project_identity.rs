@@ -138,13 +138,7 @@ impl LanguageStat {
         loc_pct: f64,
         files_pct: f64,
     ) -> Self {
-        Self {
-            name: name.into(),
-            loc,
-            files,
-            loc_pct,
-            files_pct,
-        }
+        Self { name: name.into(), loc, files, loc_pct, files_pct }
     }
 }
 
@@ -178,11 +172,7 @@ impl RegionStat {
     /// because the type is `#[non_exhaustive]`.
     #[must_use]
     pub fn new(region: impl Into<String>, files: i64, code: i64) -> Self {
-        Self {
-            region: region.into(),
-            files,
-            code,
-        }
+        Self { region: region.into(), files, code }
     }
 }
 
@@ -193,11 +183,8 @@ impl RegionStat {
 /// A region outside this list still renders — it sorts last, under its
 /// own capitalised name — so a region added upstream shows up instead of
 /// silently vanishing from the totals.
-pub const REGION_ORDER: &[(&str, &str)] = &[
-    ("main", "production"),
-    ("test", "test"),
-    ("example", "example"),
-];
+pub const REGION_ORDER: &[(&str, &str)] =
+    &[("main", "production"), ("test", "test"), ("example", "example")];
 
 /// The lower-case display name for a region key, and its rank in
 /// [`REGION_ORDER`]. Unknown regions rank last and keep their raw name.
@@ -207,9 +194,7 @@ pub fn region_display(region: &str) -> (usize, &str) {
         .iter()
         .enumerate()
         .find(|(_, (key, _))| *key == region)
-        .map_or((REGION_ORDER.len(), region), |(i, (_, display))| {
-            (i, *display)
-        })
+        .map_or((REGION_ORDER.len(), region), |(i, (_, display))| (i, *display))
 }
 
 /// A sub-unit of a project (crate, module, package, workspace member).
@@ -273,10 +258,7 @@ impl UnitTarget {
     /// A target with the build tool's `kind` list and target `name`.
     #[must_use]
     pub fn new(kind: Vec<String>, name: impl Into<String>) -> Self {
-        Self {
-            kind,
-            name: name.into(),
-        }
+        Self { kind, name: name.into() }
     }
 }
 
@@ -287,11 +269,7 @@ impl ProjectUnit {
     /// not affected by `#[non_exhaustive]`.
     #[must_use]
     pub fn new(name: impl Into<String>, path: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            path: path.into(),
-            ..Self::default()
-        }
+        Self { name: name.into(), path: path.into(), ..Self::default() }
     }
 }
 
@@ -311,11 +289,7 @@ impl CoverageStats {
     /// Coverage figures from a report: percent, lines covered, total lines.
     #[must_use]
     pub const fn new(lines_percent: f64, lines_covered: i64, lines_count: i64) -> Self {
-        Self {
-            lines_percent,
-            lines_covered,
-            lines_count,
-        }
+        Self { lines_percent, lines_covered, lines_count }
     }
 }
 
@@ -339,11 +313,7 @@ impl UnitCoverage {
         unit_path: impl Into<String>,
         stats: CoverageStats,
     ) -> Self {
-        Self {
-            unit_name: unit_name.into(),
-            unit_path: unit_path.into(),
-            stats,
-        }
+        Self { unit_name: unit_name.into(), unit_path: unit_path.into(), stats }
     }
 }
 
@@ -380,10 +350,7 @@ impl UnitDeps {
     /// pairs.
     #[must_use]
     pub fn new(unit_name: impl Into<String>, deps: Vec<(String, String)>) -> Self {
-        Self {
-            unit_name: unit_name.into(),
-            deps,
-        }
+        Self { unit_name: unit_name.into(), deps }
     }
 }
 
@@ -425,11 +392,7 @@ impl AboutFieldDef {
     /// tuple.
     #[must_use]
     pub const fn new(id: &'static str, label: &'static str, description: &'static str) -> Self {
-        Self {
-            id,
-            label,
-            description,
-        }
+        Self { id, label, description }
     }
 }
 
@@ -441,11 +404,7 @@ impl AboutFieldDef {
 /// owned `Vec<AboutFieldDef>` and append any extras (e.g. Rust adds
 /// `homepage`, `msrv`, `dependencies`).
 pub const BASE_ABOUT_FIELDS: &[AboutFieldDef] = &[
-    AboutFieldDef::new(
-        "stack",
-        "Stack",
-        "Language/stack and variant (e.g. Edition 2021)",
-    ),
+    AboutFieldDef::new("stack", "Stack", "Language/stack and variant (e.g. Edition 2021)"),
     AboutFieldDef::new("license", "License", "SPDX license identifier"),
     AboutFieldDef::new("project", "Project", "Project name, version, and path"),
     AboutFieldDef::new("modules", "Module count", "Number of project modules"),
@@ -469,16 +428,9 @@ pub fn base_about_fields() -> Vec<AboutFieldDef> {
 /// is absent). Shared helper so every stack renders the homepage field in the
 /// same slot of the about card.
 pub fn insert_homepage_field(fields: &mut Vec<AboutFieldDef>) {
-    let insert_pos = fields
-        .iter()
-        .position(|f| f.id == "coverage")
-        .unwrap_or(fields.len());
+    let insert_pos = fields.iter().position(|f| f.id == "coverage").unwrap_or(fields.len());
     fields.insert(
         insert_pos,
-        AboutFieldDef {
-            id: "homepage",
-            label: "Homepage",
-            description: "Project homepage URL",
-        },
+        AboutFieldDef { id: "homepage", label: "Homepage", description: "Project homepage URL" },
     );
 }

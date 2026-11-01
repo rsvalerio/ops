@@ -18,10 +18,7 @@ enabled = ["ops-db", "metadata"]
     let overlay: ConfigOverlay = toml::from_str(toml).expect("should parse");
     assert!(overlay.extensions.is_some());
     let ext = overlay.extensions.unwrap();
-    assert_eq!(
-        ext.enabled,
-        Some(vec!["ops-db".to_string(), "metadata".to_string()])
-    );
+    assert_eq!(ext.enabled, Some(vec!["ops-db".to_string(), "metadata".to_string()]));
 }
 
 #[test]
@@ -58,10 +55,7 @@ program = "cargo"
     };
     assert!(!build.exclusive, "exclusive defaults to false");
     let rendered = toml::to_string(build).unwrap();
-    assert!(
-        !rendered.contains("exclusive"),
-        "a false flag must not be serialized: {rendered}"
-    );
+    assert!(!rendered.contains("exclusive"), "a false flag must not be serialized: {rendered}");
 }
 
 /// `raw = true` parses on an exec command, defaults to false, and a false
@@ -87,10 +81,7 @@ program = "cargo"
     };
     assert!(!build.raw, "raw defaults to false");
     let rendered = toml::to_string(build).unwrap();
-    assert!(
-        !rendered.contains("raw"),
-        "a false flag must not be serialized: {rendered}"
-    );
+    assert!(!rendered.contains("raw"), "a false flag must not be serialized: {rendered}");
 }
 
 /// `raw = true` parses on a composite too — a group whose whole invocation
@@ -113,10 +104,7 @@ raw = true
 #[test]
 fn ops_subcommand_spec_is_exclusive_and_displays_as_ops() {
     let spec = ExecCommandSpec::ops_subcommand("sec");
-    assert!(
-        spec.exclusive,
-        "ops subcommands must opt out of exclusivity explicitly"
-    );
+    assert!(spec.exclusive, "ops subcommands must opt out of exclusivity explicitly");
     assert_eq!(spec.program, crate::config::current_ops_program());
     assert_eq!(spec.args, vec!["sec".to_string()]);
     assert_eq!(spec.display_cmd(), "ops sec");
@@ -246,8 +234,5 @@ fn backlog_sane_defaults_round_trip() {
     // The default section serializes to nothing — `skip_serializing_if` on
     // every leaf keeps unrelated templates free of an empty `[backlog]`.
     let empty = toml::to_string_pretty(&BacklogSection::default()).expect("serialize default");
-    assert!(
-        empty.trim().is_empty(),
-        "default section must serialize empty, got: {empty}"
-    );
+    assert!(empty.trim().is_empty(), "default section must serialize empty, got: {empty}");
 }

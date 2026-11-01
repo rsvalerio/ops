@@ -75,11 +75,7 @@ mod tests {
         assert_eq!(payload["skill"], provider::SKILL_NAME);
         // Identity, not just presence: the solo package appears as the one
         // review target, proving the answering provider is this crate's.
-        assert_eq!(
-            payload["targets"][0]["name"],
-            serde_json::json!("solo"),
-            "got: {payload}"
-        );
+        assert_eq!(payload["targets"][0]["name"], serde_json::json!("solo"), "got: {payload}");
         assert_eq!(payload["targets"][0]["path"], serde_json::json!("."));
     }
 }

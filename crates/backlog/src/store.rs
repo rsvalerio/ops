@@ -116,9 +116,7 @@ impl Store {
         if tasks_dir.exists() && !tasks_dir.is_dir() {
             anyhow::bail!("{} exists but is not a directory", tasks_dir.display());
         }
-        Ok(Self {
-            backlog_root: backlog_root.to_path_buf(),
-        })
+        Ok(Self { backlog_root: backlog_root.to_path_buf() })
     }
 
     /// Every parseable task in `tasks/`, sorted by numeric id ascending.
@@ -187,11 +185,7 @@ impl Store {
                     .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
                 let doc = TaskDoc::parse(&src)
                     .map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))?;
-                entries.push(LocatedTask {
-                    path,
-                    location,
-                    doc,
-                });
+                entries.push(LocatedTask { path, location, doc });
             }
             entries.sort_by_key(|l| leading_task_number_of(&l.doc.frontmatter.id).unwrap_or(0));
             located.extend(entries);
@@ -285,17 +279,12 @@ impl Store {
         #[cfg(not(unix))]
         let (path, opened) = {
             let path = self.backlog_root.join(".allocation.lock");
-            let opened = std::fs::OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(&path);
+            let opened =
+                std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path);
             (path, opened)
         };
         let handle = opened.map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?;
-        handle
-            .lock()
-            .map_err(|e| anyhow::anyhow!("locking {}: {e}", path.display()))?;
+        handle.lock().map_err(|e| anyhow::anyhow!("locking {}: {e}", path.display()))?;
         Ok(AllocationLock { _handle: handle })
     }
 
@@ -352,10 +341,7 @@ impl<'a> TaskFileName<'a> {
     pub fn parse(file_name: &'a str) -> Option<Self> {
         let stem = file_name.strip_suffix(".md")?;
         let (id, slug) = stem.split_once(" - ").unwrap_or((stem, ""));
-        Some(Self {
-            number: leading_task_number(id),
-            slug,
-        })
+        Some(Self { number: leading_task_number(id), slug })
     }
 }
 
@@ -447,7 +433,7 @@ pub fn walk_task_files<B>(
     Ok(None)
 }
 
-/// Zero-padded task id string (`TASK-0042`) for a main-task number under the
+/// Zero-padded task id string for a main-task number under the
 /// configured prefix and padding.
 #[must_use = "formatting without using the string is dead work"]
 pub fn format_task_id(prefix: &str, number: u32, pad: usize) -> String {
@@ -458,10 +444,7 @@ pub fn format_task_id(prefix: &str, number: u32, pad: usize) -> String {
 /// [`crate::model::file_slug`].
 #[must_use = "the filename must reach the write that reserves the id"]
 pub fn main_task_file_name(number: u32, pad: usize, title: &str) -> String {
-    format!(
-        "task-{number:0pad$} - {}.md",
-        crate::model::file_slug(title)
-    )
+    format!("task-{number:0pad$} - {}.md", crate::model::file_slug(title))
 }
 
 #[cfg(test)]
@@ -473,11 +456,8 @@ mod tests {
         for &(sub, name) in files {
             let d = dir.path().join(".backlog").join(sub);
             std::fs::create_dir_all(&d).expect("create dir");
-            let digits: String = name
-                .trim_start_matches("task-")
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect();
+            let digits: String =
+                name.trim_start_matches("task-").chars().take_while(char::is_ascii_digit).collect();
             let content = format!(
                 "---\nid: TASK-{digits:0>4}\ntitle: 't'\nstatus: To Do\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n"
             );
@@ -495,10 +475,7 @@ mod tests {
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
         assert!(store.scan_tasks().expect("scan").is_empty());
         assert!(store.find("TASK-0001").expect("find").is_none());
-        assert!(
-            !dir.path().join(".backlog").exists(),
-            "open must not create the tree"
-        );
+        assert!(!dir.path().join(".backlog").exists(), "open must not create the tree");
     }
 
     /// A `tasks` entry that is not a directory is refused, naming the path.
@@ -542,7 +519,7 @@ mod tests {
         assert_eq!(store.next_task_number().expect("allocate"), 8);
     }
 
-    /// PERF-3 / TASK-2131: `walk_task_files` must stop the walk at the first
+    /// `walk_task_files` must stop the walk at the first
     /// match. The target sits in `tasks` and the non-matches in `completed`
     /// (a later [`TASK_DIRS`] directory), so if the walk continued past the
     /// match the closure would be invoked for the `completed` entries too —
@@ -564,13 +541,10 @@ mod tests {
         })
         .expect("walk");
         assert_eq!(found.as_deref(), Some("task-0002 - beta.md"));
-        assert_eq!(
-            visited, 1,
-            "walk must stop at the match, not enumerate the rest of the tree"
-        );
+        assert_eq!(visited, 1, "walk must stop at the match, not enumerate the rest of the tree");
     }
 
-    /// PERF-3 / TASK-2131: no match means `Ok(None)`, with every entry in
+    /// no match means `Ok(None)`, with every entry in
     /// every existing directory visited — the full-walk contract when nothing
     /// matches.
     #[test]
@@ -718,10 +692,7 @@ mod tests {
         std::fs::write(dir.path().join(".backlog/tasks/notes.txt"), "x").expect("write");
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
         let scanned = store.scan_tasks().expect("scan");
-        let ids: Vec<&str> = scanned
-            .iter()
-            .map(|e| e.doc.frontmatter.id.as_str())
-            .collect();
+        let ids: Vec<&str> = scanned.iter().map(|e| e.doc.frontmatter.id.as_str()).collect();
         assert_eq!(ids, vec!["TASK-0003", "TASK-0020"]);
     }
 
@@ -756,10 +727,8 @@ mod tests {
         std::fs::write(dir.path().join(".backlog/tasks/notes.txt"), "x").expect("write");
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
         let scanned = store.scan_all_tasks().expect("scan");
-        let seen: Vec<(TaskLocation, &str)> = scanned
-            .iter()
-            .map(|l| (l.location, l.doc.frontmatter.id.as_str()))
-            .collect();
+        let seen: Vec<(TaskLocation, &str)> =
+            scanned.iter().map(|l| (l.location, l.doc.frontmatter.id.as_str())).collect();
         assert_eq!(
             seen,
             vec![
@@ -792,8 +761,7 @@ mod tests {
         let dir = scratch_backlog(&[]);
         std::fs::create_dir_all(dir.path().join(".backlog/archive/tasks")).expect("archive dir");
         std::fs::write(
-            dir.path()
-                .join(".backlog/archive/tasks/task-0042 - broken.md"),
+            dir.path().join(".backlog/archive/tasks/task-0042 - broken.md"),
             "not frontmatter",
         )
         .expect("write broken file");

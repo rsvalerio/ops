@@ -23,10 +23,7 @@ fn resolve_theme_custom() {
     let mut themes = IndexMap::new();
     themes.insert(
         "my-theme".into(),
-        ThemeConfig {
-            icon_succeeded: "OK".into(),
-            ..ThemeConfig::compact()
-        },
+        ThemeConfig { icon_succeeded: "OK".into(), ..ThemeConfig::compact() },
     );
     let theme = resolve_theme("my-theme", &themes).unwrap();
     assert_eq!(theme.status_icon(StepStatus::Succeeded), "OK");

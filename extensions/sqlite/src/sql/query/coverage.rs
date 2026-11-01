@@ -11,7 +11,7 @@ use super::helpers::{
 
 /// Query total coverage across the whole project from `coverage_files`.
 ///
-/// DUP-1 / TASK-1629: shares the lock + `table_exists` + `query_row` + `with_context`
+/// Shares the lock + `table_exists` + `query_row` + `with_context`
 /// prologue with `query_project_scalar` via the generalised
 /// `query_project_row` helper. Both project-scalar (LOC, deps) and
 /// project-row (coverage) callers flow through the same scaffolding.
@@ -24,11 +24,7 @@ pub fn query_project_coverage(db: &Sqlite) -> anyhow::Result<CrateCoverage> {
     let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
     query_project_row(
         db,
-        &QuerySpec {
-            table: "coverage_files",
-            sql: &sql,
-            label: "query_project_coverage",
-        },
+        &QuerySpec { table: "coverage_files", sql: &sql, label: "query_project_coverage" },
         CrateCoverage::zero(),
         |row| Ok(CrateCoverage::new(row.get(0)?, row.get(1)?, row.get(2)?)),
     )
@@ -112,10 +108,7 @@ pub fn query_crate_coverage(
         .chain(std::iter::once(workspace_root));
 
     collect_per_crate_map(&conn, &sql, label, params, |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            CrateCoverage::new(row.get(1)?, row.get(2)?, row.get(3)?),
-        ))
+        Ok((row.get::<_, String>(0)?, CrateCoverage::new(row.get(1)?, row.get(2)?, row.get(3)?)))
     })
 }
 
@@ -187,7 +180,7 @@ mod tests {
         assert_eq!(foo.lines_covered, 50);
     }
 
-    /// SEC-12: `workspace_root` with and without a trailing '/' must yield
+    /// `workspace_root` with and without a trailing '/' must yield
     /// identical results. Before normalization a trailing '/' produced
     /// "/ws//crates/foo/" in the prefix join and silently zeroed coverage.
     #[test]
@@ -222,7 +215,7 @@ mod tests {
         assert_eq!(foo.lines_count, 0, "trailing slash boundary preserved");
     }
 
-    /// SEC-12: paths are bound parameters, so characters that are legal in a
+    /// Paths are bound parameters, so characters that are legal in a
     /// directory name (parentheses, `+`, `@`, spaces, non-ASCII) must not turn
     /// the query into an error and silently drop per-crate coverage.
     #[test]
@@ -244,7 +237,7 @@ mod tests {
         assert_eq!(cov.lines_covered, 125);
     }
 
-    /// SEC-12: control characters stay rejected in both the workspace root and
+    /// Control characters stay rejected in both the workspace root and
     /// a member path.
     #[test]
     fn control_characters_in_paths_are_still_rejected() {

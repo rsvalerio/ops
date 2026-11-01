@@ -34,7 +34,7 @@ use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// SEC-38 / TASK-2018: the `as_ref()` reborrow is load-bearing.
+/// The `as_ref()` reborrow is load-bearing.
 ///
 /// `ops_extension` gives `SqliteHandle` a blanket impl over every
 /// `'static + Send + Sync` type, and `Arc<dyn SqliteHandle>` is itself one of
@@ -226,9 +226,7 @@ mod tests {
     #[test]
     fn sqlite_provider_returns_null() {
         let db = Sqlite::open_in_memory().expect("should open");
-        let provider = SqliteProvider {
-            db_path: std::path::PathBuf::from(":memory:"),
-        };
+        let provider = SqliteProvider { db_path: std::path::PathBuf::from(":memory:") };
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
         ctx.attach_db(std::sync::Arc::new(db));
@@ -240,9 +238,7 @@ mod tests {
     fn sqlite_provider_opens_real_db_when_ctx_db_is_none() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("test_provider.db");
-        let provider = SqliteProvider {
-            db_path: db_path.clone(),
-        };
+        let provider = SqliteProvider { db_path: db_path.clone() };
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
 
@@ -345,7 +341,7 @@ mod tests {
         );
     }
 
-    /// SEC-38 / TASK-2018: the accessors above happen to be exercised from a
+    /// The accessors above happen to be exercised from a
     /// module where `SqliteHandle` is *not* imported, which is exactly the
     /// condition under which a bare `as_any()` on an `Arc` receiver resolves
     /// correctly. This module imports the trait, so the blanket impl for
@@ -376,10 +372,7 @@ mod tests {
                 "with the trait in scope an Arc receiver does not reach the handle"
             );
             assert!(
-                handle
-                    .as_any()
-                    .downcast_ref::<Arc<dyn SqliteHandle>>()
-                    .is_some(),
+                handle.as_any().downcast_ref::<Arc<dyn SqliteHandle>>().is_some(),
                 "it erases the Arc itself instead"
             );
         }

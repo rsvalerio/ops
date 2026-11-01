@@ -49,10 +49,8 @@ const DEFAULT_STDERR_TAIL_LINES: usize = 5;
 /// as crashing on stderr write failures would be unexpected behavior.
 #[inline]
 pub(super) fn write_stderr(line: Option<&str>) {
-    let result = line.map_or_else(
-        || writeln!(io::stderr()),
-        |text| writeln!(io::stderr(), "{text}"),
-    );
+    let result =
+        line.map_or_else(|| writeln!(io::stderr()), |text| writeln!(io::stderr(), "{text}"));
     if let Err(e) = result {
         tracing::debug!(error = %e, "stderr write failed");
     }
@@ -60,8 +58,8 @@ pub(super) fn write_stderr(line: Option<&str>) {
 
 /// Encapsulates progress bar state and rendering for the CLI event loop.
 ///
-/// Per-plan step bookkeeping lives in [`ProgressState`] (ARCH-1 / TASK-0332);
-/// tap-file lifecycle lives in [`tap::TapWriter`] (ARCH-1 / TASK-0581);
+/// Per-plan step bookkeeping lives in [`ProgressState`];
+/// tap-file lifecycle lives in [`tap::TapWriter`];
 /// error rendering lives in [`ErrorDetailRenderer`]. This struct retains the
 /// rendering config, the `MultiProgress` handle, the header/footer bars, and
 /// the run-scoped counters — i.e. only what depends on `RenderConfig` + the
@@ -76,7 +74,7 @@ pub struct ProgressDisplay {
     footer_separator: Option<ProgressBar>,
     pub(super) footer_bar: Option<ProgressBar>,
     pub(super) header_bar: Option<ProgressBar>,
-    /// CL-3 / TASK-0771: counts every step that reached a terminal state —
+    /// Counts every step that reached a terminal state —
     /// succeeded, failed, or skipped. The legacy name "completed" is
     /// retained for backwards compatibility with `BoxSnapshot.completed`,
     /// but the semantics are *terminal-step count*, not success count.
@@ -86,17 +84,17 @@ pub struct ProgressDisplay {
     pub(super) skipped_steps: usize,
     pub(super) total_steps: usize,
     run_started_at: Option<Instant>,
-    /// ARCH-1 (TASK-0581): tap-file lifecycle (open handle, original path
+    /// Tap-file lifecycle (open handle, original path
     /// for re-opening on failure, captured truncation kind) extracted into
     /// `tap::TapWriter`. `None` here means no tap was requested at all.
     pub(super) tap: Option<TapWriter>,
-    /// TASK-2325: GitHub Actions reporter, present only when running under
+    /// GitHub Actions reporter, present only when running under
     /// `GITHUB_ACTIONS=true` without a TTY (the runner's log is plain text).
     github: Option<GithubActions>,
-    /// TASK-2338: `JUnit` XML report, present only when `--junit <file>` was
+    /// `JUnit` XML report, present only when `--junit <file>` was
     /// given. Written once, at `RunFinished`.
     junit: Option<JunitReport>,
-    /// CL-3 / TASK-0656 + TRAIT-9 / TASK-0907: structurally enforce the
+    /// Structurally enforce the
     /// sync-IO invariant on [`Self::handle_event`].
     ///
     /// **Why this is a free-standing marker, not tied to a field:** every
@@ -115,7 +113,7 @@ pub struct ProgressDisplay {
     _not_send: PhantomData<*const ()>,
 }
 
-/// TRAIT-9 / TASK-0907 / TASK-1141: pin the `!Send` invariant on
+/// Pin the `!Send` invariant on
 /// [`ProgressDisplay`] in every compilation profile.
 ///
 /// Stable Rust cannot directly express "T must not be Send", so this
@@ -130,7 +128,7 @@ pub struct ProgressDisplay {
 /// `cargo test` (and only after rustdoc actually ran the doctest)
 /// caught a regression. Hosting it here, ungated, makes every
 /// `cargo build` enforce the constraint that load-bears for
-/// CONC-5 / TASK-0656 (no synchronous stderr writes on multi-thread
+/// (no synchronous stderr writes on multi-thread
 /// tokio worker threads).
 #[allow(dead_code)]
 mod assert_progress_display_not_send {
@@ -168,14 +166,7 @@ impl ProgressDisplay {
     where
         F: FnOnce() -> bool,
     {
-        let DisplayOptions {
-            output,
-            display_map,
-            custom_themes,
-            tap,
-            junit,
-            verbose,
-        } = opts;
+        let DisplayOptions { output, display_map, custom_themes, tap, junit, verbose } = opts;
         let is_tty = is_tty_fn();
         let multi = MultiProgress::with_draw_target(if is_tty {
             ProgressDrawTarget::stderr()
@@ -186,11 +177,7 @@ impl ProgressDisplay {
         let running_style = build_running_style(&resolved_theme, &output.theme)?;
         let tap = tap.map(TapWriter::new);
         let junit = junit.map(JunitReport::new);
-        let github = if is_tty {
-            None
-        } else {
-            GithubActions::from_env()
-        };
+        let github = if is_tty { None } else { GithubActions::from_env() };
         // TASK-0762: verbose → unbounded; otherwise use the user's config value.
         let stderr_tail = if verbose {
             StderrTail::Unbounded
@@ -235,7 +222,7 @@ impl ProgressDisplay {
         self.state.step_index(id)
     }
 
-    /// DUP-008: Helper to write line to stderr when not in TTY mode.
+    /// Helper to write line to stderr when not in TTY mode.
     #[inline]
     pub(super) fn write_non_tty(&self, line: &str) {
         if !self.render.is_tty {
@@ -255,7 +242,7 @@ impl ProgressDisplay {
         }
     }
 
-    /// PERF-3 / TASK-0776: take an owned `String` instead of `&str` so the
+    /// Take an owned `String` instead of `&str` so the
     /// indicatif `finish_with_message` move avoids an extra `to_string`
     /// allocation. Every caller already constructs `line` as a `String`,
     /// and the non-TTY mirror borrows back via `&line` before the move.
@@ -267,15 +254,15 @@ impl ProgressDisplay {
 
     /// Dispatch a `RunnerEvent` to the appropriate handler method.
     ///
-    /// CONC-5 / TASK-0331 — async-safety invariant: this method performs
+    /// Async-safety invariant: this method performs
     /// blocking I/O (synchronous `write(2)` on the tap file and stderr) and
     /// must only be driven from a synchronous event-pump loop, never polled
-    /// inside a tokio task. CL-3 / TASK-0656 makes the constraint structural:
+    /// inside a tokio task. The constraint is made structural:
     /// [`ProgressDisplay`] holds a `PhantomData<*const ()>` marker, so it is
     /// `!Send + !Sync`. Any future that borrows `&mut self` across an
     /// `.await` is therefore non-`Send` and cannot be passed to
     /// `tokio::spawn` on the multi-thread scheduler — the build fails
-    /// instead of silently regressing CONC-5.
+    /// instead of silently regressing the invariant.
     ///
     /// ```compile_fail
     /// fn assert_send<T: Send>() {}
@@ -286,24 +273,18 @@ impl ProgressDisplay {
             RunnerEvent::PlanStarted { command_ids } => self.on_plan_started(&command_ids),
             RunnerEvent::StepStarted { id, .. } => self.on_step_started(&id),
             RunnerEvent::StepOutput { id, line, stderr } => self.on_step_output(&id, &line, stderr),
-            RunnerEvent::StepFinished {
-                id,
-                duration_secs,
-                display_cmd,
-            } => self.on_step_finished(&id, duration_secs, display_cmd.as_deref()),
+            RunnerEvent::StepFinished { id, duration_secs, display_cmd } => {
+                self.on_step_finished(&id, duration_secs, display_cmd.as_deref());
+            }
             RunnerEvent::StepSkipped { id, display_cmd } => {
                 self.on_step_skipped(&id, display_cmd.as_deref());
             }
-            RunnerEvent::StepFailed {
-                id,
-                duration_secs,
-                message,
-                display_cmd,
-            } => self.on_step_failed(&id, duration_secs, &message, display_cmd.as_deref()),
-            RunnerEvent::RunFinished {
-                duration_secs,
-                success,
-            } => self.on_run_finished(duration_secs, success),
+            RunnerEvent::StepFailed { id, duration_secs, message, display_cmd } => {
+                self.on_step_failed(&id, duration_secs, &message, display_cmd.as_deref());
+            }
+            RunnerEvent::RunFinished { duration_secs, success } => {
+                self.on_run_finished(duration_secs, success);
+            }
             RunnerEvent::StepOutputDropped { id, dropped_count } => {
                 // TASK-2437: always shown. Output lines are only dropped once
                 // the run is aborting, and then the failure box's "last
@@ -371,11 +352,9 @@ impl ProgressDisplay {
 
     fn create_header_bar(&mut self) {
         let msg = self.render_header_message();
-        let pb = self.multi.add(
-            ProgressBar::new(0)
-                .with_style(pending_style())
-                .with_message(msg.clone()),
-        );
+        let pb = self
+            .multi
+            .add(ProgressBar::new(0).with_style(pending_style()).with_message(msg.clone()));
         pb.tick();
         self.write_non_tty(&msg);
         self.header_bar = Some(pb);
@@ -385,9 +364,7 @@ impl ProgressDisplay {
     /// Centralized so header/footer live-borders share one source of truth
     /// for `completed_steps`, `failed_steps`, and `elapsed_secs`.
     fn live_box_snapshot(&self) -> BoxSnapshot<'_> {
-        let elapsed = self
-            .run_started_at
-            .map_or(0.0, |t| t.elapsed().as_secs_f64());
+        let elapsed = self.run_started_at.map_or(0.0, |t| t.elapsed().as_secs_f64());
         let success_so_far = self.failed_steps == 0;
         BoxSnapshot {
             completed: self.completed_steps,
@@ -402,10 +379,7 @@ impl ProgressDisplay {
     }
 
     pub(super) fn render_header_message(&self) -> String {
-        self.render
-            .theme
-            .box_top_border(self.live_box_snapshot())
-            .unwrap_or_default()
+        self.render.theme.box_top_border(self.live_box_snapshot()).unwrap_or_default()
     }
 
     /// Compute the vertical-progress cell glyph for a step in `status`.
@@ -432,9 +406,7 @@ impl ProgressDisplay {
         let effective = self.render.columns.saturating_sub(reserve);
         let inner = self.render.theme.render(step, effective);
         let cell = Self::progress_cell(step.status);
-        self.render
-            .theme
-            .wrap_step_line(&inner, cell, self.render.columns)
+        self.render.theme.wrap_step_line(&inner, cell, self.render.columns)
     }
 
     fn create_pending_bars(&mut self) {
@@ -451,9 +423,7 @@ impl ProgressDisplay {
         self.state.bars.clear();
         for line in &pending_lines {
             let pb = self.multi.add(
-                ProgressBar::new_spinner()
-                    .with_style(pending_style())
-                    .with_message(line.clone()),
+                ProgressBar::new_spinner().with_style(pending_style()).with_message(line.clone()),
             );
             pb.tick();
             self.write_non_tty(line);
@@ -477,15 +447,8 @@ impl ProgressDisplay {
             return;
         }
 
-        let separator = self
-            .render
-            .theme
-            .render_summary_separator(self.render.columns);
-        let separator_message = if separator.is_empty() {
-            " ".to_string()
-        } else {
-            separator
-        };
+        let separator = self.render.theme.render_summary_separator(self.render.columns);
+        let separator_message = if separator.is_empty() { " ".to_string() } else { separator };
 
         let sep_pb = self.multi.add(ProgressBar::new(0));
         sep_pb.set_style(pending_style());
@@ -493,11 +456,9 @@ impl ProgressDisplay {
         self.footer_separator = Some(sep_pb);
 
         let footer_msg = self.render_footer_message();
-        let footer_pb = self.multi.add(
-            ProgressBar::new(0)
-                .with_style(pending_style())
-                .with_message(footer_msg),
-        );
+        let footer_pb = self
+            .multi
+            .add(ProgressBar::new(0).with_style(pending_style()).with_message(footer_msg));
         footer_pb.tick();
         self.footer_bar = Some(footer_pb);
     }
@@ -506,11 +467,7 @@ impl ProgressDisplay {
         // Boxed layout: render a live bottom border so the frame stays closed
         // while the plan is still running (mirrors the live top border).
         if self.header_bar.is_some() {
-            if let Some(bottom) = self
-                .render
-                .theme
-                .box_bottom_border(self.live_box_snapshot())
-            {
+            if let Some(bottom) = self.render.theme.box_bottom_border(self.live_box_snapshot()) {
                 return bottom;
             }
         }
@@ -576,8 +533,7 @@ impl ProgressDisplay {
             // PERF-3 / TASK-1925: pass the borrowed text, not the
             // `OutputLine` view — the ring must not retain a handle on the
             // step's whole capture buffer.
-            self.state
-                .record_stderr(id, line.as_str(), self.render.stderr_tail.cap());
+            self.state.record_stderr(id, line.as_str(), self.render.stderr_tail.cap());
         }
         if let Some(ref mut github) = self.github {
             github.record_output(id, line.as_str());
@@ -636,19 +592,15 @@ impl ProgressDisplay {
 
     fn on_step_finished(&mut self, id: &str, duration_secs: f64, display_cmd: Option<&str>) {
         if let Some(i) = self.finish_step(id, StepStatus::Succeeded, duration_secs, display_cmd) {
-            let outcome = StepOutcome {
-                id,
-                status: StepStatus::Succeeded,
-                duration_secs,
-                failure: None,
-            };
+            let outcome =
+                StepOutcome { id, status: StepStatus::Succeeded, duration_secs, failure: None };
             self.emit_step_reports(i, display_cmd, &outcome);
         }
     }
 
     /// Feed the step `finish_step` just finalized at row `i` to the
     /// optional reporters: the GitHub Actions group (and, for a failure, the
-    /// `::error` annotation — TASK-2325) and the `JUnit` testcase (TASK-2338).
+    /// `::error` annotation) and the `JUnit` testcase.
     /// No-op when neither is active.
     fn emit_step_reports(
         &mut self,
@@ -659,11 +611,7 @@ impl ProgressDisplay {
         if self.github.is_none() && self.junit.is_none() {
             return;
         }
-        let fallback = self
-            .state
-            .steps
-            .get(i)
-            .map_or(outcome.id, |step| step.1.as_str());
+        let fallback = self.state.steps.get(i).map_or(outcome.id, |step| step.1.as_str());
         let display = display_cmd.unwrap_or(fallback);
         if let Some(ref mut junit) = self.junit {
             junit.step_finished(display, outcome);
@@ -725,12 +673,8 @@ impl ProgressDisplay {
         let Some(i) = self.finish_step(id, StepStatus::Failed, duration_secs, display_cmd) else {
             return;
         };
-        let outcome = StepOutcome {
-            id,
-            status: StepStatus::Failed,
-            duration_secs,
-            failure: Some(message),
-        };
+        let outcome =
+            StepOutcome { id, status: StepStatus::Failed, duration_secs, failure: Some(message) };
         self.emit_step_reports(i, display_cmd, &outcome);
 
         if !self.render.show_error_detail {

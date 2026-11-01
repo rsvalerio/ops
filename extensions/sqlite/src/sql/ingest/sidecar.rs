@@ -22,7 +22,7 @@ pub fn sidecar_name(name: &str) -> String {
 ///
 /// Persists the path's raw OS bytes (via `as_encoded_bytes`) so that
 /// non-UTF-8 paths round-trip exactly rather than being silently corrupted
-/// to `U+FFFD` (READ-5).
+/// to `U+FFFD`.
 ///
 /// # Errors
 ///
@@ -36,10 +36,7 @@ pub fn write_workspace_sidecar(
     // torn sidecar, and anchored: the temp is created and renamed through the
     // verified directory descriptor, so swapping the ingest dir's *name*
     // after verification cannot redirect the staged sidecar.
-    dir.write_atomic(
-        &sidecar_name(name),
-        working_directory.as_os_str().as_encoded_bytes(),
-    )
+    dir.write_atomic(&sidecar_name(name), working_directory.as_os_str().as_encoded_bytes())
 }
 
 /// Hard cap on workspace sidecar read size.
@@ -179,7 +176,7 @@ mod tests {
         assert_eq!(raw, bytes, "non-UTF-8 bytes preserved verbatim");
     }
 
-    /// ERR-4 / TASK-0928: round-trips non-UTF-8 OS bytes via the read helper.
+    /// Round-trips non-UTF-8 OS bytes via the read helper.
     #[test]
     #[cfg(unix)]
     fn read_workspace_sidecar_round_trips_non_utf8_via_helper() {
@@ -199,7 +196,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 (TASK-0663): atomic write leaves no temp sibling.
+    /// Atomic write leaves no temp sibling.
     #[test]
     fn workspace_sidecar_write_is_atomic_and_leaves_no_temp() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -216,13 +213,10 @@ mod tests {
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .find(|name| name.starts_with(".tokei_workspace.txt.tmp."));
-        assert!(
-            leftover.is_none(),
-            "anchored write left a temp: {leftover:?}"
-        );
+        assert!(leftover.is_none(), "anchored write left a temp: {leftover:?}");
     }
 
-    /// SEC-33 / TASK-0951: oversized sidecar errors out.
+    /// Oversized sidecar errors out.
     #[test]
     fn read_workspace_sidecar_rejects_oversize_input() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -245,16 +239,13 @@ mod tests {
         }
     }
 
-    /// SEC-21 / TASK-1217: tampered sidecar with control byte rejected.
+    /// Tampered sidecar with control byte rejected.
     #[test]
     fn read_workspace_sidecar_rejects_embedded_newline() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&tmp);
-        std::fs::write(
-            dir.entry_path("tampered_workspace.txt"),
-            b"/ws/path\nfake/path",
-        )
-        .expect("plant tampered sidecar");
+        std::fs::write(dir.entry_path("tampered_workspace.txt"), b"/ws/path\nfake/path")
+            .expect("plant tampered sidecar");
 
         let err =
             read_workspace_sidecar(&dir, "tampered").expect_err("control-byte sidecar must error");
@@ -268,7 +259,7 @@ mod tests {
         }
     }
 
-    /// SEC-25 / TASK-2054: a symlink planted at the *sidecar's own* name is
+    /// a symlink planted at the *sidecar's own* name is
     /// refused rather than read through — `openat` carries `O_NOFOLLOW`.
     #[test]
     #[cfg(unix)]
@@ -282,10 +273,7 @@ mod tests {
 
         let err =
             read_workspace_sidecar(&dir, "linked").expect_err("symlinked sidecar must not be read");
-        assert!(
-            matches!(err, DbError::Io(_)),
-            "expected an IO error, got {err:?}"
-        );
+        assert!(matches!(err, DbError::Io(_)), "expected an IO error, got {err:?}");
     }
 
     #[test]

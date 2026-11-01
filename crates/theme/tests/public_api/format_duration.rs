@@ -1,4 +1,4 @@
-//! `format_duration` formatting and SEC-15 input handling (NaN, negative,
+//! `format_duration` formatting and input handling (NaN, negative,
 //! infinite, enormous finite).
 
 use super::*;

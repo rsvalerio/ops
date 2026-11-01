@@ -69,10 +69,7 @@ pub struct WorkspaceCanonicalCache {
 impl WorkspaceCanonicalCache {
     /// Create an empty cache with the given residency cap.
     pub(crate) fn with_capacity(cap: usize) -> Self {
-        Self {
-            inner: Mutex::new(HashMap::new()),
-            cap,
-        }
+        Self { inner: Mutex::new(HashMap::new()), cap }
     }
 
     /// Default-capacity constructor used by [`super::CommandRunner::new`].
@@ -90,10 +87,7 @@ impl WorkspaceCanonicalCache {
     /// entry but every joined-path entry underneath it, so both shapes are
     /// dropped in one pass and callers retain a single invalidate API.
     pub(crate) fn invalidate(&self, workspace: &Path) {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
         guard.remove(workspace);
         guard.retain(|k, _| !k.starts_with(workspace));
     }
@@ -102,10 +96,7 @@ impl WorkspaceCanonicalCache {
     /// know the workspace layout has changed wholesale.
     #[allow(dead_code)]
     pub(crate) fn clear(&self) {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
         guard.clear();
     }
 
@@ -144,10 +135,7 @@ impl WorkspaceCanonicalCache {
     where
         F: FnOnce(&Path) -> std::io::Result<PathBuf>,
     {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
         if let Some(entry) = guard.get_mut(workspace) {
             // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
             // accessed workspaces survive eviction.
@@ -157,10 +145,8 @@ impl WorkspaceCanonicalCache {
         // Cap-evict the LRU victim before inserting, mirroring
         // `ArcTextCache`'s policy in extensions/about/src/manifest_cache.rs.
         if guard.len() >= self.cap {
-            if let Some(victim) = guard
-                .iter()
-                .min_by_key(|(_, e)| e.last_accessed)
-                .map(|(k, _)| k.clone())
+            if let Some(victim) =
+                guard.iter().min_by_key(|(_, e)| e.last_accessed).map(|(k, _)| k.clone())
             {
                 tracing::debug!(
                     cap = self.cap,
@@ -271,10 +257,7 @@ fn expand_err_to_io(err: ExpandError) -> std::io::Error {
         var_name = ?err.var_name,
         "expand: variable expansion failed (full error)"
     );
-    std::io::Error::new(
-        std::io::ErrorKind::InvalidInput,
-        "variable expansion failed",
-    )
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, "variable expansion failed")
 }
 
 /// Lexically normalize a path by resolving `.` and `..` components without I/O.
@@ -543,11 +526,7 @@ pub fn resolve_spec_cwd(
     // detect_workspace_escape. Run the check against the absolute path
     // unchanged (it is its own joined form) and let `apply_escape_policy`
     // decide whether to allow or deny.
-    let joined = if ep.is_relative() {
-        workspace_cwd.join(&ep)
-    } else {
-        ep.clone()
-    };
+    let joined = if ep.is_relative() { workspace_cwd.join(&ep) } else { ep.clone() };
     if detect_workspace_escape(cache, &joined, workspace_cwd, policy) == EscapeKind::Escapes {
         apply_escape_policy(policy, &ep, workspace_cwd, &joined)?;
     }
@@ -740,6 +719,30 @@ mod tests {
         assert_eq!(args, ["--pg", "--", "cargo", "nextest", "run"]);
     }
 
+    /// `program = "${OPS_BIN}"` is the config-side spelling for
+    /// re-invoking the running ops (e.g. wrapping a group). The spawn head
+    /// must expand to the running binary's absolute path — never a bare
+    /// name `PATH` (or a wrapper that rewrote it) resolves.
+    #[test]
+    fn ops_bin_program_spawns_the_running_binary() {
+        let spec = exec_spec("${OPS_BIN}", &["some-group"]);
+        let cache = WorkspaceCanonicalCache::new();
+        let cmd = build_command_with(
+            &cache,
+            &spec,
+            std::path::Path::new("."),
+            &Variables::from_env(std::path::Path::new(".")).expect("UTF-8 path"),
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect("builds");
+        assert_eq!(
+            cmd.as_std().get_program().to_string_lossy(),
+            ops_core::config::current_ops_program()
+        );
+        let args: Vec<_> = cmd.as_std().get_args().collect();
+        assert_eq!(args, ["some-group"]);
+    }
+
     /// The async variant dispatches its canonicalize work to the blocking
     /// pool, so a single-threaded runtime can still drive other tasks while
     /// `build_command` runs.
@@ -751,10 +754,7 @@ mod tests {
     /// every other task scheduled there.
     #[test]
     fn build_command_async_does_not_starve_concurrent_tokio_task() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async {
             let counter = Arc::new(AtomicUsize::new(0));
             let c = counter.clone();
@@ -1265,10 +1265,7 @@ mod tests {
         // A cache far smaller than the fan below, so eviction is certain.
         let cache = WorkspaceCanonicalCache::with_capacity(4);
         for policy in [CwdEscapePolicy::Deny, CwdEscapePolicy::WarnAndAllow] {
-            assert_eq!(
-                detect_workspace_escape(&cache, &inside, &ws, policy),
-                EscapeKind::Inside
-            );
+            assert_eq!(detect_workspace_escape(&cache, &inside, &ws, policy), EscapeKind::Inside);
             // Fan many distinct joined paths through the cache.
             for i in 0..32 {
                 let p = ws.join(format!("fan{i}"));
@@ -1378,10 +1375,7 @@ mod tests {
         let target_b = tempfile::tempdir().unwrap();
         let canonical_a = std::fs::canonicalize(target_a.path()).unwrap();
         let canonical_b = std::fs::canonicalize(target_b.path()).unwrap();
-        assert_ne!(
-            canonical_a, canonical_b,
-            "two tempdirs must canonicalize to distinct paths"
-        );
+        assert_ne!(canonical_a, canonical_b, "two tempdirs must canonicalize to distinct paths");
 
         // Create a workspace symlink that initially points at target_a.
         let parent = tempfile::tempdir().unwrap();
@@ -1487,17 +1481,13 @@ mod tests {
     fn workspace_canonical_cache_evicts_lru_at_cap() {
         let cap = 4;
         let cache = WorkspaceCanonicalCache::with_capacity(cap);
-        let keys: Vec<PathBuf> = (0..cap + 2)
-            .map(|i| PathBuf::from(format!("/tmp/ops-task-1063-key-{i}")))
-            .collect();
+        let keys: Vec<PathBuf> =
+            (0..cap + 2).map(|i| PathBuf::from(format!("/tmp/ops-task-1063-key-{i}"))).collect();
         for k in &keys {
             cache.get_or_compute(k, |p| Ok(p.to_path_buf()));
         }
         let len = cache.inner.lock().unwrap().len();
-        assert!(
-            len <= cap,
-            "cache residency {len} must be bounded by cap {cap}"
-        );
+        assert!(len <= cap, "cache residency {len} must be bounded by cap {cap}");
     }
 
     /// `expand_err_to_io` does not leak the offending variable name into the

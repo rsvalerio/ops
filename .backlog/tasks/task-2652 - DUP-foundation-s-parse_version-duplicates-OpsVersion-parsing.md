@@ -1,10 +1,10 @@
 ---
 id: TASK-2652
 title: 'DUP: foundation''s parse_version duplicates OpsVersion parsing'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 00:41'
-updated_date: '2026-11-01 10:31'
+updated_date: '2026-11-01 13:45'
 labels:
   - code-review-rust
   - DUP
@@ -30,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The foundation floor check and the config check parse a pin the same way
+- [x] #1 The foundation floor check and the config check parse a pin the same way
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+foundation's private parse_version is deleted; check_ops_pin parses both the found pin and the template floor through ops_core::config::OpsVersion, the same parser mise_ops_pin uses, so the two checks in one ops init --rust --check run now agree on every pin text, including a leading v (v1.0.0 added to the floor test; previously drift). Ripple: tests.rs gained the v-prefix pin case.
+<!-- SECTION:NOTES:END -->

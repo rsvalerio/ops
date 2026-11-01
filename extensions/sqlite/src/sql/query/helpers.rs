@@ -65,27 +65,19 @@ impl CrateCoverage {
     /// Builds a coverage record from its raw counts and percentage.
     #[must_use = "store the returned record; it computes nothing"]
     pub const fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
-        Self {
-            lines_count,
-            lines_covered,
-            lines_percent,
-        }
+        Self { lines_count, lines_covered, lines_percent }
     }
 
     /// The all-zero record used when a crate has no coverage data at all.
     #[must_use = "render the returned zero record instead of skipping the crate"]
     pub const fn zero() -> Self {
-        Self {
-            lines_count: 0,
-            lines_covered: 0,
-            lines_percent: 0.0,
-        }
+        Self { lines_count: 0, lines_covered: 0, lines_percent: 0.0 }
     }
 }
 
 /// Returns the SELECT column expressions for coverage SUM/CASE aggregation.
 ///
-/// SEC-12: the prefix is typed as `Option<&ColumnAlias>` rather than `&str`
+/// The prefix is typed as `Option<&ColumnAlias>` rather than `&str`
 /// so callers cannot forward an unvalidated alias into the formatted SQL.
 /// `None` produces direct column references (e.g. `SUM(lines_count)`),
 /// `Some(alias)` produces `SUM(<alias>.lines_count)` after the alias has
@@ -125,18 +117,13 @@ where
 {
     use anyhow::Context;
     let label = spec.label;
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
+    let conn = db.lock().with_context(|| format!("acquiring db lock for {label}"))?;
     if !table_exists(&conn, spec.table)? {
         return Ok(init);
     }
-    let mut stmt = conn
-        .prepare(spec.sql)
-        .with_context(|| format!("preparing {label}"))?;
-    let rows = stmt
-        .query_map([], |row| row_mapper(row))
-        .with_context(|| format!("querying {label}"))?;
+    let mut stmt = conn.prepare(spec.sql).with_context(|| format!("preparing {label}"))?;
+    let rows =
+        stmt.query_map([], |row| row_mapper(row)).with_context(|| format!("querying {label}"))?;
     let mut acc = init;
     for row in rows {
         let v = row.with_context(|| format!("reading {label} row"))?;
@@ -149,7 +136,7 @@ where
     Ok(acc)
 }
 
-/// DUP-1 / TASK-1629: shared scaffolding for project-level queries that
+/// Shared scaffolding for project-level queries that
 /// fetch a single row. Acquires the DB lock, returns `default` when the
 /// table is missing, otherwise runs `sql` with no parameters and maps the
 /// resulting row via `row_mapper`. Centralises the lock + `table_exists` +
@@ -167,9 +154,7 @@ where
     use anyhow::Context;
 
     let label = spec.label;
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
+    let conn = db.lock().with_context(|| format!("acquiring db lock for {label}"))?;
 
     if !table_exists(&conn, spec.table)? {
         return Ok(default);
@@ -186,7 +171,7 @@ where
 /// Shared scaffolding: lock db, check table exists, run a scalar aggregate query.
 /// Returns `Ok(0)` if the table doesn't exist.
 ///
-/// DUP-1 / TASK-1629: delegates to [`query_project_row`] so the lock +
+/// Delegates to [`query_project_row`] so the lock +
 /// table-exists + `with_context` prologue lives in exactly one place.
 pub(super) fn query_project_scalar(
     db: &Sqlite,
@@ -224,9 +209,7 @@ pub(super) fn prepare_per_crate<'a>(
         validate_path_chars(path)?;
     }
 
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
+    let conn = db.lock().with_context(|| format!("acquiring db lock for {label}"))?;
 
     if !table_exists(&conn, table)? {
         return Ok(PerCrateSetup::NoTable);
@@ -269,12 +252,9 @@ where
 {
     match setup {
         PerCrateSetup::Empty => Resolved::Done(HashMap::new()),
-        PerCrateSetup::NoTable => Resolved::Done(
-            member_paths
-                .iter()
-                .map(|p| ((*p).to_string(), default_fn()))
-                .collect(),
-        ),
+        PerCrateSetup::NoTable => {
+            Resolved::Done(member_paths.iter().map(|p| ((*p).to_string(), default_fn())).collect())
+        }
         PerCrateSetup::Ready(conn, placeholders) => Resolved::Continue(conn, placeholders),
     }
 }
@@ -302,9 +282,7 @@ where
     I: IntoIterator<Item = &'p str>,
 {
     use anyhow::Context;
-    let mut stmt = conn
-        .prepare(sql)
-        .with_context(|| format!("preparing {label}"))?;
+    let mut stmt = conn.prepare(sql).with_context(|| format!("preparing {label}"))?;
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params), |row| row_mapper(row))
         .with_context(|| format!("querying {label}"))?;
@@ -329,12 +307,12 @@ where
 
 /// Parameters for a per-crate i64 query. Identifier fields are newtyped so
 /// that swapping `join_alias` and `join_column` at construction is a type
-/// error (API-1) and validation is enforced once at construction time.
+/// error and validation is enforced once at construction time.
 pub(super) struct PerCrateI64Query<'a> {
     pub db: &'a Sqlite,
     pub table: QueryTableName,
     pub member_paths: &'a [&'a str],
-    /// SEC-12 / API-2 / TASK-1630: a SQL fragment interpolated alongside
+    /// a SQL fragment interpolated alongside
     /// the surrounding `TableName` / `ColumnAlias` / `ColumnName`
     /// newtypes. Constrained to `&'static str` so the compiler rejects
     /// any future dynamic source (e.g. config-derived `String`) at the
@@ -358,13 +336,8 @@ pub(super) fn query_per_crate_i64(
         Resolved::Continue(conn, placeholders) => (conn, placeholders),
     };
 
-    let (table, select_expr, join_alias, join_column, label) = (
-        q.table.as_str(),
-        q.select_expr,
-        q.join_alias.as_str(),
-        q.join_column.as_str(),
-        q.label,
-    );
+    let (table, select_expr, join_alias, join_column, label) =
+        (q.table.as_str(), q.select_expr, q.join_alias.as_str(), q.join_column.as_str(), q.label);
 
     let cte = members_cte_prefix(&placeholders);
     // SQLite port note: DuckDB's `starts_with(x, p)` has no SQLite
@@ -388,9 +361,9 @@ pub(super) fn query_per_crate_i64(
     })
 }
 
-/// TASK-0959: SUM(...)/COUNT(*) over a per-crate LEFT JOIN cannot legitimately
+/// SUM(...)/COUNT(*) over a per-crate LEFT JOIN cannot legitimately
 /// go negative; if it does, the underlying view has been corrupted or its
-/// shape has drifted. Mirror `coerce_count_to_usize` (TASK-0506) on the
+/// shape has drifted. Mirror `coerce_count_to_usize` on the
 /// per-crate path: warn loudly and clamp to 0 so a schema bug surfaces as
 /// "no data + log entry" rather than as `-123 lines of code`.
 pub(super) fn clamp_non_negative_i64(value: i64, label: &str, path: &str) -> i64 {
@@ -411,7 +384,7 @@ pub(super) fn clamp_non_negative_i64(value: i64, label: &str, path: &str) -> i64
 mod tests {
     use super::*;
 
-    /// SEC-12 AC #2: legitimate "no prefix" form selects the bare columns.
+    /// Legitimate "no prefix" form selects the bare columns.
     #[test]
     fn coverage_col_select_with_no_prefix() {
         let sql = coverage_col_select(None);
@@ -421,7 +394,7 @@ mod tests {
         assert!(!sql.contains(".lines_count"), "got: {sql}");
     }
 
-    /// SEC-12 AC #2: legitimate aliased form uses the validated alias.
+    /// Legitimate aliased form uses the validated alias.
     #[test]
     fn coverage_col_select_with_validated_alias() {
         let alias = ColumnAlias::new("c").expect("static alias is valid");
@@ -430,7 +403,7 @@ mod tests {
         assert!(sql.contains("SUM(c.lines_covered)"));
     }
 
-    /// ERR-1: a query that returns the same key twice (e.g. dropped GROUP BY)
+    /// a query that returns the same key twice (e.g. dropped GROUP BY)
     /// must not silently produce a single row in the resulting map. Pinning
     /// behaviour via in-memory `SQLite` so the regression is visible without a
     /// tracing-subscriber dev-dep.
@@ -450,11 +423,7 @@ mod tests {
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .unwrap();
-        assert_eq!(
-            res.len(),
-            2,
-            "duplicate-key collision must collapse to one entry per key"
-        );
+        assert_eq!(res.len(), 2, "duplicate-key collision must collapse to one entry per key");
         // The insert-overwrite contract is preserved: the second row wins.
         assert_eq!(res.get("a").copied(), Some(2));
     }
@@ -467,7 +436,7 @@ mod tests {
         assert_eq!(clamp_non_negative_i64(42, "label", "path"), 42);
     }
 
-    /// TASK-0959: a synthetic negative row from a corrupted view is folded
+    /// a synthetic negative row from a corrupted view is folded
     /// into the result map as 0, not as a negative value reaching downstream
     /// rendering (e.g. `unit.loc = Some(-123)` in extensions/about).
     #[test]
@@ -494,7 +463,7 @@ mod tests {
         assert_eq!(res.get("b").copied(), Some(5));
     }
 
-    /// SEC-12 AC #1: an attacker-shaped "prefix" cannot reach the formatted
+    /// an attacker-shaped "prefix" cannot reach the formatted
     /// SQL because `ColumnAlias::new` rejects non-identifier strings before
     /// a value can be passed in. This is the regression guard the typed
     /// signature is meant to provide.

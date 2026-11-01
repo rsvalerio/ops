@@ -18,9 +18,16 @@
 //! Rows are keyed by where a field means something, not by its literal key
 //! path: `exec.args` is as old as `ops` and `clone.args` arrived in 0.86.0, so a field
 //! that gained a new context, or changes behaviour there, gets its own row.
-//! Field values are not tracked, nor is `[themes.<name>.error_block]`: it
-//! ignores unknown keys, so no release rejects a field inside it.
+//! A value is tracked only where it arrived after its field ([`VALUES`]: a
+//! built-in theme name the release's own defaults lack, which resolves to a
+//! load error on a release without it); one that arrived with its field,
+//! such as `layout_kind = "boxed"`, is covered by the field's row.
+//! `[themes.<name>.error_block]` ignores unknown keys, so no release rejects
+//! a field inside it. A behaviour change that no field or value marks is
+//! deliberately not tracked: no enumerable record of one exists to read, so
+//! where behaviour matters, run the pinned `ops` itself.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
@@ -29,8 +36,26 @@ use anyhow::Context;
 
 use super::loader::{read_capped_toml_file, read_conf_d_files};
 
-/// The mise configuration a project pins its tools in.
-const MISE_TOML: &str = "mise.toml";
+/// The mise files a project's own directory can pin `ops` in, lowest
+/// precedence first: mise applies them in this order, so the last file
+/// naming a pin is the one that installs. A name's dotfile spelling
+/// (`.mise.toml`) sits at the same level as its plain one.
+///
+/// Deliberately not read: `*.local.toml` (uncommitted, so CI never installs
+/// it), `conf.d` directories, parent directories, the user's global config
+/// and `.tool-versions` — the pin this check targets is the one a committed
+/// project file declares.
+const MISE_FILES: &[&str] = &[
+    ".config/mise/config.toml",
+    ".config/mise.toml",
+    ".mise/config.toml",
+    "mise/config.toml",
+    ".mise.toml",
+    "mise.toml",
+];
+
+/// The backend key a project with no `[tool_alias]` for `ops` pins it under.
+const OPS_BACKEND_KEY: &str = "github:rsvalerio/ops";
 
 /// A released `ops` version, ordered the way versions are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,11 +67,7 @@ pub struct OpsVersion {
 
 impl OpsVersion {
     const fn new(major: u64, minor: u64, patch: u64) -> Self {
-        Self {
-            major,
-            minor,
-            patch,
-        }
+        Self { major, minor, patch }
     }
 }
 
@@ -74,11 +95,7 @@ impl FromStr for OpsVersion {
     /// `1.2.3` or `v1.2.3`. A partial `1.2` or a `latest` names no release.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let invalid = || ParseOpsVersionError(text.to_owned());
-        let mut parts = text
-            .strip_prefix('v')
-            .unwrap_or(text)
-            .split('.')
-            .map(str::parse);
+        let mut parts = text.strip_prefix('v').unwrap_or(text).split('.').map(str::parse);
         let mut next = || parts.next().and_then(Result::ok).ok_or_else(invalid);
         let version = Self::new(next()?, next()?, next()?);
         if parts.next().is_some() {
@@ -95,29 +112,12 @@ impl FromStr for OpsVersion {
 /// `clone`), `[themes.<name>]` under `theme`, `[extend.<name>]` under
 /// `extend`, and a `strategy` table under `strategy`.
 const HISTORY: &[(OpsVersion, &[&str])] = &[
-    (
-        OpsVersion::new(0, 91, 0),
-        &["exec.after", "exec.wrap", "clone.after", "clone.wrap"],
-    ),
+    (OpsVersion::new(0, 91, 0), &["exec.after", "exec.wrap", "clone.after", "clone.wrap"]),
     (OpsVersion::new(0, 88, 0), &["cargo.workspaces"]),
     (OpsVersion::new(0, 86, 0), &["clone.args"]),
-    (
-        OpsVersion::new(0, 85, 0),
-        &["exec.raw", "composite.raw", "clone.raw"],
-    ),
-    (
-        OpsVersion::new(0, 75, 0),
-        &[
-            "lint_actions",
-            "lint_actions.allow",
-            "cargo",
-            "cargo.locked",
-        ],
-    ),
-    (
-        OpsVersion::new(0, 74, 0),
-        &["foundation", "foundation.waivers"],
-    ),
+    (OpsVersion::new(0, 85, 0), &["exec.raw", "composite.raw", "clone.raw"]),
+    (OpsVersion::new(0, 75, 0), &["lint_actions", "lint_actions.allow", "cargo", "cargo.locked"]),
+    (OpsVersion::new(0, 74, 0), &["foundation", "foundation.waivers"]),
     (
         OpsVersion::new(0, 65, 0),
         &[
@@ -129,10 +129,7 @@ const HISTORY: &[(OpsVersion, &[&str])] = &[
             "extend.matrix",
         ],
     ),
-    (
-        OpsVersion::new(0, 62, 0),
-        &["extend.help", "extend.category"],
-    ),
+    (OpsVersion::new(0, 62, 0), &["extend.help", "extend.category"]),
     (
         OpsVersion::new(0, 61, 0),
         &[
@@ -200,10 +197,7 @@ const HISTORY: &[(OpsVersion, &[&str])] = &[
         ],
     ),
     (OpsVersion::new(0, 9, 0), &["output.stderr_tail_lines"]),
-    (
-        OpsVersion::new(0, 6, 0),
-        &["exec.help", "composite.help", "theme.left_pad"],
-    ),
+    (OpsVersion::new(0, 6, 0), &["exec.help", "composite.help", "theme.left_pad"]),
     (
         OpsVersion::new(0, 1, 0),
         &[
@@ -248,11 +242,31 @@ const HISTORY: &[(OpsVersion, &[&str])] = &[
 /// The oldest release: what a config using nothing newer needs.
 const FIRST_RELEASE: OpsVersion = OpsVersion::new(0, 1, 0);
 
+/// Values that need a newer release than their field does, newest first: a
+/// string that parses wherever the field parses but resolves — or, for a
+/// built-in theme name, fails to resolve — only from the release named
+/// here. Only a value newer than its field's [`HISTORY`] row belongs here:
+/// one that arrived with its field, such as `layout_kind = "boxed"`, is
+/// that row. A theme name the project defines under `[themes]` is the
+/// project's own and is never a value row.
+const VALUES: &[(OpsVersion, &str, &[&str])] =
+    &[(OpsVersion::new(0, 17, 0), "output.theme", &["flux", "studio"])];
+
 fn since(row: &str) -> Option<OpsVersion> {
-    HISTORY
+    HISTORY.iter().find(|(_, rows)| rows.contains(&row)).map(|(version, _)| *version)
+}
+
+/// The release `text` needs as the value of `row`, if [`VALUES`] tracks
+/// it. A theme the project itself defines under `[themes]` resolves
+/// wherever `[themes]` does, so it names no release.
+fn value_since(row: &str, text: &str, custom_themes: &[&str]) -> Option<OpsVersion> {
+    if row == "output.theme" && custom_themes.contains(&text) {
+        return None;
+    }
+    VALUES
         .iter()
-        .find(|(_, rows)| rows.contains(&row))
-        .map(|(version, _)| *version)
+        .find(|(_, key, values)| *key == row && values.contains(&text))
+        .map(|(since, _, _)| *since)
 }
 
 /// One field a project's config sets, and the release it needs.
@@ -266,6 +280,16 @@ pub struct UsedField {
     pub since: OpsVersion,
 }
 
+/// The `ops` pin a project's mise configuration declares: the version, and
+/// the mise file it was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MiseOpsPin {
+    /// The pinned release.
+    pub version: OpsVersion,
+    /// The mise file the pin came from, repo-relative.
+    pub file: &'static str,
+}
+
 /// The fields set by the workspace's `.ops.toml` and `.ops.d/*.toml`, in
 /// those files' load order. A key [`HISTORY`] does not know is skipped: this
 /// binary's own load is what rejects it.
@@ -277,7 +301,7 @@ pub struct UsedField {
 pub fn fields_used(workspace_root: &Path) -> anyhow::Result<Vec<UsedField>> {
     let mut files = vec![workspace_root.join(".ops.toml")];
     files.extend(read_conf_d_files(&workspace_root.join(".ops.d"))?.unwrap_or_default());
-    let mut out = Vec::new();
+    let mut tables = Vec::new();
     for path in files {
         let Some(text) = read_capped_toml_file(&path)? else {
             continue;
@@ -285,55 +309,95 @@ pub fn fields_used(workspace_root: &Path) -> anyhow::Result<Vec<UsedField>> {
         let table: toml::Table = text
             .parse()
             .with_context(|| format!("failed to parse config file: {:?}", path.display()))?;
-        let file = path
-            .strip_prefix(workspace_root)
-            .unwrap_or(&path)
-            .display()
-            .to_string();
-        walk(&table, "", "", &file, &mut out);
+        let file = path.strip_prefix(workspace_root).unwrap_or(&path).display().to_string();
+        tables.push((file, table));
     }
+    // A theme name the project defines under its own `[themes]`, in any
+    // file, is the project's: it resolves wherever `[themes]` does, so it
+    // is never a value row, however new the name looks.
+    let custom_themes: Vec<&str> = tables
+        .iter()
+        .filter_map(|(_, table)| table.get("themes"))
+        .filter_map(|themes| themes.as_table())
+        .flat_map(|themes| themes.keys().map(String::as_str))
+        .collect();
+    let mut out = Vec::new();
+    for (file, table) in &tables {
+        walk(table, "", "", &mut WalkCtx { file, custom_themes: &custom_themes, out: &mut out });
+    }
+    // A value a later file replaces never reaches the loader — `.ops.d`
+    // fragments load above `.ops.toml`, so for each key only the last file
+    // that sets it is in effect. Keep only that file's rows for the key: a
+    // replaced value must not drive the minimum version or the pin check.
+    let path_of = |field: &str| field.split_once(" = \"").map_or(field, |(p, _)| p).to_owned();
+    let mut last_file: HashMap<String, String> = HashMap::with_capacity(out.len());
+    for used in &out {
+        last_file.insert(path_of(&used.field), used.file.clone());
+    }
+    out.retain(|used| last_file.get(&path_of(&used.field)).is_some_and(|f| *f == used.file));
     Ok(out)
 }
 
 /// The release a config using `fields` needs at the least.
 #[must_use]
 pub fn minimum_version(fields: &[UsedField]) -> OpsVersion {
-    fields
-        .iter()
-        .map(|used| used.since)
-        .max()
-        .unwrap_or(FIRST_RELEASE)
+    fields.iter().map(|used| used.since).max().unwrap_or(FIRST_RELEASE)
 }
 
-/// The `ops` version `mise.toml` pins under `[tools]`, if it pins one.
+/// The `ops` pin a project's mise configuration declares, if it declares
+/// one.
+///
+/// `[tools]` is read in each of [`MISE_FILES`], mise's precedence order,
+/// under `ops` or under the backend key `github:rsvalerio/ops` (within one
+/// file, `ops` wins). The last file naming a pin is the one that installs,
+/// as in mise.
 ///
 /// # Errors
 ///
-/// `mise.toml` cannot be read or parsed, or its pin names no exact release
-/// (`latest`, a partial `0.85`): there is no version to check against.
-pub fn mise_ops_pin(workspace_root: &Path) -> anyhow::Result<Option<OpsVersion>> {
-    let Some(text) = read_capped_toml_file(&workspace_root.join(MISE_TOML))? else {
-        return Ok(None);
-    };
-    let table: toml::Table = text
-        .parse()
-        .with_context(|| format!("failed to parse {MISE_TOML}"))?;
-    let Some(pin) = table.get("tools").and_then(|tools| tools.get("ops")) else {
+/// A mise file cannot be read or parsed, or the winning pin names no exact
+/// release (`latest`, a partial `0.85`): there is no version to check
+/// against.
+pub fn mise_ops_pin(workspace_root: &Path) -> anyhow::Result<Option<MiseOpsPin>> {
+    let mut found: Option<(&'static str, toml::Value)> = None;
+    for file in MISE_FILES {
+        let Some(text) = read_capped_toml_file(&workspace_root.join(file))? else {
+            continue;
+        };
+        let table: toml::Table = text.parse().with_context(|| format!("failed to parse {file}"))?;
+        let Some(pin) = table
+            .get("tools")
+            .and_then(|tools| tools.get("ops").or_else(|| tools.get(OPS_BACKEND_KEY)))
+        else {
+            continue;
+        };
+        found = Some((file, pin.clone()));
+    }
+    let Some((file, pin)) = found else {
         return Ok(None);
     };
     pin.as_str()
         .or_else(|| pin.get("version")?.as_str())
         .and_then(|version| version.parse().ok())
+        .map(|version| MiseOpsPin { version, file })
+        // `map(Some)`: an unparseable pin that was found is an error, not
+        // an absence.
         .map(Some)
-        .with_context(|| {
-            format!("{MISE_TOML} pins ops to {pin}, not a release; pass --as <version>")
-        })
+        .with_context(|| format!("{file} pins ops to {pin}, not a release; pass --as <version>"))
+}
+
+/// What one [`fields_used`] pass carries through `walk`: the file being
+/// walked, the theme names the project's own `[themes]` defines (see
+/// [`value_since`]), and the rows collected so far.
+struct WalkCtx<'a> {
+    file: &'a str,
+    custom_themes: &'a [&'a str],
+    out: &'a mut Vec<UsedField>,
 }
 
 /// Record every field of `table`, descending where [`HISTORY`] has rows for
 /// a nested table. `row` is the key prefix in [`HISTORY`], `path` the real
 /// one; free-form maps such as `env` have no rows and are not descended.
-fn walk(table: &toml::Table, row: &str, path: &str, file: &str, out: &mut Vec<UsedField>) {
+fn walk(table: &toml::Table, row: &str, path: &str, ctx: &mut WalkCtx<'_>) {
     for (key, value) in table {
         // The serde alias of `aliases`, on every command shape.
         let canonical = if key == "alias" { "aliases" } else { key };
@@ -347,11 +411,16 @@ fn walk(table: &toml::Table, row: &str, path: &str, file: &str, out: &mut Vec<Us
         } else {
             child_path.clone()
         };
-        out.push(UsedField {
-            file: file.to_owned(),
-            field,
-            since: field_since,
-        });
+        ctx.out.push(UsedField { file: ctx.file.to_owned(), field, since: field_since });
+        if let Some(text) = value.as_str() {
+            if let Some(value_since) = value_since(&child_row, text, ctx.custom_themes) {
+                ctx.out.push(UsedField {
+                    file: ctx.file.to_owned(),
+                    field: format!("{child_path} = \"{text}\""),
+                    since: value_since,
+                });
+            }
+        }
         let Some(nested) = value.as_table() else {
             continue;
         };
@@ -359,7 +428,7 @@ fn walk(table: &toml::Table, row: &str, path: &str, file: &str, out: &mut Vec<Us
             for (name, entry) in nested {
                 if let Some(entry) = entry.as_table() {
                     let entry_path = join(&child_path, name);
-                    walk(entry, entry_row(entry), &entry_path, file, out);
+                    walk(entry, entry_row(entry), &entry_path, ctx);
                 }
             }
         };
@@ -367,10 +436,12 @@ fn walk(table: &toml::Table, row: &str, path: &str, file: &str, out: &mut Vec<Us
             "commands" => entries(command_shape),
             "themes" => entries(|_| "theme"),
             "extend" => entries(|_| "extend"),
-            "exec.strategy" | "clone.strategy" => walk(nested, "strategy", &child_path, file, out),
-            "theme.report" => walk(nested, "report", &child_path, file, out),
+            "exec.strategy" | "clone.strategy" => {
+                walk(nested, "strategy", &child_path, ctx);
+            }
+            "theme.report" => walk(nested, "report", &child_path, ctx),
             "output" | "data" | "extensions" | "about" | "backlog" | "foundation"
-            | "lint_actions" | "cargo" => walk(nested, &child_row, &child_path, file, out),
+            | "lint_actions" | "cargo" => walk(nested, &child_row, &child_path, ctx),
             _ => {}
         }
     }
@@ -379,9 +450,7 @@ fn walk(table: &toml::Table, row: &str, path: &str, file: &str, out: &mut Vec<Us
 /// The [`HISTORY`] prefix of a `[commands.<name>]` table, picked the way
 /// `CommandSpec`'s `Deserialize` picks the variant.
 fn command_shape(table: &toml::Table) -> &'static str {
-    let composite_only = ["parallel", "fail_fast"]
-        .iter()
-        .any(|key| table.contains_key(*key));
+    let composite_only = ["parallel", "fail_fast"].iter().any(|key| table.contains_key(*key));
     if table.contains_key("clone") {
         "clone"
     } else if table.contains_key("commands") || (!table.contains_key("program") && composite_only) {
@@ -441,12 +510,7 @@ mod tests {
         let Err(err) = toml::from_str::<T>("zzz_not_a_field = 1") else {
             panic!("an unknown field must be refused");
         };
-        err.message()
-            .split('`')
-            .skip(3)
-            .step_by(2)
-            .map(str::to_owned)
-            .collect()
+        err.message().split('`').skip(3).step_by(2).map(str::to_owned).collect()
     }
 
     fn assert_listed<T: serde::de::DeserializeOwned>(prefix: &str) {
@@ -502,10 +566,7 @@ mod tests {
              [commands.b]\nclone = \"a\"\nargs = [\"z\"]\n",
         );
         assert!(has(&fields, "commands.a.args", "0.1.0"), "{fields:?}");
-        assert!(
-            has(&fields, "commands.b.args (beside clone)", "0.86.0"),
-            "{fields:?}"
-        );
+        assert!(has(&fields, "commands.b.args (beside clone)", "0.86.0"), "{fields:?}");
     }
 
     #[test]
@@ -516,10 +577,27 @@ mod tests {
         );
         assert!(has(&fields, "commands.a.after", "0.91.0"), "{fields:?}");
         assert!(has(&fields, "commands.a.wrap", "0.91.0"), "{fields:?}");
-        assert!(
-            has(&fields, "commands.c.wrap (beside clone)", "0.91.0"),
-            "{fields:?}"
-        );
+        assert!(has(&fields, "commands.c.wrap (beside clone)", "0.91.0"), "{fields:?}");
+    }
+
+    #[test]
+    fn a_builtin_theme_newer_than_the_theme_field_needs_its_release() {
+        let fields = used("[output]\ntheme = \"flux\"\n");
+        assert!(has(&fields, "output.theme", "0.1.0"), "{fields:?}");
+        assert!(has(&fields, "output.theme = \"flux\"", "0.17.0"), "{fields:?}");
+        let dir = project("[output]\ntheme = \"studio\"\n");
+        let fields = fields_used(dir.path()).expect("fields");
+        assert_eq!(minimum_version(&fields), version("0.17.0"));
+    }
+
+    #[test]
+    fn a_theme_the_project_defines_or_the_first_release_ships_needs_no_release() {
+        for ops_toml in
+            ["[output]\ntheme = \"flux\"\n\n[themes.flux]\n", "[output]\ntheme = \"compact\"\n"]
+        {
+            let fields = used(ops_toml);
+            assert!(!fields.iter().any(|(f, _)| f.contains('=')), "{ops_toml}: {fields:?}");
+        }
     }
 
     #[test]
@@ -570,13 +648,27 @@ mod tests {
         std::fs::create_dir(&conf_d).expect("mkdir");
         std::fs::write(conf_d.join("x.toml"), "[cargo]\nworkspaces = [\"a\"]\n").expect("write");
         let fields = fields_used(dir.path()).expect("fields");
-        let found = fields
-            .iter()
-            .find(|f| f.field == "cargo.workspaces")
-            .expect("fragment field");
-        assert_eq!(
-            found.file,
-            Path::new(".ops.d").join("x.toml").display().to_string()
+        let found = fields.iter().find(|f| f.field == "cargo.workspaces").expect("fragment field");
+        assert_eq!(found.file, Path::new(".ops.d").join("x.toml").display().to_string());
+    }
+
+    /// Only the value a later fragment leaves in effect counts: the loader
+    /// replaces an earlier file's `theme`, so `flux` must not drive the
+    /// minimum version even though `.ops.toml` still names it.
+    #[test]
+    fn a_value_a_later_fragment_replaces_does_not_count() {
+        let dir = project("[output]\ntheme = \"flux\"\n");
+        let conf_d = dir.path().join(".ops.d");
+        std::fs::create_dir(&conf_d).expect("mkdir");
+        std::fs::write(conf_d.join("ci.toml"), "[output]\ntheme = \"classic\"\n").expect("write");
+        let fields = fields_used(dir.path()).expect("fields");
+        assert!(!fields.iter().any(|f| f.field.contains("flux")), "{fields:?}");
+        let theme = fields.iter().find(|f| f.field == "output.theme").expect("theme row");
+        assert_eq!(theme.file, Path::new(".ops.d").join("ci.toml").display().to_string());
+        let dir = project("[output]\ntheme = \"flux\"\n");
+        assert!(
+            fields_used(dir.path()).expect("fields").iter().any(|f| f.field.contains("flux")),
+            "a value nothing replaces still counts"
         );
     }
 
@@ -591,28 +683,64 @@ mod tests {
     #[test]
     fn mise_pin_reads_a_string_or_a_table_and_absence_is_none() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mise = dir.path().join(MISE_TOML);
+        let mise = dir.path().join("mise.toml");
         assert_eq!(mise_ops_pin(dir.path()).expect("no file"), None);
         std::fs::write(&mise, "[tools]\nrust = \"1.0.0\"\n").expect("write");
         assert_eq!(mise_ops_pin(dir.path()).expect("no pin"), None);
         std::fs::write(&mise, "[tools]\nops = \"0.85.1\"\n").expect("write");
         assert_eq!(
-            mise_ops_pin(dir.path()).expect("string"),
+            mise_ops_pin(dir.path()).expect("string").map(|p| p.version),
             Some(version("0.85.1"))
         );
         std::fs::write(&mise, "[tools]\nops = { version = \"0.79.3\" }\n").expect("write");
         assert_eq!(
-            mise_ops_pin(dir.path()).expect("table"),
+            mise_ops_pin(dir.path()).expect("table").map(|p| p.version),
             Some(version("0.79.3"))
         );
     }
 
+    /// Write a mise file, creating the directory it sits in.
+    fn write_mise(dir: &Path, rel: &str, text: &str) {
+        if let Some(parent) = Path::new(rel).parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir.join(parent)).expect("mkdir");
+        }
+        std::fs::write(dir.join(rel), text).expect("write");
+    }
+
     #[test]
-    fn a_pin_naming_no_release_is_an_error_not_a_pass() {
+    fn every_committed_mise_location_is_read_in_mise_s_order() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join(MISE_TOML), "[tools]\nops = \"latest\"\n").expect("write");
+        write_mise(dir.path(), ".config/mise.toml", "[tools]\nops = \"0.85.0\"\n");
+        let pin = mise_ops_pin(dir.path()).expect("check").expect("pin");
+        assert_eq!((pin.version, pin.file), (version("0.85.0"), ".config/mise.toml"));
+        write_mise(dir.path(), ".mise.toml", "[tools]\n\"github:rsvalerio/ops\" = \"0.87.0\"\n");
+        let pin = mise_ops_pin(dir.path()).expect("check").expect("pin");
+        assert_eq!((pin.version, pin.file), (version("0.87.0"), ".mise.toml"));
+        write_mise(dir.path(), "mise.toml", "[tools]\nops = \"0.85.1\"\n");
+        let pin = mise_ops_pin(dir.path()).expect("check").expect("pin");
+        assert_eq!((pin.version, pin.file), (version("0.85.1"), "mise.toml"));
+        write_mise(
+            dir.path(),
+            "mise/config.toml",
+            "[tools]\n\"github:rsvalerio/ops\" = { version = \"0.88.0\" }\n",
+        );
+        let pin = mise_ops_pin(dir.path()).expect("check").expect("pin");
+        assert_eq!((pin.version, pin.file), (version("0.85.1"), "mise.toml"));
+        std::fs::remove_file(dir.path().join("mise.toml")).expect("remove");
+        std::fs::remove_file(dir.path().join(".mise.toml")).expect("remove");
+        let pin = mise_ops_pin(dir.path()).expect("check").expect("pin");
+        assert_eq!((pin.version, pin.file), (version("0.88.0"), "mise/config.toml"));
+    }
+
+    #[test]
+    fn a_pin_naming_no_release_is_an_error_naming_its_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_mise(dir.path(), ".config/mise.toml", "[tools]\nops = \"0.85.0\"\n");
+        write_mise(dir.path(), ".mise.toml", "[tools]\nops = \"latest\"\n");
         let err = mise_ops_pin(dir.path()).expect_err("latest names no release");
-        assert!(err.to_string().contains("--as"), "{err}");
+        let err = format!("{err:#}");
+        assert!(err.contains("--as"), "{err}");
+        assert!(err.contains(".mise.toml"), "{err}");
     }
 
     #[test]

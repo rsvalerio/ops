@@ -88,18 +88,12 @@ fn render_label_longer_than_columns() {
     let long_label = "a_very_long_command_name_that_exceeds_the_terminal_column_width_by_far";
     let step = StepLine::new(StepStatus::Succeeded, long_label.to_string(), Some(1.23));
     let line = render_within_budget(&theme, &step, 20);
-    assert!(
-        !line.is_empty(),
-        "render should produce output even for long labels"
-    );
+    assert!(!line.is_empty(), "render should produce output even for long labels");
     assert!(
         !line.contains(long_label),
         "the over-long label must not be echoed verbatim: {line:?}"
     );
-    assert!(
-        line.contains(ELLIPSIS),
-        "truncation must be marked with the ellipsis: {line:?}"
-    );
+    assert!(line.contains(ELLIPSIS), "truncation must be marked with the ellipsis: {line:?}");
 }
 
 /// The contract is that the separator never pushes the line past
@@ -152,10 +146,8 @@ fn render_separator_uses_display_width_for_multi_byte_duration() {
 /// total width — not a line twice as wide as the budget it came from.
 #[test]
 fn render_separator_budgets_wide_glyphs_in_columns() {
-    let narrow = ConfigurableTheme::new(ThemeConfig {
-        separator_char: '.',
-        ..ThemeConfig::compact()
-    });
+    let narrow =
+        ConfigurableTheme::new(ThemeConfig { separator_char: '.', ..ThemeConfig::compact() });
     let wide = ConfigurableTheme::new(ThemeConfig {
         // U+FF0E FULLWIDTH FULL STOP: two terminal columns per glyph.
         separator_char: '\u{ff0e}',

@@ -2,7 +2,7 @@
 //!
 //! Every call is `git -C <dir> <args…>` through [`std::process::Command`] —
 //! never a shell — so task paths, branch names and commit messages reach git
-//! as single argv entries and cannot be reinterpreted (SEC-13). Callers pass
+//! as single argv entries and cannot be reinterpreted. Callers pass
 //! `--` before any path list so a path starting with `-` is never read as an
 //! option.
 
@@ -23,13 +23,9 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let args: Vec<std::ffi::OsString> = args
-        .into_iter()
-        .map(|a| a.as_ref().to_os_string())
-        .collect();
-    let subcommand = args
-        .first()
-        .map_or_else(String::new, |a| a.to_string_lossy().into_owned());
+    let args: Vec<std::ffi::OsString> =
+        args.into_iter().map(|a| a.as_ref().to_os_string()).collect();
+    let subcommand = args.first().map_or_else(String::new, |a| a.to_string_lossy().into_owned());
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -64,16 +60,12 @@ where
 pub fn toplevel(dir: &Path) -> anyhow::Result<PathBuf> {
     let raw = run(dir, ["rev-parse", "--show-toplevel"])?;
     let top = PathBuf::from(raw.trim_end_matches(['\n', '\r']));
-    top.canonicalize()
-        .with_context(|| format!("resolving {}", top.display()))
+    top.canonicalize().with_context(|| format!("resolving {}", top.display()))
 }
 
 /// Split `-z` output (NUL-terminated records) into owned strings.
 pub fn nul_records(raw: &str) -> Vec<String> {
-    raw.split('\0')
-        .filter(|record| !record.is_empty())
-        .map(str::to_string)
-        .collect()
+    raw.split('\0').filter(|record| !record.is_empty()).map(str::to_string).collect()
 }
 
 /// The paths currently staged in the index, repo-relative.
@@ -82,10 +74,7 @@ pub fn nul_records(raw: &str) -> Vec<String> {
 ///
 /// As [`run`].
 pub fn staged_paths(dir: &Path) -> anyhow::Result<Vec<String>> {
-    Ok(nul_records(&run(
-        dir,
-        ["diff", "--cached", "--name-only", "-z"],
-    )?))
+    Ok(nul_records(&run(dir, ["diff", "--cached", "--name-only", "-z"])?))
 }
 
 /// Does the local branch `name` exist?
@@ -125,11 +114,7 @@ pub(crate) mod test_support {
             .args(args)
             .output()
             .expect("spawn git");
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 

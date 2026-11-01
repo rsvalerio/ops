@@ -122,10 +122,7 @@ fn extension_matching_is_case_insensitive() {
 #[test]
 fn extension_constants_kebab_case() {
     for n in ["check-json", "check-yaml", NAME, SHORTNAME] {
-        assert!(
-            n.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
-            "must be kebab-case: {n}"
-        );
+        assert!(n.chars().all(|c| c.is_ascii_lowercase() || c == '-'), "must be kebab-case: {n}");
     }
 }
 
@@ -161,10 +158,7 @@ fn parse_failures_are_recorded_with_the_parse_kind() {
 
     assert_eq!(report.files_failed.len(), 1);
     assert_eq!(report.files_failed[0].kind, FailureKind::Parse);
-    assert_eq!(
-        report.files_failed[0].message,
-        "expected value at line 1 column 7"
-    );
+    assert_eq!(report.files_failed[0].message, "expected value at line 1 column 7");
 }
 
 #[test]
@@ -302,10 +296,7 @@ fn walk_errors_make_the_report_fail() {
         walk_errors: vec!["IO error for operation on /x: permission denied".to_string()],
         ..CheckerReport::default()
     };
-    assert!(
-        report.failed(),
-        "a traversal that lost candidates must not report success"
-    );
+    assert!(report.failed(), "a traversal that lost candidates must not report success");
     assert!(!CheckerReport::default().failed());
 }
 
@@ -381,10 +372,7 @@ fn writer_errors_propagate() {
     let opts = CheckerOptions::new(root.clone(), false);
     let mut w = FailingWriter;
     let err = run_check_json(&opts, &mut w).unwrap_err();
-    assert!(
-        err.to_string().contains("check-json"),
-        "context missing: {err}"
-    );
+    assert!(err.to_string().contains("check-json"), "context missing: {err}");
 }
 
 // Note: `discovery::discover` currently swallows filesystem errors and
@@ -420,9 +408,6 @@ fn registered_checkers_spawn_absolute_ops_and_display_as_ops() {
         );
         assert_eq!(exec.display_cmd(), format!("ops {id}"));
         assert_eq!(exec.args, vec![id.to_string()]);
-        assert!(
-            !exec.exclusive,
-            "{id} only reads files, so it may overlap other steps"
-        );
+        assert!(!exec.exclusive, "{id} only reads files, so it may overlap other steps");
     }
 }

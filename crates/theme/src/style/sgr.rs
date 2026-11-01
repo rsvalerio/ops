@@ -46,10 +46,7 @@ pub fn apply_style<'a>(text: &'a str, spec: &str) -> Cow<'a, str> {
 /// the stream each consults differs.
 #[must_use]
 pub fn color_enabled() -> bool {
-    color_enabled_for(
-        ops_core::style::stderr_is_terminal(),
-        ops_core::style::no_color_env(),
-    )
+    color_enabled_for(ops_core::style::stderr_is_terminal(), ops_core::style::no_color_env())
 }
 
 /// Pure resolver behind [`color_enabled`], split out so the gate is testable
@@ -73,10 +70,7 @@ pub fn apply_style_gated<'a>(text: &'a str, spec: &str, enabled: bool) -> Cow<'a
 }
 
 fn parse_spec(spec: &str) -> Vec<&'static str> {
-    spec.split([' ', '.'])
-        .filter(|s| !s.is_empty())
-        .filter_map(token_code)
-        .collect()
+    spec.split([' ', '.']).filter(|s| !s.is_empty()).filter_map(token_code).collect()
 }
 
 /// Precompute the SGR prefix for `spec`.
@@ -120,9 +114,7 @@ pub fn apply_with_prefix_gated<'a>(
     if !enabled {
         return Cow::Borrowed(text);
     }
-    prefix.map_or(Cow::Borrowed(text), |pfx| {
-        Cow::Owned(format!("{pfx}{text}\x1b[0m"))
-    })
+    prefix.map_or(Cow::Borrowed(text), |pfx| Cow::Owned(format!("{pfx}{text}\x1b[0m")))
 }
 
 fn token_code(token: &str) -> Option<&'static str> {

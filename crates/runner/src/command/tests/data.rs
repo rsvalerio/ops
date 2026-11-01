@@ -32,9 +32,7 @@ fn query_data_returns_provider_value() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "fixed",
-        Box::new(FixedProvider {
-            value: serde_json::json!({"hello": "world"}),
-        }),
+        Box::new(FixedProvider { value: serde_json::json!({"hello": "world"}) }),
     );
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
@@ -47,12 +45,7 @@ fn query_data_returns_provider_value() {
 #[test]
 fn query_data_caches_results() {
     let mut registry = DataRegistry::new();
-    let _ = registry.register(
-        "fixed",
-        Box::new(FixedProvider {
-            value: serde_json::json!(42),
-        }),
-    );
+    let _ = registry.register("fixed", Box::new(FixedProvider { value: serde_json::json!(42) }));
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
 
@@ -81,10 +74,10 @@ fn query_data_failing_provider_errors() {
     assert!(result.unwrap_err().to_string().contains("provider error"));
 }
 
-/// ARCH-9 / TASK-0993: a provider that fans out to a peer via
+/// a provider that fans out to a peer via
 /// `ctx.get_or_provide(other, registry)` should compute the peer exactly
 /// once across two outer `query_data` calls on the same runner. Prior to
-/// TASK-0993, `query_data` constructed a fresh `Context` per call and
+/// `query_data` constructed a fresh `Context` per call and
 /// promoted only the *outer* key into `self.data_cache`; the inner
 /// provider's cached result lived only in the throw-away context, so a
 /// later `runner.query_data("inner")` recomputed it.
@@ -122,27 +115,15 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     let calls = StdArc::new(AtomicUsize::new(0));
 
     let mut sub_registry = DataRegistry::new();
-    let _ = sub_registry.register(
-        "inner",
-        Box::new(CountingInner {
-            calls: StdArc::clone(&calls),
-        }),
-    );
+    let _ =
+        sub_registry.register("inner", Box::new(CountingInner { calls: StdArc::clone(&calls) }));
     let sub_registry = StdArc::new(sub_registry);
 
     let mut main_registry = DataRegistry::new();
-    let _ = main_registry.register(
-        "inner",
-        Box::new(CountingInner {
-            calls: StdArc::clone(&calls),
-        }),
-    );
-    let _ = main_registry.register(
-        "outer",
-        Box::new(ComposingOuter {
-            sub_registry: StdArc::clone(&sub_registry),
-        }),
-    );
+    let _ =
+        main_registry.register("inner", Box::new(CountingInner { calls: StdArc::clone(&calls) }));
+    let _ = main_registry
+        .register("outer", Box::new(ComposingOuter { sub_registry: StdArc::clone(&sub_registry) }));
 
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(main_registry);
@@ -162,32 +143,24 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     );
 }
 
-/// ARCH-9 / TASK-1128: register P1 -> `query_data("x`") -> register P2 with a
+/// Register P1 -> `query_data("x`") -> register P2 with a
 /// different impl of "x" -> `query_data("x`") must return P2's value, not the
-/// cached value produced by P1. Prior to TASK-1128 the runner replaced the
+/// cached value produced by P1. Previously the runner replaced the
 /// `DataRegistry` but left `data_context.data_cache` populated, so the
 /// second call returned P1's stale `Arc<serde_json::Value>`.
 #[test]
 fn re_registering_providers_invalidates_cache() {
     let mut registry_a = DataRegistry::new();
-    let _ = registry_a.register(
-        "x",
-        Box::new(FixedProvider {
-            value: serde_json::json!("from-a"),
-        }),
-    );
+    let _ =
+        registry_a.register("x", Box::new(FixedProvider { value: serde_json::json!("from-a") }));
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry_a);
     let v_a = runner.query_data("x").expect("first query");
     assert_eq!(*v_a, serde_json::json!("from-a"));
 
     let mut registry_b = DataRegistry::new();
-    let _ = registry_b.register(
-        "x",
-        Box::new(FixedProvider {
-            value: serde_json::json!("from-b"),
-        }),
-    );
+    let _ =
+        registry_b.register("x", Box::new(FixedProvider { value: serde_json::json!("from-b") }));
     runner.register_data_providers(registry_b);
 
     let v_b = runner.query_data("x").expect("second query");
@@ -198,7 +171,7 @@ fn re_registering_providers_invalidates_cache() {
     );
 }
 
-/// PERF-3 / TASK-0890: capture the cwd `Arc<PathBuf>` inside a provider
+/// Capture the cwd `Arc<PathBuf>` inside a provider
 /// and assert its `strong_count` climbs above 1 — proof that `query_data`
 /// hands out shared `Arc::clone`s instead of deep-cloning the inner path.
 #[test]
@@ -222,9 +195,7 @@ fn query_data_shares_cwd_arc_with_provider() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "arc_capture",
-        Box::new(ArcCapturingProvider {
-            captured: std::sync::Arc::clone(&captured),
-        }),
+        Box::new(ArcCapturingProvider { captured: std::sync::Arc::clone(&captured) }),
     );
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
@@ -236,8 +207,5 @@ fn query_data_shares_cwd_arc_with_provider() {
     // CONC-1: release the capture lock before asserting so a failing assert
     // panics without holding it.
     drop(inner);
-    assert!(
-        strong_count >= 2,
-        "expected shared cwd Arc, got strong_count = {strong_count}"
-    );
+    assert!(strong_count >= 2, "expected shared cwd Arc, got strong_count = {strong_count}");
 }

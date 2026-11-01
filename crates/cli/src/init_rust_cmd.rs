@@ -20,12 +20,7 @@ pub fn run_init_rust(force: bool, check: bool, config: &Config) -> anyhow::Resul
     let cwd = crate::cwd()?;
     let mut out = std::io::stdout().lock();
     if check {
-        run_check_to(
-            &cwd,
-            &config.foundation.waivers,
-            config.cargo.workspaces(),
-            &mut out,
-        )
+        run_check_to(&cwd, &config.foundation.waivers, config.cargo.workspaces(), &mut out)
     } else {
         run_scaffold_to(&cwd, force, &mut out)?;
         Ok(ExitCode::SUCCESS)
@@ -39,10 +34,9 @@ fn run_scaffold_to(root: &Path, force: bool, w: &mut dyn Write) -> anyhow::Resul
             Outcome::Created => writeln!(w, "created  {target}")?,
             Outcome::Replaced => writeln!(w, "replaced {target}")?,
             Outcome::Added => writeln!(w, "added    {target}")?,
-            Outcome::Kept => writeln!(
-                w,
-                "kept     {target} (already present; --force replaces it)"
-            )?,
+            Outcome::Kept => {
+                writeln!(w, "kept     {target} (already present; --force replaces it)")?;
+            }
         }
     }
     writeln!(
@@ -60,11 +54,7 @@ fn run_check_to(
 ) -> anyhow::Result<ExitCode> {
     let report = ops_rust_foundation::check(root, waivers, workspaces)?;
     render_report(&report, w)?;
-    Ok(if report.drift.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(if report.drift.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 /// Locations, messages and reasons come from the repo's own files, so they
@@ -81,13 +71,7 @@ fn render_report(report: &Report, w: &mut dyn Write) -> anyhow::Result<()> {
         writeln!(w, "drift   {}: {}", safe(&d.location), safe(&d.message))?;
     }
     for (d, reason) in &report.waived {
-        writeln!(
-            w,
-            "waived  {}: {} ({})",
-            safe(&d.location),
-            safe(&d.message),
-            safe(reason)
-        )?;
+        writeln!(w, "waived  {}: {} ({})", safe(&d.location), safe(&d.message), safe(reason))?;
     }
     for key in &report.unused_waivers {
         writeln!(
@@ -98,10 +82,7 @@ fn render_report(report: &Report, w: &mut dyn Write) -> anyhow::Result<()> {
     }
     let waived = report.waived.len();
     match report.drift.len() {
-        0 => writeln!(
-            w,
-            "Rust foundation matches the ops {VERSION} templates ({waived} waived)."
-        )?,
+        0 => writeln!(w, "Rust foundation matches the ops {VERSION} templates ({waived} waived).")?,
         n => writeln!(
             w,
             "Rust foundation: {n} drift(s) from the ops {VERSION} templates. Fix them, reset a \
@@ -142,9 +123,7 @@ mod tests {
         let mut buf = Vec::new();
         let code = run_check_to(dir.path(), &IndexMap::new(), &[], &mut buf).expect("check");
         assert_eq!(code, ExitCode::SUCCESS);
-        assert!(String::from_utf8(buf)
-            .expect("utf8")
-            .contains("matches the ops"));
+        assert!(String::from_utf8(buf).expect("utf8").contains("matches the ops"));
     }
 
     #[test]
@@ -176,20 +155,14 @@ mod tests {
         output(|w| run_scaffold_to(dir.path(), false, w));
         std::fs::remove_file(dir.path().join("rustfmt.toml")).expect("rm");
         let waivers = IndexMap::from([
-            (
-                "rustfmt.toml".to_owned(),
-                "keeps rustfmt defaults".to_owned(),
-            ),
+            ("rustfmt.toml".to_owned(), "keeps rustfmt defaults".to_owned()),
             ("deny.toml:nope".to_owned(), "stale".to_owned()),
         ]);
         let mut buf = Vec::new();
         let code = run_check_to(dir.path(), &waivers, &[], &mut buf).expect("check");
         let text = String::from_utf8(buf).expect("utf8");
         assert_eq!(code, ExitCode::SUCCESS);
-        assert!(
-            text.contains("waived  rustfmt.toml: missing (keeps rustfmt defaults)"),
-            "{text}"
-        );
+        assert!(text.contains("waived  rustfmt.toml: missing (keeps rustfmt defaults)"), "{text}");
         assert!(text.contains("unused  waiver deny.toml:nope"), "{text}");
         assert!(text.contains("(1 waived)"), "{text}");
     }

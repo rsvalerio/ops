@@ -1,7 +1,7 @@
 //! Sequential plan execution: per-step exec dispatch and `run_plan` /
 //! `run_plan_raw` / `run_raw` orchestration.
 //!
-//! Split out of `command/mod.rs` (ARCH-1 / TASK-0303) alongside `parallel`.
+//! Split out of `command/mod.rs` alongside `parallel`.
 
 use super::events::PlanLifecycle;
 use super::exec::{exec_command_raw, resolution_failure};
@@ -72,11 +72,7 @@ impl CommandRunner {
             let spec = match self.resolve_exec_leaf(id.as_str()) {
                 Ok(spec) => spec,
                 Err(err) => {
-                    results.push(StepResult::failure(
-                        id.as_str(),
-                        Duration::ZERO,
-                        err.to_string(),
-                    ));
+                    results.push(StepResult::failure(id.as_str(), Duration::ZERO, err.to_string()));
                     if fail_fast {
                         break;
                     }
@@ -123,14 +119,8 @@ impl CommandRunner {
         // PERF-3 / TASK-2086: plan and scheduling flags from one walk, per
         // `run`. An Exec root contributes `fail_fast = true`, so it keeps
         // the fail-fast default the old `resolve` match gave it.
-        let plan = self
-            .expand_to_plan(command_id)
-            .map_err(anyhow::Error::from)?;
-        debug!(
-            command_id,
-            steps = plan.leaf_ids().len(),
-            "running command (raw)"
-        );
+        let plan = self.expand_to_plan(command_id).map_err(anyhow::Error::from)?;
+        debug!(command_id, steps = plan.leaf_ids().len(), "running command (raw)");
         Ok(self.run_plan_tree(&plan, true, &mut |_| {}).await)
     }
 }

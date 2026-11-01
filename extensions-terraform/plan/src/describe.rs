@@ -58,21 +58,15 @@ pub fn changed(rc: &ResourceChange, action: Action) -> Vec<String> {
             .map(|p| format_path(p))
             .filter(|p| !p.is_empty())
             .collect(),
-        Action::Update | Action::Unknown => changed_keys(
-            c.before.as_ref(),
-            c.after.as_ref(),
-            c.after_unknown.as_ref(),
-        ),
+        Action::Update | Action::Unknown => {
+            changed_keys(c.before.as_ref(), c.after.as_ref(), c.after_unknown.as_ref())
+        }
         _ => Vec::new(),
     };
     if !specific.is_empty() {
         return specific;
     }
-    rc.action_reason
-        .as_deref()
-        .map(humanize_reason)
-        .into_iter()
-        .collect()
+    rc.action_reason.as_deref().map(humanize_reason).into_iter().collect()
 }
 
 /// A string attribute that is present, non-empty and not marked sensitive.
@@ -155,11 +149,7 @@ fn changed_keys(
     let before = before.and_then(Value::as_object).unwrap_or(&empty);
     let after = after.and_then(Value::as_object).unwrap_or(&empty);
     let unknown = unknown.and_then(Value::as_object).unwrap_or(&empty);
-    let mut keys: Vec<&String> = before
-        .keys()
-        .chain(after.keys())
-        .chain(unknown.keys())
-        .collect();
+    let mut keys: Vec<&String> = before.keys().chain(after.keys()).chain(unknown.keys()).collect();
     keys.sort();
     keys.dedup();
     keys.into_iter()
@@ -183,10 +173,7 @@ fn has_unknown(v: &Value) -> bool {
 
 /// `replace_because_tainted` → `tainted`.
 fn humanize_reason(reason: &str) -> String {
-    reason
-        .split_once("_because_")
-        .map_or(reason, |(_, why)| why)
-        .replace('_', " ")
+    reason.split_once("_because_").map_or(reason, |(_, why)| why).replace('_', " ")
 }
 
 #[cfg(test)]
@@ -222,10 +209,7 @@ mod tests {
 
     #[test]
     fn address_keys_handle_quoted_punctuation() {
-        assert_eq!(
-            address_keys(r#"module.a["x.]\"y"].t.n[3]"#),
-            vec!["x.]\"y", "3"]
-        );
+        assert_eq!(address_keys(r#"module.a["x.]\"y"].t.n[3]"#), vec!["x.]\"y", "3"]);
         assert!(address_keys("aws_instance.web").is_empty());
     }
 
@@ -237,18 +221,9 @@ mod tests {
             })))
         };
         assert_eq!(k("oci_core_public_ip", "public_ip"), "core public ip");
-        assert_eq!(
-            k("oci_core_vnic_attachments", "vnic_attachment"),
-            "core vnic attachments"
-        );
-        assert_eq!(
-            k("oci_identity_dynamic_group", "this"),
-            "identity dynamic group"
-        );
-        assert_eq!(
-            k("local_file", "testinfra_ssh_config"),
-            "file testinfra_ssh_config"
-        );
+        assert_eq!(k("oci_core_vnic_attachments", "vnic_attachment"), "core vnic attachments");
+        assert_eq!(k("oci_identity_dynamic_group", "this"), "identity dynamic group");
+        assert_eq!(k("local_file", "testinfra_ssh_config"), "file testinfra_ssh_config");
     }
 
     #[test]
@@ -271,10 +246,7 @@ mod tests {
                 "after_unknown": { "private_ip_id": true, "tags": {} }
             }
         }));
-        assert_eq!(
-            changed(&update, Action::Update),
-            vec!["private_ip_id", "tags"]
-        );
+        assert_eq!(changed(&update, Action::Update), vec!["private_ip_id", "tags"]);
     }
 
     #[test]

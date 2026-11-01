@@ -259,7 +259,7 @@ pub(super) fn drain_after_timeout(
 mod tests {
     use super::*;
 
-    /// SEC-33 / TASK-1050: `read_capped` is the workhorse that bounds the
+    /// `read_capped` is the workhorse that bounds the
     /// drain-thread allocation. Tested in isolation with an in-memory
     /// `Cursor` so the invariant ("kept + dropped == input length, kept <=
     /// cap") doesn't depend on an OS pipe.
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(&buf[..16], &input[..16]);
     }
 
-    /// SEC-33 / TASK-1050: when the child's output fits inside the cap,
+    /// When the child's output fits inside the cap,
     /// `read_capped` must report zero dropped bytes and behave identically
     /// to the previous `read_to_end` path.
     #[test]
@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(buf, input);
     }
 
-    /// PERF-3 / TASK-1425: a large-cap drain should pre-allocate ~64 KiB
+    /// a large-cap drain should pre-allocate ~64 KiB
     /// up-front rather than doubling from 0 → 8 → 16 → 32 → 64. Starting
     /// from `Vec::new()` (capacity 0), the post-call capacity must be at
     /// least 64 KiB, proving the reservation actually happened.
@@ -319,7 +319,7 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1425: a tiny cap must NOT over-reserve. With cap=128
+    /// a tiny cap must NOT over-reserve. With cap=128
     /// and an empty stream, the buffer capacity must stay bounded by the
     /// cap (not 64 KiB).
     #[test]
@@ -335,11 +335,11 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1473: a stream that dwarfs the cap (here, 16 MiB into
+    /// a stream that dwarfs the cap (here, 16 MiB into
     /// a 64 KiB cap) must drain to EOF via the `io::copy` → `io::sink` path,
     /// keeping exactly `cap` bytes and accounting for every dropped byte.
     ///
-    /// TEST-15 / TASK-1664: the `elapsed < 2s` assertion that used to close
+    /// The `elapsed < 2s` assertion that used to close
     /// this test is **deleted**, not converted, because it could not fail for
     /// any reason except load. Three findings, in order:
     ///
@@ -376,7 +376,7 @@ mod tests {
         );
     }
 
-    /// ARCH-2 / TASK-1426: when `read_capped` returns an `io::Error` and the
+    /// When `read_capped` returns an `io::Error` and the
     /// captured buffer is empty, `collect_drain` must surface a
     /// `RunError::Io` rather than `Ok(Vec::new())`. Returning `Ok` here
     /// would make a mid-read EIO indistinguishable from a clean empty
@@ -405,24 +405,20 @@ mod tests {
         }
     }
 
-    /// ARCH-2 / TASK-1426: partial reads (buf non-empty + Some(err)) keep
+    /// Partial reads (buf non-empty + Some(err)) keep
     /// the existing truncated-with-breadcrumb contract — bytes captured
     /// before the failure are real and historically consumed by callers.
     #[test]
     fn collect_drain_partial_read_with_error_returns_captured_bytes() {
         let handle = thread::spawn(|| -> DrainResult {
-            (
-                b"partial".to_vec(),
-                0,
-                Some(io::Error::other("synthetic mid-read EIO")),
-            )
+            (b"partial".to_vec(), 0, Some(io::Error::other("synthetic mid-read EIO")))
         });
         let buf = collect_drain(Some(handle), "arch-2 test", "stdout")
             .expect("non-empty buf + Some(err) must keep the truncated-Ok contract");
         assert_eq!(buf, b"partial");
     }
 
-    /// ERR-1 / TASK-1466: the timeout-cleanup branch must surface a
+    /// The timeout-cleanup branch must surface a
     /// `tracing::warn!` when a drain join errors or panics, so the loss of
     /// captured bytes alongside `RunError::Timeout` is not invisible. We
     /// inject a panicking drain thread into `drain_after_timeout` directly;
@@ -434,17 +430,8 @@ mod tests {
         let (logs, ()) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
             drain_after_timeout(Some(panicking), None, "task-1466-test");
         });
-        assert!(
-            logs.contains("task-1466-test"),
-            "warn must name the caller label, got: {logs}"
-        );
-        assert!(
-            logs.contains("stdout"),
-            "warn must name the offending stream, got: {logs}"
-        );
-        assert!(
-            logs.contains("drain"),
-            "warn must mention the drain failure, got: {logs}"
-        );
+        assert!(logs.contains("task-1466-test"), "warn must name the caller label, got: {logs}");
+        assert!(logs.contains("stdout"), "warn must name the offending stream, got: {logs}");
+        assert!(logs.contains("drain"), "warn must mention the drain failure, got: {logs}");
     }
 }

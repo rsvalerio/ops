@@ -69,11 +69,7 @@ static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
 /// [`resolve_env_usize`] directly (the pure helper) to bypass the cache.
 pub fn resolve_max_parallel() -> usize {
     *MAX_PARALLEL_CACHED.get_or_init(|| {
-        resolve_env_usize(
-            "OPS_MAX_PARALLEL",
-            DEFAULT_MAX_PARALLEL,
-            MAX_PARALLEL_CEILING,
-        )
+        resolve_env_usize("OPS_MAX_PARALLEL", DEFAULT_MAX_PARALLEL, MAX_PARALLEL_CEILING)
     })
 }
 
@@ -264,10 +260,8 @@ impl CommandRunner {
         match res {
             Ok(step_result) => results.push(step_result),
             Err(e) => {
-                let cmd_id = id_map
-                    .get(&e.id())
-                    .cloned()
-                    .unwrap_or_else(|| CommandId::from("<panicked>"));
+                let cmd_id =
+                    id_map.get(&e.id()).cloned().unwrap_or_else(|| CommandId::from("<panicked>"));
                 // Distinguish a cancellation
                 // (fail_fast aborted the JoinSet) from a real panic so
                 // users see "cancelled" rather than misleading
@@ -505,8 +499,7 @@ impl CommandRunner {
         let results = if steps.iter().any(|(_, spec)| spec.exclusive) {
             self.run_stages(steps, fail_fast, on_event).await
         } else {
-            self.run_parallel_batch(command_ids, steps, fail_fast, on_event)
-                .await
+            self.run_parallel_batch(command_ids, steps, fail_fast, on_event).await
         };
 
         lifecycle.finish(results.iter().all(|r| r.success), on_event);
@@ -542,8 +535,7 @@ impl CommandRunner {
                 }
                 Err(batch) => {
                     let ids: Vec<CommandId> = batch.iter().map(|(id, _)| id.clone()).collect();
-                    self.run_parallel_batch(&ids, batch, fail_fast, on_event)
-                        .await
+                    self.run_parallel_batch(&ids, batch, fail_fast, on_event).await
                 }
             };
             let failed = stage_results.iter().any(|r| !r.success);
@@ -571,11 +563,8 @@ impl CommandRunner {
         // tripping the plan's fail_fast.
         let rows = self.row_ids(command_ids);
         let step_ids: HashSet<&CommandId> = command_ids.iter().collect();
-        let matrix_cells: HashSet<CommandId> = rows
-            .iter()
-            .filter(|row| !step_ids.contains(row))
-            .cloned()
-            .collect();
+        let matrix_cells: HashSet<CommandId> =
+            rows.iter().filter(|row| !step_ids.contains(row)).cloned().collect();
         let deps = self.batch_deps(&steps);
         let (rx, abort, mut join_set, id_map) =
             Self::spawn_parallel_tasks(steps, &deps, fail_fast, &self.exec_env());
@@ -643,10 +632,7 @@ impl CommandRunner {
                 // Guarded by `*entry > 0`, so this is exactly `-= 1`.
                 *entry = entry.saturating_sub(1);
             } else {
-                on_event(RunnerEvent::StepSkipped {
-                    id: id.clone(),
-                    display_cmd: None,
-                });
+                on_event(RunnerEvent::StepSkipped { id: id.clone(), display_cmd: None });
             }
         }
         Self::collect_join_results_with_pre(harvested, join_set, &id_map).await
@@ -713,7 +699,7 @@ impl CommandRunner {
     /// `collect_join_results` output without losing the panic-aware
     /// step ids `id_map` records.
     ///
-    /// `matrix_cells` names the rows of matrix steps (TASK-2277). A failing
+    /// `matrix_cells` names the rows of matrix steps. A failing
     /// cell's `StepFailed` does not trip `fail_fast`: the cells answer to
     /// their own `strategy.fail_fast`, and the matrix step trips the plan
     /// when its aggregate result comes back failed (see `harvest_joined`).
@@ -891,11 +877,8 @@ mod resolve_tests {
         // SAFETY: tests serialised via `serial_test` so other threads
         // cannot read the env mid-mutation.
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "5000") };
-        let resolved = resolve_env_usize(
-            "OPS_MAX_PARALLEL",
-            DEFAULT_MAX_PARALLEL,
-            MAX_PARALLEL_CEILING,
-        );
+        let resolved =
+            resolve_env_usize("OPS_MAX_PARALLEL", DEFAULT_MAX_PARALLEL, MAX_PARALLEL_CEILING);
         match prev {
             Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
             None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
@@ -911,17 +894,11 @@ mod resolve_tests {
     fn resolve_max_parallel_falls_back_on_zero_or_unparseable() {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "junk") };
-        let resolved_junk = resolve_env_usize(
-            "OPS_MAX_PARALLEL",
-            DEFAULT_MAX_PARALLEL,
-            MAX_PARALLEL_CEILING,
-        );
+        let resolved_junk =
+            resolve_env_usize("OPS_MAX_PARALLEL", DEFAULT_MAX_PARALLEL, MAX_PARALLEL_CEILING);
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "0") };
-        let resolved_zero = resolve_env_usize(
-            "OPS_MAX_PARALLEL",
-            DEFAULT_MAX_PARALLEL,
-            MAX_PARALLEL_CEILING,
-        );
+        let resolved_zero =
+            resolve_env_usize("OPS_MAX_PARALLEL", DEFAULT_MAX_PARALLEL, MAX_PARALLEL_CEILING);
         match prev {
             Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
             None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
@@ -987,11 +964,8 @@ mod resolve_tests {
         // Bypass the memoising public resolver — the
         // OnceLock cache may have been populated by an earlier test before
         // this one set the empty value.
-        let resolved = resolve_env_usize(
-            "OPS_MAX_PARALLEL",
-            DEFAULT_MAX_PARALLEL,
-            MAX_PARALLEL_CEILING,
-        );
+        let resolved =
+            resolve_env_usize("OPS_MAX_PARALLEL", DEFAULT_MAX_PARALLEL, MAX_PARALLEL_CEILING);
         match prev {
             Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
             None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },

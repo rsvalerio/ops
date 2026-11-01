@@ -1,4 +1,4 @@
-//! TASK-2277: `[commands.<name>.strategy]` end to end through
+//! `[commands.<name>.strategy]` end to end through
 //! `load_config_at` — parsing, load-time validation, clone and extend.
 
 use crate::config::{load_config_at, CommandSpec, Config, ExecCommandSpec};
@@ -40,10 +40,7 @@ fn cell_args(spec: &ExecCommandSpec, name: &str) -> Vec<String> {
 }
 
 fn load_err(ops_toml: &str) -> String {
-    format!(
-        "{:#}",
-        load(ops_toml).expect_err("config must fail to load")
-    )
+    format!("{:#}", load(ops_toml).expect_err("config must fail to load"))
 }
 
 #[test]
@@ -66,10 +63,7 @@ fn matrix_command_expands_one_spec_per_cell() {
     );
     // `${VAR}` is left for the runner's expansion pass; each cell has no
     // strategy of its own.
-    assert_eq!(
-        cells[0].spec.env["CARGO_TARGET_DIR"],
-        "${CARGO_TARGET_DIR:-target}/doc-default"
-    );
+    assert_eq!(cells[0].spec.env["CARGO_TARGET_DIR"], "${CARGO_TARGET_DIR:-target}/doc-default");
     assert!(cells.iter().all(|c| c.spec.strategy.is_none()));
 }
 
@@ -101,16 +95,8 @@ matrix = { crate = ["a"], features = ["x", "y"] }
     assert_eq!(
         rendered,
         [
-            (
-                "t [crate=a, features=x]".into(),
-                "x".into(),
-                "crates/a".into()
-            ),
-            (
-                "t [crate=a, features=y]".into(),
-                "y".into(),
-                "crates/a".into()
-            ),
+            ("t [crate=a, features=x]".into(), "x".into(), "crates/a".into()),
+            ("t [crate=a, features=y]".into(), "y".into(), "crates/a".into()),
         ]
     );
 }
@@ -198,10 +184,8 @@ matrix = { k = ["a"] }
 #[test]
 #[serial_test::serial]
 fn clone_copies_the_strategy() {
-    let config = load(&format!(
-        "{DOC_DEFAULT}\n[commands.doc-copy]\nclone = \"doc-default\"\n"
-    ))
-    .unwrap();
+    let config =
+        load(&format!("{DOC_DEFAULT}\n[commands.doc-copy]\nclone = \"doc-default\"\n")).unwrap();
     let copy = exec(&config, "doc-copy");
     assert_eq!(copy.strategy, exec(&config, "doc-default").strategy);
     assert_eq!(
@@ -247,22 +231,11 @@ fn extend_matrix_appends_values_to_an_axis() {
     ))
     .unwrap();
     assert_eq!(
-        exec(&config, "doc-copy")
-            .strategy
-            .as_ref()
-            .unwrap()
-            .matrix
-            .axes["crate"],
+        exec(&config, "doc-copy").strategy.as_ref().unwrap().matrix.axes["crate"],
         ["dbsec-core", "dbsec", "dbsec-vault", "dbsec-derive"]
     );
     assert_eq!(
-        exec(&config, "doc-default")
-            .strategy
-            .as_ref()
-            .unwrap()
-            .matrix
-            .axes["crate"]
-            .len(),
+        exec(&config, "doc-default").strategy.as_ref().unwrap().matrix.axes["crate"].len(),
         3,
         "the clone's source is not extended"
     );
@@ -271,9 +244,7 @@ fn extend_matrix_appends_values_to_an_axis() {
 #[test]
 #[serial_test::serial]
 fn extend_matrix_with_an_unknown_axis_or_no_strategy_fails() {
-    let msg = load_err(&format!(
-        "{DOC_DEFAULT}\n[extend.doc-default]\nmatrix.crat = [\"x\"]\n"
-    ));
+    let msg = load_err(&format!("{DOC_DEFAULT}\n[extend.doc-default]\nmatrix.crat = [\"x\"]\n"));
     assert!(msg.contains("matrix.crat"), "{msg}");
     let msg = load_err("[commands.t]\nprogram = \"echo\"\n[extend.t]\nmatrix.k = [\"x\"]\n");
     assert!(msg.contains("no [commands.t.strategy]"), "{msg}");

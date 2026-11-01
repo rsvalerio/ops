@@ -56,7 +56,7 @@ fn provider_invalid_toml() {
 /// Unix-only: the mechanism is the DAC mode bits, and Windows manages file
 /// access through ACLs.
 ///
-/// TEST-18 / TASK-1802: the chmod is owned by a `Drop` guard so a panic in
+/// The chmod is owned by a `Drop` guard so a panic in
 /// the body still leaves the tempdir removable, and the guard probes whether
 /// 0o000 is actually enforced — under `CAP_DAC_OVERRIDE` (uid 0, the default
 /// in most CI container images) the read succeeds and the old
@@ -66,11 +66,8 @@ fn provider_invalid_toml() {
 fn provider_unreadable_file_returns_error() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let cargo_toml = temp_dir.path().join("Cargo.toml");
-    std::fs::write(
-        &cargo_toml,
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"",
-    )
-    .expect("write cargo toml");
+    std::fs::write(&cargo_toml, "[package]\nname = \"test\"\nversion = \"0.1.0\"")
+        .expect("write cargo toml");
 
     let Some(_guard) = PermGuard::deny_all(&cargo_toml, |p| std::fs::read(p).map(|_| ())) else {
         skip_no_dac_enforcement("provider_unreadable_file_returns_error");
@@ -114,7 +111,7 @@ members = ["."]
 serde = "1.0"
 "#;
 
-/// READ-6 / TASK-1798: hold the published schema and the emitted JSON
+/// Hold the published schema and the emitted JSON
 /// together. The previous assertion only checked that the schema *listed*
 /// `dev-dependencies`, so it stayed green while serde serialised the field
 /// as `dev_dependencies` and every consumer reading the documented key got
@@ -139,11 +136,7 @@ fn provider_schema_names_match_serialized_manifest() {
         let mut cursor = &value;
         let mut walked = String::new();
         for (i, segment) in field.name.split('.').enumerate() {
-            let key = if i == 0 {
-                segment.to_ascii_lowercase()
-            } else {
-                segment.to_string()
-            };
+            let key = if i == 0 { segment.to_ascii_lowercase() } else { segment.to_string() };
             walked.push('/');
             walked.push_str(&key);
             cursor = cursor.get(&key).unwrap_or_else(|| {
@@ -162,7 +155,7 @@ fn provider_schema_names_match_serialized_manifest() {
     }
 }
 
-/// READ-6 / TASK-1798: the wire format accepts both spellings on the read
+/// The wire format accepts both spellings on the read
 /// side, so a consumer that round-trips provider JSON back into `CargoToml`
 /// keeps working, and so does a hand-written `snake_case` payload.
 #[test]
@@ -202,11 +195,8 @@ fn provider_dependency_sections_round_trip_in_both_spellings() {
 fn provider_resolve_root_auto_discovers() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let cargo_toml = temp_dir.path().join("Cargo.toml");
-    std::fs::write(
-        &cargo_toml,
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"",
-    )
-    .expect("write cargo toml");
+    std::fs::write(&cargo_toml, "[package]\nname = \"test\"\nversion = \"0.1.0\"")
+        .expect("write cargo toml");
 
     let subdir = temp_dir.path().join("src");
     std::fs::create_dir_all(&subdir).expect("create subdir");
@@ -266,17 +256,11 @@ serde = "1.0"
 
     // Both dep inheritance and package inheritance should be resolved
     assert_eq!(manifest.dependencies["serde"].version(), Some("1.0"));
-    assert_eq!(
-        manifest.package.as_ref().unwrap().version.as_str(),
-        Some("2.0.0")
-    );
-    assert_eq!(
-        manifest.package.as_ref().unwrap().edition.as_str(),
-        Some("2024")
-    );
+    assert_eq!(manifest.package.as_ref().unwrap().version.as_str(), Some("2.0.0"));
+    assert_eq!(manifest.package.as_ref().unwrap().edition.as_str(), Some("2024"));
 }
 
-/// SEC-25 / TASK-2143: the auto-discovering provider (the no-root shape the
+/// The auto-discovering provider (the no-root shape the
 /// `linkme` factory registers) must resolve its root with the strict walk,
 /// like `about` and `create-review-tasks` do directly — not the lenient walk
 /// it previously used.
@@ -308,16 +292,11 @@ fn auto_discovering_provider_uses_the_strict_root_walk() {
     // Pin the disagreement the provider's choice is made against.
     let lenient = crate::workspace_root::find_workspace_root(&legit)
         .expect("lenient walk returns its first-seen fallback");
-    assert_eq!(
-        lenient, legit,
-        "lenient walk resolves to the symlink-manifested directory"
-    );
+    assert_eq!(lenient, legit, "lenient walk resolves to the symlink-manifested directory");
 
     let provider = CargoTomlProvider::new();
     let mut ctx = test_context(legit);
-    let err = provider
-        .provide(&mut ctx)
-        .expect_err("strict walk finds no root");
+    let err = provider.provide(&mut ctx).expect_err("strict walk finds no root");
     assert!(
         matches!(err, DataProviderError::ComputationFailed(_)),
         "expected ComputationFailed, got: {err:?}"
@@ -329,7 +308,7 @@ fn auto_discovering_provider_uses_the_strict_root_walk() {
     );
 }
 
-/// The positive half of TASK-2143: auto-discovery still finds the real
+/// The positive half: auto-discovery still finds the real
 /// workspace root from inside a member crate, so switching the provider to
 /// the strict walk changed which candidates are *skipped*, not whether a
 /// genuine root is found.
@@ -343,10 +322,7 @@ fn auto_discovering_provider_finds_the_workspace_root_from_a_member() {
     let manifest: CargoToml =
         serde_json::from_value(value).expect("should deserialize to CargoToml");
     assert!(
-        manifest
-            .workspace
-            .as_ref()
-            .is_some_and(|w| !w.members.is_empty()),
+        manifest.workspace.as_ref().is_some_and(|w| !w.members.is_empty()),
         "the resolved root must be the real workspace root, not the member manifest"
     );
 }

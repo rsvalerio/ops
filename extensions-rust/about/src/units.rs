@@ -60,18 +60,14 @@ impl DataProvider for RustUnitsProvider {
             }
         };
         let dep_counts = crate_dep_counts(ctx);
-        let targets = ctx
-            .cached("metadata")
-            .map(|metadata| crate_targets(metadata))
-            .unwrap_or_default();
+        let targets =
+            ctx.cached("metadata").map(|metadata| crate_targets(metadata)).unwrap_or_default();
 
         // The canonical-manifest-path map is built once per workspace
         // (`LoadedManifest` is itself cached per workspace root), so sibling
         // providers and later `provide()` calls reuse it.
         let canonical_manifests = manifest.canonical_member_manifests();
-        let workspace_version = manifest
-            .workspace_package()
-            .and_then(|p| p.version.as_deref());
+        let workspace_version = manifest.workspace_package().and_then(|p| p.version.as_deref());
         // `resolved_members` already returns a sorted + deduplicated list;
         // consumers must not re-sort.
         let units: Vec<ProjectUnit> = manifest
@@ -182,18 +178,10 @@ fn build_unit(
     workspace_version: Option<&str>,
     lookups: &MemberLookups<'_>,
 ) -> ProjectUnit {
-    let MemberLookups {
-        canonical_manifests,
-        dep_counts,
-        targets,
-    } = lookups;
+    let MemberLookups { canonical_manifests, dep_counts, targets } = lookups;
     let crate_toml = workspace_root.join(member).join("Cargo.toml");
-    let CrateMetadata {
-        name: pkg_name,
-        version,
-        description,
-        version_inherited,
-    } = read_crate_metadata(&crate_toml);
+    let CrateMetadata { name: pkg_name, version, description, version_inherited } =
+        read_crate_metadata(&crate_toml);
     // Canonical `Cargo.toml` paths are cached on `LoadedManifest` so the
     // N-syscall fan-out happens at most once per workspace, not once per
     // provide() invocation. Cargo metadata stores `manifest_path` as a
@@ -203,23 +191,13 @@ fn build_unit(
     });
 
     let mut unit = ProjectUnit::new(format_unit_name(member), member.to_string());
-    unit.version = version.or_else(|| {
-        workspace_version
-            .filter(|_| version_inherited)
-            .map(str::to_string)
-    });
+    unit.version =
+        version.or_else(|| workspace_version.filter(|_| version_inherited).map(str::to_string));
     unit.description = description;
-    unit.dep_count = resolve_dep_count(
-        member,
-        pkg_name.as_deref(),
-        &canonical_manifest_path,
-        dep_counts,
-    );
+    unit.dep_count =
+        resolve_dep_count(member, pkg_name.as_deref(), &canonical_manifest_path, dep_counts);
     unit.package_name = pkg_name;
-    unit.targets = targets
-        .get(&canonical_manifest_path)
-        .cloned()
-        .unwrap_or_default();
+    unit.targets = targets.get(&canonical_manifest_path).cloned().unwrap_or_default();
     unit
 }
 
@@ -236,10 +214,7 @@ fn resolve_dep_count(
     dep_counts: &HashMap<String, i64>,
 ) -> Option<i64> {
     if package_name.is_none() {
-        tracing::debug!(
-            member,
-            "no package name resolved for member; dep_count unavailable"
-        );
+        tracing::debug!(member, "no package name resolved for member; dep_count unavailable");
         return None;
     }
     // Borrow the canonical path as `&str` so the HashMap lookup costs no
@@ -313,25 +288,14 @@ pub fn read_crate_metadata(crate_toml_path: &Path) -> CrateMetadata {
 
     let name = parsed.package_name().map(str::to_string);
     let version = parsed.package_version().map(str::to_string);
-    let description = parsed
-        .package
-        .as_ref()
-        .and_then(|p| p.description.as_str())
-        .map(str::to_string);
+    let description =
+        parsed.package.as_ref().and_then(|p| p.description.as_str()).map(str::to_string);
 
     let version_inherited = parsed.package.as_ref().is_some_and(|p| {
-        matches!(
-            p.version,
-            ops_cargo_toml::InheritableField::Inherited { workspace: true }
-        )
+        matches!(p.version, ops_cargo_toml::InheritableField::Inherited { workspace: true })
     });
 
-    CrateMetadata {
-        name,
-        version,
-        description,
-        version_inherited,
-    }
+    CrateMetadata { name, version, description, version_inherited }
 }
 
 /// Resolve display name for a member by reading its Cargo.toml, falling back
@@ -348,9 +312,7 @@ pub fn resolve_crate_display_name(member: &str, workspace_root: &Path) -> String
         return format_unit_name(member);
     }
     let toml_path = workspace_root.join(member).join("Cargo.toml");
-    read_crate_metadata(&toml_path)
-        .name
-        .unwrap_or_else(|| format_unit_name(member))
+    read_crate_metadata(&toml_path).name.unwrap_or_else(|| format_unit_name(member))
 }
 
 #[cfg(test)]
@@ -380,11 +342,7 @@ mod tests {
         let as_dir = hostile.join("Cargo.toml");
         std::fs::create_dir_all(&as_dir).unwrap();
         // (b) parse failure: a sibling member with malformed TOML.
-        let malformed_dir = dir
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("m\nalformed\u{1b}[31m");
+        let malformed_dir = dir.path().canonicalize().unwrap().join("m\nalformed\u{1b}[31m");
         std::fs::create_dir_all(&malformed_dir).unwrap();
         let malformed = malformed_dir.join("Cargo.toml");
         std::fs::write(&malformed, "[package\nname = \"unterminated\n").unwrap();
@@ -402,17 +360,10 @@ mod tests {
             logs.contains("failed to parse crate manifest as TOML"),
             "expected the parse-failure warn breadcrumb, got: {logs}"
         );
-        assert!(
-            !logs.contains('\u{1b}'),
-            "raw ESC must not reach the log lines: {logs:?}"
-        );
+        assert!(!logs.contains('\u{1b}'), "raw ESC must not reach the log lines: {logs:?}");
         // Only the path fields carry embedded newlines; a `%` formatter would
         // emit them raw and split the log record.
-        assert_eq!(
-            logs.lines().count(),
-            2,
-            "each breadcrumb must stay on one line, got: {logs:?}"
-        );
+        assert_eq!(logs.lines().count(), 2, "each breadcrumb must stay on one line, got: {logs:?}");
         assert!(
             logs.contains("\\u{1b}"),
             "paths must be Debug-escaped in the log lines, got: {logs}"
@@ -444,15 +395,8 @@ mod tests {
             logs.contains("rejecting absolute or `..` workspace member"),
             "expected the shared rejection breadcrumb, got: {logs}"
         );
-        assert!(
-            !logs.contains('\u{1b}'),
-            "raw ESC must not reach the log lines: {logs:?}"
-        );
-        assert_eq!(
-            logs.lines().count(),
-            2,
-            "each breadcrumb must stay on one line, got: {logs:?}"
-        );
+        assert!(!logs.contains('\u{1b}'), "raw ESC must not reach the log lines: {logs:?}");
+        assert_eq!(logs.lines().count(), 2, "each breadcrumb must stay on one line, got: {logs:?}");
         assert!(
             logs.contains("\\u{1b}"),
             "member must be Debug-escaped in the log lines, got: {logs}"
@@ -519,11 +463,7 @@ mod tests {
         let root = dir.path().canonicalize().unwrap();
         std::fs::create_dir_all(root.join("crates/foo")).unwrap();
         let manifest = root.join("crates/foo/Cargo.toml");
-        std::fs::write(
-            &manifest,
-            "[package]\nname = \"foo\"\nversion = \"1.0.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(&manifest, "[package]\nname = \"foo\"\nversion = \"1.0.0\"\n").unwrap();
         let metadata = serde_json::json!({
             "packages": [{
                 "name": "foo",
@@ -556,10 +496,7 @@ mod tests {
             ]
         );
         let text = serde_json::to_string(&unit.targets).unwrap();
-        assert!(
-            !text.contains("src_path") && !text.contains("/abs"),
-            "{text}"
-        );
+        assert!(!text.contains("src_path") && !text.contains("/abs"), "{text}");
     }
 
     #[test]
@@ -588,15 +525,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         std::fs::create_dir_all(root.join("crates/my-lib")).unwrap();
-        std::fs::write(
-            root.join("crates/my-lib/Cargo.toml"),
-            "[package]\nname = \"ops-my-lib\"\n",
-        )
-        .unwrap();
-        assert_eq!(
-            resolve_crate_display_name("crates/my-lib", &root),
-            "ops-my-lib"
-        );
+        std::fs::write(root.join("crates/my-lib/Cargo.toml"), "[package]\nname = \"ops-my-lib\"\n")
+            .unwrap();
+        assert_eq!(resolve_crate_display_name("crates/my-lib", &root), "ops-my-lib");
     }
 
     /// The dep-count resolution is reachable without a live `SQLite`. All
@@ -706,10 +637,7 @@ mod tests {
         let mut ctx = Context::test_context(root);
         let v = RustUnitsProvider.provide(&mut ctx).expect("provide");
         let arr = v.as_array().expect("array");
-        assert!(
-            arr.is_empty(),
-            "absolute and `..` members must produce zero units, got: {arr:?}"
-        );
+        assert!(arr.is_empty(), "absolute and `..` members must produce zero units, got: {arr:?}");
     }
 
     /// With the redundant `Vec<&str>` collect + `sort_unstable` removed,
@@ -732,11 +660,7 @@ mod tests {
             )
             .unwrap();
         }
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
 
         let mut ctx = Context::test_context(root.to_path_buf());
         let v1 = RustUnitsProvider.provide(&mut ctx).expect("provide1");
@@ -780,11 +704,8 @@ mod tests {
             )
             .unwrap();
         }
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"a/lib\", \"b/lib\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"a/lib\", \"b/lib\"]\n")
+            .unwrap();
 
         let mut ctx = Context::test_context(root.to_path_buf());
         let v = RustUnitsProvider.provide(&mut ctx).expect("provide");
@@ -794,10 +715,8 @@ mod tests {
             2,
             "duplicate-named members must each surface as a distinct unit, got: {arr:?}"
         );
-        let paths: std::collections::BTreeSet<&str> = arr
-            .iter()
-            .filter_map(|u| u.get("path").and_then(|p| p.as_str()))
-            .collect();
+        let paths: std::collections::BTreeSet<&str> =
+            arr.iter().filter_map(|u| u.get("path").and_then(|p| p.as_str())).collect();
         assert!(paths.contains("a/lib"));
         assert!(paths.contains("b/lib"));
     }
@@ -829,11 +748,7 @@ mod tests {
             )
             .unwrap();
         }
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
 
         let canonical_root = std::fs::canonicalize(root).expect("canonicalize");
         let run = |cwd: std::path::PathBuf| {
@@ -864,16 +779,11 @@ mod tests {
             "module_count must not depend on the cwd"
         );
         assert_eq!(
-            root_identity
-                .get("module_count")
-                .and_then(serde_json::Value::as_u64),
+            root_identity.get("module_count").and_then(serde_json::Value::as_u64),
             Some(3),
             "premise: module_count counts the expanded members"
         );
-        assert_eq!(
-            sub_coverage, root_coverage,
-            "coverage must not depend on the cwd"
-        );
+        assert_eq!(sub_coverage, root_coverage, "coverage must not depend on the cwd");
 
         crate::manifest_cache::evict(&canonical_root);
     }
@@ -881,9 +791,6 @@ mod tests {
     #[test]
     fn resolve_crate_display_name_missing() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            resolve_crate_display_name("crates/nothing", dir.path()),
-            "Nothing"
-        );
+        assert_eq!(resolve_crate_display_name("crates/nothing", dir.path()), "Nothing");
     }
 }

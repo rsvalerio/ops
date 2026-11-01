@@ -87,9 +87,7 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             // unit is still emitted (count parity); only the child-pom
             // enrichment is skipped.
             let in_tree = !Path::new(&module).is_absolute()
-                && !Path::new(&module)
-                    .components()
-                    .any(|c| matches!(c, Component::ParentDir));
+                && !Path::new(&module).components().any(|c| matches!(c, Component::ParentDir));
             let child = in_tree.then(|| parse_pom_xml(&cwd.join(&module))).flatten();
             let name = child
                 .as_ref()
@@ -223,10 +221,7 @@ mod tests {
             let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
 
             assert_eq!(result["homepage"], "https://example.com", "{label}");
-            assert_eq!(
-                result["repository"], "https://github.com/user/mylib",
-                "{label}"
-            );
+            assert_eq!(result["repository"], "https://github.com/user/mylib", "{label}");
         }
     }
 

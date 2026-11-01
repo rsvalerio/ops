@@ -30,7 +30,7 @@ fn test_themes() -> IndexMap<String, ThemeConfig> {
     themes
 }
 
-/// DUP-004: Reduce repeated `ProgressDisplay` test setup.
+/// Reduce repeated `ProgressDisplay` test setup.
 fn test_display(entries: &[(&str, &str)]) -> ProgressDisplay {
     test_display_with_config(&config::OutputConfig::default(), entries)
 }
@@ -39,10 +39,8 @@ fn test_display_with_config(
     output: &config::OutputConfig,
     entries: &[(&str, &str)],
 ) -> ProgressDisplay {
-    let display_map: HashMap<String, String> = entries
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+    let display_map: HashMap<String, String> =
+        entries.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     let custom_themes = test_themes();
     ProgressDisplay::new(DisplayOptions {
         output,
@@ -60,9 +58,7 @@ fn progress_display_handles_full_lifecycle() {
     let mut display = test_display(&[("echo_hi", "echo hi")]);
 
     // Non-TTY: events go to stderr (we just verify no panics and state is correct)
-    display.handle_event(RunnerEvent::PlanStarted {
-        command_ids: vec!["echo_hi".into()],
-    });
+    display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["echo_hi".into()] });
     assert_eq!(display.state.steps.len(), 1);
     assert_eq!(display.step_index("echo_hi"), Some(0));
     assert_eq!(display.step_index("unknown"), None);
@@ -92,25 +88,17 @@ fn progress_display_handles_full_lifecycle() {
         display_cmd: Some("echo hi".to_string()),
     });
 
-    display.handle_event(RunnerEvent::RunFinished {
-        duration_secs: 0.05,
-        success: true,
-    });
+    display.handle_event(RunnerEvent::RunFinished { duration_secs: 0.05, success: true });
 }
 
 #[test]
 fn progress_display_handles_failure_with_error_detail() {
     let mut display = test_display_with_config(
-        &config::OutputConfig {
-            show_error_detail: true,
-            ..config::OutputConfig::default()
-        },
+        &config::OutputConfig { show_error_detail: true, ..config::OutputConfig::default() },
         &[("fail_cmd", "false")],
     );
 
-    display.handle_event(RunnerEvent::PlanStarted {
-        command_ids: vec!["fail_cmd".into()],
-    });
+    display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["fail_cmd".into()] });
     display.handle_event(RunnerEvent::StepStarted {
         id: "fail_cmd".into(),
         display_cmd: Some("false".to_string()),
@@ -126,10 +114,7 @@ fn progress_display_handles_failure_with_error_detail() {
         message: "exit status: 1".to_string(),
         display_cmd: Some("false".to_string()),
     });
-    display.handle_event(RunnerEvent::RunFinished {
-        duration_secs: 0.01,
-        success: false,
-    });
+    display.handle_event(RunnerEvent::RunFinished { duration_secs: 0.01, success: false });
     // Verify stderr was captured
     assert_eq!(display.state.step_stderr["fail_cmd"].len(), 1);
 }
@@ -137,10 +122,8 @@ fn progress_display_handles_failure_with_error_detail() {
 #[test]
 fn progress_display_render_step() {
     let display = test_display(&[]);
-    let renderer = StepRenderer::new(
-        &display.render_config().theme,
-        display.render_config().columns,
-    );
+    let renderer =
+        StepRenderer::new(&display.render_config().theme, display.render_config().columns);
     let line = renderer.render(StepStatus::Succeeded, "cargo build", Some(1.23));
     assert!(line.contains("cargo build"));
     assert!(line.contains("1.23s"));
@@ -148,10 +131,7 @@ fn progress_display_render_step() {
 
 #[test]
 fn emit_line_non_tty_writes_to_stderr() {
-    let output = config::OutputConfig {
-        columns: 80,
-        ..config::OutputConfig::default()
-    };
+    let output = config::OutputConfig { columns: 80, ..config::OutputConfig::default() };
     let custom_themes = test_themes();
     let display = ProgressDisplay::new_with_tty_check(
         DisplayOptions {
@@ -190,9 +170,7 @@ fn tap_file_captures_raw_output() {
     })
     .expect("should construct with tap");
 
-    display.handle_event(RunnerEvent::PlanStarted {
-        command_ids: vec!["cmd".into()],
-    });
+    display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["cmd".into()] });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
         line: "hello world".into(),
@@ -208,14 +186,8 @@ fn tap_file_captures_raw_output() {
     drop(display);
 
     let contents = std::fs::read_to_string(&tap_path).expect("read tap file");
-    assert!(
-        contents.contains("hello world"),
-        "tap should contain stdout: {contents}"
-    );
-    assert!(
-        contents.contains("error line"),
-        "tap should contain stderr: {contents}"
-    );
+    assert!(contents.contains("hello world"), "tap should contain stdout: {contents}");
+    assert!(contents.contains("error line"), "tap should contain stderr: {contents}");
 
     // tempdir is cleaned up on drop; no manual remove_file needed.
 }
@@ -230,9 +202,7 @@ fn tap_none_produces_no_file() {
 fn step_stderr_captures_output() {
     let mut display = test_display(&[("cmd", "test cmd")]);
 
-    display.handle_event(RunnerEvent::PlanStarted {
-        command_ids: vec!["cmd".into()],
-    });
+    display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["cmd".into()] });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
         line: "stderr line 1".into(),
@@ -249,11 +219,7 @@ fn step_stderr_captures_output() {
         stderr: true,
     });
 
-    let captured = display
-        .state
-        .step_stderr
-        .get("cmd")
-        .expect("should capture stderr");
+    let captured = display.state.step_stderr.get("cmd").expect("should capture stderr");
     assert_eq!(captured.len(), 2);
     assert_eq!(&*captured[0], "stderr line 1");
     assert_eq!(&*captured[1], "stderr line 2");
@@ -276,7 +242,7 @@ fn render_config_uses_output_settings() {
     assert_eq!(display.render.stderr_tail, StderrTail::Limited(10));
 }
 
-/// TASK-0762: user's `stderr_tail_lines` config value is preserved when verbose
+/// User's `stderr_tail_lines` config value is preserved when verbose
 /// is true — verbose overrides at the display layer via `StderrTail::Unbounded`
 /// without mutating the underlying config.
 #[test]
@@ -309,9 +275,7 @@ fn verbose_overrides_to_unbounded_without_mutating_config() {
 fn progress_display_handles_step_skipped() {
     let mut display = test_display(&[("skip_cmd", "skipped command")]);
 
-    display.handle_event(RunnerEvent::PlanStarted {
-        command_ids: vec!["skip_cmd".into()],
-    });
+    display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["skip_cmd".into()] });
     display.handle_event(RunnerEvent::StepStarted {
         id: "skip_cmd".into(),
         display_cmd: Some("skipped command".to_string()),
@@ -320,15 +284,12 @@ fn progress_display_handles_step_skipped() {
         id: "skip_cmd".into(),
         display_cmd: Some("skipped command".to_string()),
     });
-    display.handle_event(RunnerEvent::RunFinished {
-        duration_secs: 0.0,
-        success: true,
-    });
+    display.handle_event(RunnerEvent::RunFinished { duration_secs: 0.0, success: true });
 
     assert_eq!(display.state.bars.len(), 1);
 }
 
-/// TASK-2325: under GitHub Actions the display consumes step output and
+/// Under GitHub Actions the display consumes step output and
 /// finished/failed/orphaned steps, and `RunFinished` appends the run summary
 /// to `$GITHUB_STEP_SUMMARY`.
 #[test]
@@ -341,10 +302,7 @@ fn github_actions_summary_covers_every_step() {
     display.handle_event(RunnerEvent::PlanStarted {
         command_ids: vec!["build".into(), "test".into(), "doc".into()],
     });
-    display.handle_event(RunnerEvent::StepStarted {
-        id: "build".into(),
-        display_cmd: None,
-    });
+    display.handle_event(RunnerEvent::StepStarted { id: "build".into(), display_cmd: None });
     display.handle_event(RunnerEvent::StepOutput {
         id: "build".into(),
         line: "error[E0425]".into(),
@@ -362,25 +320,16 @@ fn github_actions_summary_covers_every_step() {
         display_cmd: None,
     });
     // `doc` never finishes: it is finalized as an orphan on RunFinished.
-    display.handle_event(RunnerEvent::RunFinished {
-        duration_secs: 3.0,
-        success: false,
-    });
+    display.handle_event(RunnerEvent::RunFinished { duration_secs: 3.0, success: false });
 
     let written = std::fs::read_to_string(&summary).expect("summary written");
-    assert!(
-        written.contains("| cargo build | failed | 1.00s |"),
-        "{written}"
-    );
-    assert!(
-        written.contains("| cargo test | succeeded | 2.00s |"),
-        "{written}"
-    );
+    assert!(written.contains("| cargo build | failed | 1.00s |"), "{written}");
+    assert!(written.contains("| cargo test | succeeded | 2.00s |"), "{written}");
     assert!(written.contains("| doc | skipped |"), "{written}");
     assert!(written.contains("1 failed, 1 succeeded of 3"), "{written}");
 }
 
-/// TASK-2338: `--junit <file>` writes one testcase per plan step — failed
+/// `--junit <file>` writes one testcase per plan step — failed
 /// (with message and output tail), succeeded, and orphaned-as-skipped — at
 /// `RunFinished`.
 #[test]
@@ -407,10 +356,7 @@ fn junit_report_has_one_testcase_per_plan_step() {
     display.handle_event(RunnerEvent::PlanStarted {
         command_ids: vec!["build".into(), "test".into(), "doc".into()],
     });
-    display.handle_event(RunnerEvent::StepStarted {
-        id: "build".into(),
-        display_cmd: None,
-    });
+    display.handle_event(RunnerEvent::StepStarted { id: "build".into(), display_cmd: None });
     display.handle_event(RunnerEvent::StepOutput {
         id: "build".into(),
         line: "error[E0425]: cannot find value `x`".into(),
@@ -428,17 +374,11 @@ fn junit_report_has_one_testcase_per_plan_step() {
         display_cmd: None,
     });
     // `doc` never finishes: it is finalized as an orphan on RunFinished.
-    display.handle_event(RunnerEvent::RunFinished {
-        duration_secs: 3.0,
-        success: false,
-    });
+    display.handle_event(RunnerEvent::RunFinished { duration_secs: 3.0, success: false });
 
     let xml = std::fs::read_to_string(&report).expect("junit report written");
     assert_eq!(xml.matches("<testcase ").count(), 3, "{xml}");
-    assert!(
-        xml.contains("tests=\"3\" failures=\"1\" errors=\"0\" skipped=\"1\""),
-        "{xml}"
-    );
+    assert!(xml.contains("tests=\"3\" failures=\"1\" errors=\"0\" skipped=\"1\""), "{xml}");
     assert!(
         xml.contains("<testcase name=\"cargo build\" classname=\"ops.build\" time=\"1.000\">"),
         "{xml}"
@@ -451,10 +391,7 @@ fn junit_report_has_one_testcase_per_plan_step() {
         xml.contains("<testcase name=\"cargo test\" classname=\"ops.test\" time=\"2.000\"/>"),
         "{xml}"
     );
-    assert!(
-        xml.contains("classname=\"ops.doc\"") && xml.contains("<skipped/>"),
-        "{xml}"
-    );
+    assert!(xml.contains("classname=\"ops.doc\"") && xml.contains("<skipped/>"), "{xml}");
 }
 
 mod edge_case_tests {
@@ -464,9 +401,8 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_extracts_correct_count() {
-        let lines: Vec<Box<str>> = (1..=10)
-            .map(|i| Box::from(format!("line {i}").as_str()))
-            .collect();
+        let lines: Vec<Box<str>> =
+            (1..=10).map(|i| Box::from(format!("line {i}").as_str())).collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail.len(), DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail[0], "line 6");
@@ -491,9 +427,8 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_unlimited_returns_all() {
-        let lines: Vec<Box<str>> = (1..=100)
-            .map(|i| Box::from(format!("line {i}").as_str()))
-            .collect();
+        let lines: Vec<Box<str>> =
+            (1..=100).map(|i| Box::from(format!("line {i}").as_str())).collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, usize::MAX);
         assert_eq!(tail.len(), 100);
     }
@@ -502,9 +437,7 @@ mod edge_case_tests {
     fn finish_step_returns_none_for_unknown_id() {
         let mut display = test_display(&[]);
 
-        display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["known".into()],
-        });
+        display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["known".into()] });
 
         let result = display.finish_step("unknown", StepStatus::Succeeded, 1.0, None);
         assert!(result.is_none(), "unknown step should return None");
@@ -528,27 +461,11 @@ mod concurrent_event_tests {
 
         // Simulate rapid event sequence as would occur in parallel execution
         let events = vec![
-            RunnerEvent::PlanStarted {
-                command_ids: vec!["cmd1".into(), "cmd2".into()],
-            },
-            RunnerEvent::StepStarted {
-                id: "cmd1".into(),
-                display_cmd: Some("echo 1".into()),
-            },
-            RunnerEvent::StepStarted {
-                id: "cmd2".into(),
-                display_cmd: Some("echo 2".into()),
-            },
-            RunnerEvent::StepOutput {
-                id: "cmd1".into(),
-                line: "output1".into(),
-                stderr: false,
-            },
-            RunnerEvent::StepOutput {
-                id: "cmd2".into(),
-                line: "output2".into(),
-                stderr: true,
-            },
+            RunnerEvent::PlanStarted { command_ids: vec!["cmd1".into(), "cmd2".into()] },
+            RunnerEvent::StepStarted { id: "cmd1".into(), display_cmd: Some("echo 1".into()) },
+            RunnerEvent::StepStarted { id: "cmd2".into(), display_cmd: Some("echo 2".into()) },
+            RunnerEvent::StepOutput { id: "cmd1".into(), line: "output1".into(), stderr: false },
+            RunnerEvent::StepOutput { id: "cmd2".into(), line: "output2".into(), stderr: true },
             RunnerEvent::StepFinished {
                 id: "cmd1".into(),
                 duration_secs: 0.1,
@@ -559,10 +476,7 @@ mod concurrent_event_tests {
                 duration_secs: 0.15,
                 display_cmd: Some("echo 2".into()),
             },
-            RunnerEvent::RunFinished {
-                duration_secs: 0.2,
-                success: true,
-            },
+            RunnerEvent::RunFinished { duration_secs: 0.2, success: true },
         ];
 
         // Handle all events - should not panic
@@ -578,26 +492,15 @@ mod concurrent_event_tests {
     #[test]
     fn handle_event_interleaved_failure_sequence() {
         let mut display = test_display_with_config(
-            &config::OutputConfig {
-                show_error_detail: true,
-                ..config::OutputConfig::default()
-            },
+            &config::OutputConfig { show_error_detail: true, ..config::OutputConfig::default() },
             &[("ok", "true"), ("fail", "false")],
         );
 
         // Simulate parallel execution with one failure
         let events = vec![
-            RunnerEvent::PlanStarted {
-                command_ids: vec!["ok".into(), "fail".into()],
-            },
-            RunnerEvent::StepStarted {
-                id: "ok".into(),
-                display_cmd: Some("true".into()),
-            },
-            RunnerEvent::StepStarted {
-                id: "fail".into(),
-                display_cmd: Some("false".into()),
-            },
+            RunnerEvent::PlanStarted { command_ids: vec!["ok".into(), "fail".into()] },
+            RunnerEvent::StepStarted { id: "ok".into(), display_cmd: Some("true".into()) },
+            RunnerEvent::StepStarted { id: "fail".into(), display_cmd: Some("false".into()) },
             RunnerEvent::StepOutput {
                 id: "fail".into(),
                 line: "error message".into(),
@@ -614,10 +517,7 @@ mod concurrent_event_tests {
                 message: "exit status 1".into(),
                 display_cmd: Some("false".into()),
             },
-            RunnerEvent::RunFinished {
-                duration_secs: 0.02,
-                success: false,
-            },
+            RunnerEvent::RunFinished { duration_secs: 0.02, success: false },
         ];
 
         for event in events {
@@ -663,10 +563,8 @@ mod error_path_tests {
 
     #[test]
     fn progress_display_valid_theme_succeeds() {
-        let output = config::OutputConfig {
-            theme: "classic".into(),
-            ..config::OutputConfig::default()
-        };
+        let output =
+            config::OutputConfig { theme: "classic".into(), ..config::OutputConfig::default() };
         // test_display_with_config uses test_themes() which includes "classic"
         let _display = test_display_with_config(&output, &[]);
     }
@@ -680,9 +578,7 @@ mod unknown_command_tests {
     fn handle_event_unknown_command_id_no_panic() {
         let mut display = test_display(&[]);
 
-        display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["known_cmd".into()],
-        });
+        display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["known_cmd".into()] });
 
         display.handle_event(RunnerEvent::StepStarted {
             id: "unknown_cmd".into(),
@@ -695,19 +591,14 @@ mod unknown_command_tests {
             display_cmd: Some("unknown command".to_string()),
         });
 
-        display.handle_event(RunnerEvent::RunFinished {
-            duration_secs: 0.1,
-            success: true,
-        });
+        display.handle_event(RunnerEvent::RunFinished { duration_secs: 0.1, success: true });
     }
 
     #[test]
     fn handle_event_step_output_for_unknown_command_no_panic() {
         let mut display = test_display(&[]);
 
-        display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["cmd1".into()],
-        });
+        display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["cmd1".into()] });
 
         display.handle_event(RunnerEvent::StepOutput {
             id: "non_existent_cmd".into(),
@@ -726,21 +617,20 @@ mod unknown_command_tests {
     /// its bar stays visible in the boxed frame instead of being dropped from
     /// the multi-progress draw.
     ///
-    /// TASK-0329: this test exercises the orphan-finalization path beyond mere
+    /// This test exercises the orphan-finalization path beyond mere
     /// `is_finished()` liveness — it also asserts the rendered message reflects
     /// `StepStatus::Skipped` (so a regression that finalizes with Failed/Succeeded
     /// would be caught) and that the elapsed value flows from the bar's own
     /// timer rather than a hard-coded zero.
     ///
-    /// TASK-0333: the footer count must include orphan-finalized rows so that
+    /// The footer count must include orphan-finalized rows so that
     /// `Done N/M` agrees with the number of rendered rows.
     #[test]
     fn run_finished_finalizes_orphan_running_bars() {
         let mut display = test_display(&[("a", "echo a"), ("b", "echo b")]);
 
-        display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["a".into(), "b".into()],
-        });
+        display
+            .handle_event(RunnerEvent::PlanStarted { command_ids: vec!["a".into(), "b".into()] });
         display.handle_event(RunnerEvent::StepStarted {
             id: "a".into(),
             display_cmd: Some("echo a".to_string()),
@@ -758,10 +648,7 @@ mod unknown_command_tests {
             display_cmd: Some("echo a".to_string()),
         });
         // Note: no terminal event for "b" — simulates an aborted task.
-        display.handle_event(RunnerEvent::RunFinished {
-            duration_secs: 0.1,
-            success: true,
-        });
+        display.handle_event(RunnerEvent::RunFinished { duration_secs: 0.1, success: true });
 
         assert!(
             display.state.bars[0].is_finished(),
@@ -807,9 +694,7 @@ mod unknown_command_tests {
     fn finish_step_unknown_id_returns_none() {
         let mut display = test_display(&[]);
 
-        display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["known".into()],
-        });
+        display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["known".into()] });
 
         // finish_step is called internally via on_step_finished -- trigger it with unknown ID
         display.handle_event(RunnerEvent::StepFinished {
@@ -823,16 +708,11 @@ mod unknown_command_tests {
     #[test]
     fn handle_event_step_failed_for_unknown_command_no_panic() {
         let mut display = test_display_with_config(
-            &config::OutputConfig {
-                show_error_detail: true,
-                ..config::OutputConfig::default()
-            },
+            &config::OutputConfig { show_error_detail: true, ..config::OutputConfig::default() },
             &[],
         );
 
-        display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["known".into()],
-        });
+        display.handle_event(RunnerEvent::PlanStarted { command_ids: vec!["known".into()] });
 
         display.handle_event(RunnerEvent::StepFailed {
             id: "unknown_failed".into(),
@@ -841,10 +721,7 @@ mod unknown_command_tests {
             display_cmd: Some("unknown failed cmd".to_string()),
         });
 
-        display.handle_event(RunnerEvent::RunFinished {
-            duration_secs: 0.1,
-            success: false,
-        });
+        display.handle_event(RunnerEvent::RunFinished { duration_secs: 0.1, success: false });
     }
 }
 

@@ -1,4 +1,4 @@
-//! End-to-end tests for `ops lock` (TASK-2281): the lock is shared by every
+//! End-to-end tests for `ops lock`: the lock is shared by every
 //! worktree of a repository, and it is released when the holder is
 //! signalled or its command fails.
 
@@ -62,33 +62,18 @@ fn repo_with_worktree() -> (tempfile::TempDir, PathBuf, PathBuf) {
         ],
     );
     let wt = dir.path().join("wt");
-    git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            "side",
-            wt.to_str().expect("utf8"),
-        ],
-    );
+    git(&repo, &["worktree", "add", "-q", "-b", "side", wt.to_str().expect("utf8")]);
     (dir, repo, wt)
 }
 
 fn status(dir: &Path, name: &str) -> String {
-    let out = ops(dir)
-        .args(["lock", "status", name])
-        .output()
-        .expect("status");
+    let out = ops(dir).args(["lock", "status", name]).output().expect("status");
     assert!(out.status.success(), "status failed: {out:?}");
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
 fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
-    let deadline = Instant::now()
-        .checked_add(Duration::from_secs(20))
-        .expect("deadline");
+    let deadline = Instant::now().checked_add(Duration::from_secs(20)).expect("deadline");
     while !cond() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         std::thread::sleep(Duration::from_millis(50));
@@ -107,9 +92,7 @@ fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn holder");
-    wait_until("the holder to take the lock", || {
-        status(&wt, "merge").contains("held (alive)")
-    });
+    wait_until("the holder to take the lock", || status(&wt, "merge").contains("held (alive)"));
     let seen = status(&wt, "merge");
     assert!(seen.contains("sleep 30"), "command recorded: {seen}");
     assert!(seen.contains(repo.file_name().and_then(|n| n.to_str()).expect("name")));
@@ -131,10 +114,7 @@ fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
 #[test]
 fn a_failing_command_releases_the_lock_and_propagates_its_code() {
     let (_dir, repo, _wt) = repo_with_worktree();
-    let out = ops(&repo)
-        .args(["lock", "merge", "--", "sh", "-c", "exit 7"])
-        .output()
-        .expect("run");
+    let out = ops(&repo).args(["lock", "merge", "--", "sh", "-c", "exit 7"]).output().expect("run");
     assert_eq!(out.status.code(), Some(7));
     assert!(status(&repo, "merge").contains("merge: free"));
 }
@@ -151,9 +131,7 @@ fn a_killed_holder_is_reported_stale_and_does_not_block() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn holder");
-    wait_until("the holder to take the lock", || {
-        status(&repo, "merge").contains("held (alive)")
-    });
+    wait_until("the holder to take the lock", || status(&repo, "merge").contains("held (alive)"));
     holder.kill().expect("SIGKILL");
     holder.wait().expect("reap");
     // The orphaned `sleep` does not inherit the lock (the fd is CLOEXEC).
@@ -177,7 +155,7 @@ fn signal(child: &std::process::Child, signo: libc::c_int) {
     }
 }
 
-/// TASK-2643: a SIGTERM sent the moment the holder's record appears —
+/// a SIGTERM sent the moment the holder's record appears —
 /// before `ops` has started the command — still exits `128 + SIGTERM` and
 /// leaves the lock free, not stale. The record file is polled directly
 /// (spawning `ops lock status` is too slow to land in that window), and the
@@ -193,9 +171,7 @@ fn sigterm_right_after_the_lock_is_taken_still_releases_it() {
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn holder");
-        let deadline = Instant::now()
-            .checked_add(Duration::from_secs(20))
-            .expect("deadline");
+        let deadline = Instant::now().checked_add(Duration::from_secs(20)).expect("deadline");
         while !std::fs::metadata(&record).is_ok_and(|m| m.len() > 0) {
             assert!(Instant::now() < deadline, "the holder never took the lock");
         }
@@ -207,7 +183,7 @@ fn sigterm_right_after_the_lock_is_taken_still_releases_it() {
     }
 }
 
-/// TASK-2643: a signal while waiting for a held lock ends the wait with
+/// a signal while waiting for a held lock ends the wait with
 /// `128 + signo`; the command never runs and the holder keeps the lock.
 #[test]
 fn a_signal_while_waiting_ends_the_wait_without_running_the_command() {
@@ -220,9 +196,7 @@ fn a_signal_while_waiting_ends_the_wait_without_running_the_command() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn holder");
-    wait_until("the holder to take the lock", || {
-        status(&wt, "merge").contains("held (alive)")
-    });
+    wait_until("the holder to take the lock", || status(&wt, "merge").contains("held (alive)"));
 
     let marker = dir.path().join("ran");
     let mut waiter = ops(&wt)

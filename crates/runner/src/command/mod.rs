@@ -114,7 +114,7 @@ pub enum ExpandError {
     /// stage-wide — either would make the flag mean something other than what
     /// it says, so those are rejected at expansion time. A sequential group
     /// is unaffected: its entries are separate plans with their own flags
-    /// (TASK-2275), so mixed values under a sequential root are fine.
+    /// , so mixed values under a sequential root are fine.
     #[error(
         "conflicting `{flag}` in the plan for `{root}`: `{root}` sets {flag} = {root_value}, \
          but `{conflicting}` sets {flag} = {conflicting_value}\n\
@@ -250,10 +250,7 @@ impl CommandRunner {
                     command_count = defaults.len(),
                     "loaded stack default commands"
                 );
-                defaults
-                    .into_iter()
-                    .map(|(k, v)| (CommandId::from(k), v))
-                    .collect()
+                defaults.into_iter().map(|(k, v)| (CommandId::from(k), v)).collect()
             });
 
         // ERR-1 / TASK-1462: a non-UTF-8 workspace root would otherwise
@@ -352,9 +349,8 @@ impl CommandRunner {
         use std::collections::hash_map::Entry;
         if let Some(old_spec) = self.extension_commands.get(id) {
             for old_alias in old_spec.aliases() {
-                if let Entry::Occupied(occ) = self
-                    .non_config_alias_map
-                    .entry(old_alias.as_str().to_string())
+                if let Entry::Occupied(occ) =
+                    self.non_config_alias_map.entry(old_alias.as_str().to_string())
                 {
                     if occ.get() == id.as_str() {
                         occ.remove();
@@ -540,7 +536,7 @@ impl CommandRunner {
     }
 
     /// The progress rows `leaf_ids` render as: each matrix command becomes
-    /// one row per cell (`name [key=value]`, TASK-2277), every other leaf
+    /// one row per cell (`name [key=value]`), every other leaf
     /// stays one row. `PlanStarted` carries these, so the display has a row
     /// for every cell event.
     #[must_use]
@@ -581,14 +577,12 @@ impl CommandRunner {
         // (TASK-2275): `parallel` from the parallel group that roots the
         // stage, `fail_fast` agreed across the stage's subtree, and a
         // sequential group's entries run as their own plans in order.
-        let plan = self
-            .expand_to_plan(command_id)
-            .map_err(anyhow::Error::from)?;
+        let plan = self.expand_to_plan(command_id).map_err(anyhow::Error::from)?;
         debug!(command_id, steps = plan.leaf_ids().len(), "running command");
         Ok(self.run_plan_tree(&plan, false, on_event).await)
     }
 
-    /// Run one expanded [`CommandPlan`] tree (TASK-2275).
+    /// Run one expanded [`CommandPlan`] tree.
     ///
     /// A stage runs under its own schedule (`run_plan` / `run_plan_parallel`,
     /// or `run_plan_raw` when `raw`); a sequence runs its children in order,
@@ -605,11 +599,7 @@ impl CommandRunner {
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
         match tree {
-            CommandPlan::Stage {
-                leaf_ids,
-                parallel,
-                fail_fast,
-            } => {
+            CommandPlan::Stage { leaf_ids, parallel, fail_fast } => {
                 if raw {
                     self.run_plan_raw(leaf_ids, *fail_fast).await
                 } else if *parallel {
@@ -618,23 +608,19 @@ impl CommandRunner {
                     self.run_plan(leaf_ids, *fail_fast, on_event).await
                 }
             }
-            CommandPlan::Sequence {
-                children,
-                fail_fast,
-            } => {
-                self.run_plan_sequence(children.iter(), *fail_fast, raw, on_event)
-                    .await
+            CommandPlan::Sequence { children, fail_fast } => {
+                self.run_plan_sequence(children.iter(), *fail_fast, raw, on_event).await
             }
         }
     }
 
-    /// Run each named command's plan one after another (TASK-2262).
+    /// Run each named command's plan one after another.
     ///
     /// Scheduling is per-name and never merged: a parallel `verify` followed
     /// by a sequential `qax` runs verify's stages concurrently, then the
     /// `qax` steps one at a time. The sequence stops after a failing name
     /// whose [`CommandPlan::effective_fail_fast`] is true — the same rule a
-    /// sequential group applies to its entries (TASK-2275), because the
+    /// sequential group applies to its entries, because the
     /// invocation sequence is the implicit fail-fast group.
     // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
     // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
@@ -648,8 +634,7 @@ impl CommandRunner {
     where
         I: IntoIterator<Item = &'a CommandPlan>,
     {
-        self.run_plan_sequence(trees.into_iter(), true, raw, on_event)
-            .await
+        self.run_plan_sequence(trees.into_iter(), true, raw, on_event).await
     }
 
     /// Shared body of every ordered run: children in order, stopping after

@@ -43,26 +43,15 @@ fn every_fixture_parses_and_round_trips() {
             let twice = TaskDoc::parse(&once)
                 .unwrap_or_else(|e| panic!("{} re-render must parse: {e:#}", fixture.display()))
                 .render();
-            assert_eq!(
-                once,
-                twice,
-                "{}: render must be a fixed point",
-                fixture.display()
-            );
-            let name = fixture
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default();
+            assert_eq!(once, twice, "{}: render must be a fixed point", fixture.display());
+            let name = fixture.file_name().and_then(|n| n.to_str()).unwrap_or_default();
             seen.push(format!("{dir}/{name}"));
         }
     }
     seen.sort_unstable();
     assert_eq!(
         seen,
-        EXPECTED_FIXTURES
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect::<Vec<_>>(),
+        EXPECTED_FIXTURES.iter().map(std::string::ToString::to_string).collect::<Vec<_>>(),
         "the fixture set is pinned; refresh EXPECTED_FIXTURES deliberately"
     );
 }
@@ -116,10 +105,7 @@ fn modified_files_and_ac_counts_survive() {
     let ac = doc.body.ac_items();
     assert_eq!(ac.len(), 3);
     assert!(ac.iter().all(|item| item.checked));
-    assert_eq!(
-        doc.frontmatter.labels,
-        vec!["code-review-rust", "duplication"]
-    );
+    assert_eq!(doc.frontmatter.labels, vec!["code-review-rust", "duplication"]);
 }
 
 /// task-0100 (completed): a bare unquoted title — the old style ~239 files
@@ -155,10 +141,7 @@ fn fixture(dir: &str, matches: impl Fn(&str) -> bool) -> String {
         .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(&matches))
         .cloned()
         .unwrap_or_default();
-    let name = found
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("<missing fixture>");
+    let name = found.file_name().and_then(|n| n.to_str()).unwrap_or("<missing fixture>");
     std::fs::read_to_string(&found).unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
@@ -182,10 +165,7 @@ fn definition_of_done_fixture_parses_both_checkbox_sections() {
     assert_eq!(ac.len(), 2);
     assert_eq!(dod.len(), 2);
     assert!(!ac[0].checked && ac[1].checked, "criteria states");
-    assert!(
-        dod[0].checked && !dod[1].checked,
-        "definition-of-done states"
-    );
+    assert!(dod[0].checked && !dod[1].checked, "definition-of-done states");
     assert_eq!(dod[0].text, "cargo nextest run is green");
 
     let rendered = doc.render();

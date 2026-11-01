@@ -175,9 +175,8 @@ impl Stack {
         CACHE.get_or_init(|| {
             Self::iter()
                 .map(|stack| {
-                    let commands = stack
-                        .default_commands_toml()
-                        .map_or_else(IndexMap::new, |toml| {
+                    let commands =
+                        stack.default_commands_toml().map_or_else(IndexMap::new, |toml| {
                             parse_default_commands(stack, toml, &mut std::io::stderr().lock())
                         });
                     (stack, commands)
@@ -267,11 +266,7 @@ pub fn is_generated_build_dir(parent: &Path, dir_name: &str) -> bool {
     let Ok(entries) = std::fs::read_dir(parent) else {
         return false;
     };
-    entries.flatten().any(|e| {
-        e.file_name()
-            .to_str()
-            .is_some_and(|n| manifests.contains(&n))
-    })
+    entries.flatten().any(|e| e.file_name().to_str().is_some_and(|n| manifests.contains(&n)))
 }
 
 /// Parse an embedded `.default.<stack>.ops.toml` payload, falling back to an
@@ -340,7 +335,7 @@ mod tests {
         assert!("unknown".parse::<Stack>().is_err());
     }
 
-    /// ERR-7 (TASK-0945): tracing fields for stack-detection paths flow
+    /// Tracing fields for stack-detection paths flow
     /// through the `?` formatter so an attacker-controlled CWD ancestor
     /// path containing newlines or ANSI escapes cannot forge log records.
     #[test]
@@ -352,14 +347,14 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// ERR-1 (TASK-0935): a per-entry `read_dir` error during the
+    /// a per-entry `read_dir` error during the
     /// extension-based detection (e.g. Terraform `*.tf` walk) must leave a
     /// `tracing::debug` breadcrumb rather than silently falling through to
     /// the next stack. Mirrors the `manifest_present` policy and the
-    /// TASK-0517 / TASK-0556 sweep. Tests the debug-level emission via the
+    /// the rest of the sweep. Tests the debug-level emission via the
     /// in-process fmt subscriber pattern already used by
     /// `resolve_unknown_config_override_emits_tracing_warning`.
-    /// TEST-19 (TASK-1033): the chmod-0o000 mechanism this test uses to
+    /// The chmod-0o000 mechanism this test uses to
     /// provoke a per-entry IO error only fires for non-root callers; root's
     /// DAC bypass means the locked dir is readable, no error is emitted,
     /// and the assertion `detected == Some(Stack::Terraform)` would pass
@@ -409,7 +404,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1858: the `read_dir` call itself — where the most likely
+    /// The `read_dir` call itself — where the most likely
     /// error lands, EACCES on an unreadable directory — used to be dropped by
     /// an `if let Ok(..)` with no else arm, two lines above a comment
     /// asserting the opposite policy. Terraform is the only stack using
@@ -417,7 +412,7 @@ mod tests {
     /// directory report "no manifest" and the user got `Generic` with zero
     /// signal at any log level.
     ///
-    /// TEST-19 (TASK-1033): chmod 0o000 does not deny root, whose DAC bypass
+    /// Chmod 0o000 does not deny root, whose DAC bypass
     /// would make `read_dir` succeed and the breadcrumb never fire — the
     /// assertion would then fail for an environmental reason. Skip under
     /// root, as the sibling test above does.
@@ -445,18 +440,9 @@ mod tests {
         restore.set_mode(0o755);
         std::fs::set_permissions(&locked, restore).unwrap();
 
-        assert!(
-            !found,
-            "an unreadable directory must still be reported as 'no manifest here'"
-        );
-        assert!(
-            log.contains("read_dir failed"),
-            "expected a read_dir breadcrumb, got: {log}"
-        );
-        assert!(
-            log.contains("locked"),
-            "breadcrumb must name the directory, got: {log}"
-        );
+        assert!(!found, "an unreadable directory must still be reported as 'no manifest here'");
+        assert!(log.contains("read_dir failed"), "expected a read_dir breadcrumb, got: {log}");
+        assert!(log.contains("locked"), "breadcrumb must name the directory, got: {log}");
     }
 
     #[test]
@@ -476,7 +462,7 @@ mod tests {
         assert_eq!(resolved, Some(Stack::Rust));
     }
 
-    /// ERR-2 (TASK-0540): a typo in `config.stack` must surface a tracing
+    /// a typo in `config.stack` must surface a tracing
     /// warning rather than silently fall through to detection. Captures the
     /// tracing fmt output in-process and asserts the offending value plus the
     /// list of accepted names appears.
@@ -630,10 +616,7 @@ mod tests {
     #[test]
     fn vite_defines_typecheck() {
         let cmds = Stack::Vite.default_commands_ref();
-        assert!(
-            cmds.contains_key("typecheck"),
-            "vite must define a typecheck command"
-        );
+        assert!(cmds.contains_key("typecheck"), "vite must define a typecheck command");
     }
 
     #[test]
@@ -695,7 +678,7 @@ mod tests {
         assert_eq!(Stack::detect(&subdir), Some(Stack::Rust));
     }
 
-    /// SEC-25 / TASK-0902: detection through a symlinked cwd must resolve
+    /// Detection through a symlinked cwd must resolve
     /// to the same Stack as the canonical path. Without canonicalization
     /// the lexical `..` walk would yield ancestors outside the canonical
     /// workspace and pick up an unrelated parent project's manifest.
@@ -787,7 +770,7 @@ mod tests {
         assert_eq!(Stack::detect(dir.path()), Some(Stack::JavaGradle));
     }
 
-    /// ERR-5 regression: every embedded `.default.<stack>.ops.toml` must
+    /// Regression: every embedded `.default.<stack>.ops.toml` must
     /// parse cleanly. `Stack::default_commands` panics if it does not, and
     /// that panic is reachable from production via `ops init`, so this test
     /// guards against regressions in the checked-in TOML files.
@@ -844,10 +827,7 @@ mod tests {
     fn rust_clippy_aliased_to_lint() {
         let cmds = Stack::Rust.default_commands_ref();
         let clippy = cmds.get("clippy").expect("clippy must exist");
-        assert!(
-            clippy.aliases().iter().any(|a| a == "lint"),
-            "rust clippy must alias `lint`"
-        );
+        assert!(clippy.aliases().iter().any(|a| a == "lint"), "rust clippy must alias `lint`");
         assert!(
             !cmds.contains_key("lint"),
             "rust must not define a duplicate top-level `lint` command"
@@ -981,24 +961,16 @@ mod tests {
     /// form: no step of `verify` may rewrite the files it gates.
     #[test]
     fn every_stack_verify_names_no_rewriter() {
-        const REWRITERS: [&str; 5] = [
-            "fmt",
-            "trailing-whitespace",
-            "end-of-file-fixer",
-            "ruff-fix",
-            "black-fmt",
-        ];
+        const REWRITERS: [&str; 5] =
+            ["fmt", "trailing-whitespace", "end-of-file-fixer", "ruff-fix", "black-fmt"];
         // Generic ships no default commands.
         for stack in Stack::iter().filter(|s| *s != Stack::Generic) {
             let cmds = stack.default_commands_ref();
             let Some(CommandSpec::Composite(verify)) = cmds.get("verify") else {
                 panic!("{stack:?} `verify` must be a composite");
             };
-            let rewriters: Vec<&String> = verify
-                .commands
-                .iter()
-                .filter(|c| REWRITERS.contains(&c.as_str()))
-                .collect();
+            let rewriters: Vec<&String> =
+                verify.commands.iter().filter(|c| REWRITERS.contains(&c.as_str())).collect();
             assert!(
                 rewriters.is_empty(),
                 "{stack:?} `verify` runs rewriter(s) {rewriters:?}; they belong in `verify-fix`"
@@ -1012,7 +984,7 @@ mod tests {
 
     /// `verify` is `verify-fix` with every rewriter swapped for its check
     /// twin — the same gates, none of which writes — and still answers to
-    /// `verify-check`, its name before it became the default (TASK-2322).
+    /// `verify-check`, its name before it became the default.
     #[test]
     fn rust_verify_is_verify_fix_without_rewriters() {
         let cmds = Stack::Rust.default_commands_ref();
@@ -1029,8 +1001,7 @@ mod tests {
             .collect();
         assert_eq!(composite("verify"), expected);
         assert!(
-            cmds.get("verify")
-                .is_some_and(|v| v.aliases().iter().any(|a| a == "verify-check")),
+            cmds.get("verify").is_some_and(|v| v.aliases().iter().any(|a| a == "verify-check")),
             "rust `verify` must keep the `verify-check` alias"
         );
 
@@ -1045,10 +1016,7 @@ mod tests {
     fn go_vet_aliased_to_lint() {
         let cmds = Stack::Go.default_commands_ref();
         let vet = cmds.get("vet").expect("vet must exist");
-        assert!(
-            vet.aliases().iter().any(|a| a == "lint"),
-            "go vet must alias `lint`"
-        );
+        assert!(vet.aliases().iter().any(|a| a == "lint"), "go vet must alias `lint`");
         assert!(
             !cmds.contains_key("lint"),
             "go must not define a duplicate top-level `lint` command"
@@ -1058,10 +1026,7 @@ mod tests {
     #[test]
     fn python_defines_lint_composite() {
         let cmds = Stack::Python.default_commands_ref();
-        assert!(
-            cmds.contains_key("lint"),
-            "python must define `lint` composite"
-        );
+        assert!(cmds.contains_key("lint"), "python must define `lint` composite");
     }
 
     /// Collect every composite reachable from `root` that carries
@@ -1094,7 +1059,7 @@ mod tests {
         }
     }
 
-    /// TASK-1656: a stack default declaring `parallel = false` must not have any
+    /// a stack default declaring `parallel = false` must not have any
     /// parallel descendant, at any depth.
     ///
     /// The plan's root schedules the whole flattened plan, so a nested
@@ -1113,12 +1078,7 @@ mod tests {
                     continue;
                 }
                 let mut found = Vec::new();
-                parallel_descendants(
-                    cmds,
-                    name,
-                    &mut std::collections::HashSet::new(),
-                    &mut found,
-                );
+                parallel_descendants(cmds, name, &mut std::collections::HashSet::new(), &mut found);
                 assert!(
                     found.is_empty(),
                     "stack `{}`: `{name}` declares parallel = false but has parallel \
@@ -1130,7 +1090,7 @@ mod tests {
         }
     }
 
-    /// TASK-1656: `fmt` promises "Run ruff --fix then black" in its help text.
+    /// `fmt` promises "Run ruff --fix then black" in its help text.
     /// Both rewrite the same `.py` files, so the ordering must hold at runtime,
     /// which requires every ancestor scheduling it to be sequential too —
     /// covered by `sequential_composites_have_no_parallel_descendant_in_any_stack`.
@@ -1157,7 +1117,7 @@ mod tests {
         );
     }
 
-    /// TASK-1656: `verify` schedules the formatters (`fmt`), the checkers
+    /// `verify` schedules the formatters (`fmt`), the checkers
     /// (`lint`) and the type checker (`type`) over one source tree. If any of
     /// them can overlap, `black` rewrites files while `black --check` and
     /// `pyright` read them.
@@ -1174,12 +1134,7 @@ mod tests {
         );
 
         let mut found = Vec::new();
-        parallel_descendants(
-            cmds,
-            "verify-fix",
-            &mut std::collections::HashSet::new(),
-            &mut found,
-        );
+        parallel_descendants(cmds, "verify-fix", &mut std::collections::HashSet::new(), &mut found);
         assert!(
             found.is_empty(),
             "python `verify-fix` has parallel descendant(s) {found:?}; the flattened plan \
@@ -1195,17 +1150,13 @@ mod tests {
         };
         let fmt = pos("fmt");
         for reader in ["lint", "type"] {
-            assert!(
-                fmt < pos(reader),
-                "fmt must precede {reader}, got: {:?}",
-                verify.commands
-            );
+            assert!(fmt < pos(reader), "fmt must precede {reader}, got: {:?}", verify.commands);
         }
     }
 
-    /// PERF-3 (TASK-1409): two back-to-back calls must return equal-content
+    /// Two back-to-back calls must return equal-content
     /// maps, exercising the OnceLock-cached parse path on the second call.
-    /// PERF-3 (TASK-1410): repeat `detect()` calls with the same start
+    /// Repeat `detect` calls with the same start
     /// path must not re-issue `std::fs::canonicalize`. Asserted via the
     /// `canonicalize_cache_contains` test seam: the cache is empty for the
     /// (unique tempdir) start before the first call, populated after.
@@ -1243,7 +1194,7 @@ mod tests {
         }
     }
 
-    /// OWN-8 (TASK-1469): `default_commands_ref` must hand out a stable
+    /// `default_commands_ref` must hand out a stable
     /// pointer into the process-wide cache so read-only callers do not
     /// deep-clone the `IndexMap`/`CommandSpec` payload on every dispatch.
     #[test]
@@ -1253,7 +1204,7 @@ mod tests {
         assert_eq!(a, b, "cached default_commands_ref must not reallocate");
     }
 
-    /// ERR-1 (TASK-1413): when the embedded TOML fails to parse, the
+    /// When the embedded TOML fails to parse, the
     /// helper must emit a `ui::warn` message that names the stack and the
     /// parser error. Test exercises the `ui_writer` seam with a synthetic
     /// broken TOML payload.
@@ -1263,10 +1214,7 @@ mod tests {
         let map = super::parse_default_commands(Stack::Rust, "not [valid toml", &mut buf);
         assert!(map.is_empty(), "parse failure must degrade to empty map");
         let out = String::from_utf8(buf).expect("utf8");
-        assert!(
-            out.starts_with("ops: warning:"),
-            "expected ui::warn prefix, got: {out}"
-        );
+        assert!(out.starts_with("ops: warning:"), "expected ui::warn prefix, got: {out}");
         assert!(out.contains("rust"), "warn must name the stack, got: {out}");
     }
 
@@ -1292,7 +1240,7 @@ mod tests {
         }
     }
 
-    /// TASK-2264 AC #1: every stack declares its default build/dependency
+    /// Every stack declares its default build/dependency
     /// directories — the generated artefacts a whole-tree scan skips.
     #[test]
     fn stacks_declare_their_build_dirs() {
@@ -1301,10 +1249,7 @@ mod tests {
         assert_eq!(Stack::JavaGradle.build_dirs(), ["build", ".gradle"]);
         assert_eq!(Stack::Vite.build_dirs(), ["node_modules", "dist"]);
         assert_eq!(Stack::Node.build_dirs(), ["node_modules", "dist"]);
-        assert_eq!(
-            Stack::Python.build_dirs(),
-            [".venv", "venv", "__pycache__", "build", "dist"]
-        );
+        assert_eq!(Stack::Python.build_dirs(), [".venv", "venv", "__pycache__", "build", "dist"]);
         assert_eq!(Stack::Go.build_dirs(), ["vendor"]);
         assert_eq!(Stack::Terraform.build_dirs(), [".terraform"]);
         // Ansible's collection/role caches default to $HOME/.ansible, not
@@ -1312,7 +1257,7 @@ mod tests {
         assert!(Stack::Ansible.build_dirs().is_empty());
     }
 
-    /// TASK-2264: the shared scan-skip list is every stack's build dirs
+    /// The shared scan-skip list is every stack's build dirs
     /// plus `.git`, deduplicated, in a stable order — minus the generic
     /// names, which are skipped per-path as discovered generated output.
     #[test]

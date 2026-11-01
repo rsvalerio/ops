@@ -67,10 +67,8 @@ pub fn write_coverage_fixture(dir: &IngestDir) {
     let raw = sample_coverage_json();
     let flat = flatten_coverage_json(&raw).expect("flatten");
     let json_bytes = serde_json::to_vec_pretty(&flat).expect("serialize");
-    dir.write_atomic("coverage_files.json", &json_bytes)
-        .expect("write");
-    dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
-        .expect("write workspace");
+    dir.write_atomic("coverage_files.json", &json_bytes).expect("write");
+    dir.write_atomic("coverage_workspace.txt", b"/test/workspace").expect("write workspace");
 }
 
 /// Open a verified ingest anchor inside `tmp`, mirroring what

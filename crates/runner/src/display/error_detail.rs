@@ -27,14 +27,11 @@ impl<'a> ErrorDetailRenderer<'a> {
     /// stringified once here (small, bounded by `stderr_tail_lines`,
     /// default 5).
     ///
-    /// PERF-3 / TASK-1925: the ring now holds owned `Box<str>` lines rather
+    /// The ring now holds owned `Box<str>` lines rather
     /// than `OutputLine` views, so this no longer touches the step's shared
     /// capture buffer at all — see `ProgressState`'s type-level docs.
     #[must_use]
     pub fn extract_stderr_tail(stderr_lines: &[Box<str>], max_lines: usize) -> Vec<String> {
-        tail_lines(stderr_lines, max_lines)
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect()
+        tail_lines(stderr_lines, max_lines).iter().map(std::string::ToString::to_string).collect()
     }
 }

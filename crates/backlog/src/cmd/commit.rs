@@ -71,10 +71,8 @@ pub fn run_commit<W: Write>(
 /// The index already holds a path that is not one of `task_paths` —
 /// nothing is touched.
 fn ensure_index_pure(top: &Path, task_paths: &[String]) -> anyhow::Result<()> {
-    let foreign: Vec<String> = git::staged_paths(top)?
-        .into_iter()
-        .filter(|staged| !task_paths.contains(staged))
-        .collect();
+    let foreign: Vec<String> =
+        git::staged_paths(top)?.into_iter().filter(|staged| !task_paths.contains(staged)).collect();
     if !foreign.is_empty() {
         anyhow::bail!(
             "refusing to commit: the index already holds paths that are not these tasks' \
@@ -115,16 +113,10 @@ fn changed_task_paths(
         .into_iter()
         .filter_map(|record| record.get(3..).map(str::to_string))
         .collect();
-    let changed: Vec<String> = task_paths
-        .iter()
-        .filter(|path| changed_in_status.contains(path))
-        .cloned()
-        .collect();
+    let changed: Vec<String> =
+        task_paths.iter().filter(|path| changed_in_status.contains(path)).cloned().collect();
     if changed.is_empty() {
-        anyhow::bail!(
-            "nothing to commit: none of the files of {} changed",
-            task_ids.join(", ")
-        );
+        anyhow::bail!("nothing to commit: none of the files of {} changed", task_ids.join(", "));
     }
     Ok(changed)
 }
@@ -142,11 +134,8 @@ fn changed_task_paths(
 /// A git step failed; on a failed commit the staged files are reset again
 /// before the error is returned.
 fn commit_changed_files(top: &Path, changed: &[String], message: &str) -> anyhow::Result<()> {
-    let present: Vec<String> = changed
-        .iter()
-        .filter(|path| top.join(path.as_str()).exists())
-        .cloned()
-        .collect();
+    let present: Vec<String> =
+        changed.iter().filter(|path| top.join(path.as_str()).exists()).cloned().collect();
     if !present.is_empty() {
         let mut add_args: Vec<String> = vec!["add".to_string(), "--".to_string()];
         add_args.extend(present);
@@ -182,13 +171,8 @@ fn print_commit_summary<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<()> {
     let sha = git::run(top, ["rev-parse", "--short", "HEAD"])?;
-    writeln!(
-        out,
-        "Committed {} task file(s) as {}:",
-        changed.len(),
-        sha.trim()
-    )
-    .context("printing the commit summary")?;
+    writeln!(out, "Committed {} task file(s) as {}:", changed.len(), sha.trim())
+        .context("printing the commit summary")?;
     for path in changed {
         writeln!(out, "  {path}").context("printing a committed path")?;
     }
@@ -204,19 +188,13 @@ fn print_commit_summary<W: Write>(
 fn resolve_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
     for id in ids {
-        let entry = store
-            .find(id)?
-            .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+        let entry = store.find(id)?.ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
         let absolute = entry
             .path
             .canonicalize()
             .with_context(|| format!("resolving {}", entry.path.display()))?;
         let relative = absolute.strip_prefix(top).with_context(|| {
-            format!(
-                "{} is outside the git working tree {}",
-                absolute.display(),
-                top.display()
-            )
+            format!("{} is outside the git working tree {}", absolute.display(), top.display())
         })?;
         let rel = relative
             .components()
@@ -253,27 +231,17 @@ fn deleted_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
     let root_rel = root
         .strip_prefix(top)
         .with_context(|| {
-            format!(
-                "{} is outside the git working tree {}",
-                root.display(),
-                top.display()
-            )
+            format!("{} is outside the git working tree {}", root.display(), top.display())
         })?
         .components()
         .map(|c| c.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/");
-    let pathspec = if root_rel.is_empty() {
-        ".".to_string()
-    } else {
-        root_rel
-    };
+    let pathspec = if root_rel.is_empty() { ".".to_string() } else { root_rel };
     // Unstaged deletions are still in the index; staged ones are only in
     // `HEAD`. Both are the task's own path.
-    let mut candidates = git::nul_records(&git::run(
-        top,
-        ["ls-files", "--deleted", "-z", "--", pathspec.as_str()],
-    )?);
+    let mut candidates =
+        git::nul_records(&git::run(top, ["ls-files", "--deleted", "-z", "--", pathspec.as_str()])?);
     candidates.extend(git::nul_records(&git::run(
         top,
         [
@@ -331,11 +299,8 @@ mod tests {
         let tasks = root.join(".backlog/tasks");
         std::fs::create_dir_all(&tasks).expect("tasks");
         for n in 1..=3 {
-            std::fs::write(
-                tasks.join(format!("task-{n} - t.md")),
-                task(&format!("TASK-{n}")),
-            )
-            .expect("seed");
+            std::fs::write(tasks.join(format!("task-{n} - t.md")), task(&format!("TASK-{n}")))
+                .expect("seed");
         }
         git(root, &["add", "."]);
         git(root, &["commit", "-q", "-m", "seed"]);
@@ -365,20 +330,11 @@ mod tests {
     }
 
     fn head_files(dir: &tempfile::TempDir) -> Vec<String> {
-        git(
-            dir.path(),
-            &[
-                "show",
-                "--name-only",
-                "--no-renames",
-                "--pretty=format:",
-                "HEAD",
-            ],
-        )
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
+        git(dir.path(), &["show", "--name-only", "--no-renames", "--pretty=format:", "HEAD"])
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     /// AC #1: only the listed tasks' changed files land; another task's
@@ -411,10 +367,7 @@ mod tests {
         let before_head = git(dir.path(), &["rev-parse", "HEAD"]);
         let err = commit(&store, &dir, &["TASK-1"]).expect_err("must refuse");
         assert!(format!("{err:#}").contains("task-3 - t.md"), "got: {err:#}");
-        assert_eq!(
-            git(dir.path(), &["diff", "--cached", "--name-only"]),
-            before_index
-        );
+        assert_eq!(git(dir.path(), &["diff", "--cached", "--name-only"]), before_index);
         assert_eq!(git(dir.path(), &["rev-parse", "HEAD"]), before_head);
     }
 
@@ -425,10 +378,7 @@ mod tests {
         let (dir, store) = repo();
         let before_head = git(dir.path(), &["rev-parse", "HEAD"]);
         let err = commit(&store, &dir, &["TASK-1", "TASK-2"]).expect_err("must refuse");
-        assert!(
-            format!("{err:#}").contains("nothing to commit"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("nothing to commit"), "got: {err:#}");
         assert_eq!(git(dir.path(), &["rev-parse", "HEAD"]), before_head);
     }
 
@@ -439,21 +389,12 @@ mod tests {
         let (dir, store) = repo();
         edit(&dir, 1);
         git(dir.path(), &["add", "--", ".backlog/tasks/task-1 - t.md"]);
-        std::fs::write(
-            dir.path().join(".backlog/tasks/task-4 - t.md"),
-            task("TASK-4"),
-        )
-        .expect("new");
+        std::fs::write(dir.path().join(".backlog/tasks/task-4 - t.md"), task("TASK-4"))
+            .expect("new");
         commit(&store, &dir, &["TASK-1", "TASK-4"]).expect("commit");
         let mut files = head_files(&dir);
         files.sort();
-        assert_eq!(
-            files,
-            vec![
-                ".backlog/tasks/task-1 - t.md",
-                ".backlog/tasks/task-4 - t.md"
-            ]
-        );
+        assert_eq!(files, vec![".backlog/tasks/task-1 - t.md", ".backlog/tasks/task-4 - t.md"]);
     }
 
     /// A renamed task (as `task edit -t` leaves it: old path deleted, new
@@ -469,13 +410,7 @@ mod tests {
         commit(&store, &dir, &["TASK-1"]).expect("commit");
         let mut files = head_files(&dir);
         files.sort();
-        assert_eq!(
-            files,
-            vec![
-                ".backlog/tasks/task-1 - new.md",
-                ".backlog/tasks/task-1 - t.md"
-            ]
-        );
+        assert_eq!(files, vec![".backlog/tasks/task-1 - new.md", ".backlog/tasks/task-1 - t.md"]);
         let tree = git(dir.path(), &["ls-tree", "-r", "--name-only", "HEAD"]);
         assert!(!tree.contains("task-1 - t.md"), "old path gone: {tree}");
         assert!(tree.contains("task-3 - t.md"), "unlisted kept: {tree}");
@@ -488,11 +423,7 @@ mod tests {
         let (dir, store) = repo();
         git(
             dir.path(),
-            &[
-                "mv",
-                ".backlog/tasks/task-2 - t.md",
-                ".backlog/tasks/task-2 - moved.md",
-            ],
+            &["mv", ".backlog/tasks/task-2 - t.md", ".backlog/tasks/task-2 - moved.md"],
         );
         commit(&store, &dir, &["TASK-2"]).expect("commit");
         let tree = git(dir.path(), &["ls-tree", "-r", "--name-only", "HEAD"]);

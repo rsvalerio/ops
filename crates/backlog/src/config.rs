@@ -16,7 +16,7 @@ pub struct BacklogConfig {
     pub default_status: String,
     /// Backlog directory relative to the workspace root.
     pub backlog_directory: String,
-    /// Task id prefix (`TASK-0001`).
+    /// Task id prefix.
     pub task_prefix: String,
     /// Zero-padding width of the numeric id part.
     pub zero_padded_ids: usize,
@@ -46,7 +46,7 @@ impl BacklogConfig {
     /// # Errors
     ///
     /// The file exists but a needed key carries a shape this parser cannot
-    /// read; the error names the file (ERR-13).
+    /// read; the error names the file.
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let path = dir.join("backlog.config.yml");
         // Absent means defaults; every other read failure (permissions,
@@ -70,12 +70,8 @@ impl BacklogConfig {
     /// absent: this writer owes no backlog.md parity.
     #[must_use = "rendering without writing the file discards the output"]
     pub fn to_yaml(&self) -> String {
-        let statuses = self
-            .statuses
-            .iter()
-            .map(|s| format!("\"{s}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let statuses =
+            self.statuses.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", ");
         // rustfmt::max_literal_line_width: the five-line yml document stays
         // one literal so the byte shape is greppable.
         #[rustfmt::skip]
@@ -142,8 +138,7 @@ impl BacklogConfig {
 ///
 /// # Errors
 ///
-/// The file already exists, or the atomic write failed — both name the path
-/// (ERR-13).
+/// The file already exists, or the atomic write failed — both name the path.
 pub fn write_config_yml(dir: &Path, cfg: &BacklogConfig) -> anyhow::Result<()> {
     let path = dir.join("backlog.config.yml");
     crate::cmd::atomic_write_noclobber(&path, &cfg.to_yaml())
@@ -224,20 +219,14 @@ backlog_directory: \".backlog\"
     fn bad_zero_padding_is_an_error_naming_the_value() {
         let err = BacklogConfig::parse("zero_padded_ids: wide\n").expect_err("must fail");
         let rendered = format!("{err:#}");
-        assert!(
-            rendered.contains("zero_padded_ids"),
-            "error must name the key, got: {rendered}"
-        );
+        assert!(rendered.contains("zero_padded_ids"), "error must name the key, got: {rendered}");
     }
 
     /// What the writer emits, the parser reads back: init's yml round-trips.
     #[test]
     fn to_yaml_round_trips_through_parse() {
         let rendered = BacklogConfig::default().to_yaml();
-        assert_eq!(
-            BacklogConfig::parse(&rendered).expect("must parse"),
-            BacklogConfig::default()
-        );
+        assert_eq!(BacklogConfig::parse(&rendered).expect("must parse"), BacklogConfig::default());
     }
 
     /// Round-trip holds for non-default values too — the interop case where
@@ -245,11 +234,7 @@ backlog_directory: \".backlog\"
     #[test]
     fn to_yaml_round_trips_custom_values() {
         let cfg = BacklogConfig {
-            statuses: vec![
-                "Review".to_string(),
-                "Doing".to_string(),
-                "Signed Off".to_string(),
-            ],
+            statuses: vec!["Review".to_string(), "Doing".to_string(), "Signed Off".to_string()],
             default_status: "Review".to_string(),
             backlog_directory: "tasks-tree".to_string(),
             task_prefix: "ISSUE".to_string(),
@@ -298,9 +283,6 @@ backlog_directory: \".backlog\"
     fn write_config_yml_writes_a_loadable_file() {
         let dir = tempfile::tempdir().expect("tempdir");
         write_config_yml(dir.path(), &BacklogConfig::default()).expect("write");
-        assert_eq!(
-            BacklogConfig::load(dir.path()).expect("load"),
-            BacklogConfig::default()
-        );
+        assert_eq!(BacklogConfig::load(dir.path()).expect("load"), BacklogConfig::default());
     }
 }

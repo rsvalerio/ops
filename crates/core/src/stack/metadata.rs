@@ -20,21 +20,13 @@ use super::Stack;
 /// default, not inside the repo, so it declares none.
 pub(super) const fn metadata(
     stack: Stack,
-) -> (
-    &'static [&'static str],
-    Option<&'static str>,
-    &'static [&'static str],
-) {
+) -> (&'static [&'static str], Option<&'static str>, &'static [&'static str]) {
     // Reduces the include_str!(concat!(env!(...), "/src/", file)) boilerplate to one line per arm.
     macro_rules! meta {
         ($files:expr, $toml:literal, $build_dirs:expr) => {
             (
                 $files,
-                Some(include_str!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/src/",
-                    $toml
-                ))),
+                Some(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/", $toml))),
                 $build_dirs,
             )
         };
@@ -53,27 +45,21 @@ pub(super) const fn metadata(
             ".default.vite.ops.toml",
             &["node_modules", "dist"]
         ),
-        Stack::Node => meta!(
-            &["package.json"],
-            ".default.node.ops.toml",
-            &["node_modules", "dist"]
-        ),
+        Stack::Node => {
+            meta!(&["package.json"], ".default.node.ops.toml", &["node_modules", "dist"])
+        }
         Stack::Go => meta!(&["go.mod"], ".default.go.ops.toml", &["vendor"]),
         Stack::Python => meta!(
             &["pyproject.toml", "setup.py", "requirements.txt"],
             ".default.python.ops.toml",
             &[".venv", "venv", "__pycache__", "build", "dist"]
         ),
-        Stack::Terraform => meta!(
-            &["main.tf", "terraform.tf"],
-            ".default.terraform.ops.toml",
-            &[".terraform"]
-        ),
-        Stack::Ansible => meta!(
-            &["site.yml", "playbook.yml", "ansible.cfg"],
-            ".default.ansible.ops.toml",
-            &[]
-        ),
+        Stack::Terraform => {
+            meta!(&["main.tf", "terraform.tf"], ".default.terraform.ops.toml", &[".terraform"])
+        }
+        Stack::Ansible => {
+            meta!(&["site.yml", "playbook.yml", "ansible.cfg"], ".default.ansible.ops.toml", &[])
+        }
         Stack::JavaMaven => meta!(&["pom.xml"], ".default.java-maven.ops.toml", &["target"]),
         Stack::JavaGradle => meta!(
             &["build.gradle", "build.gradle.kts"],

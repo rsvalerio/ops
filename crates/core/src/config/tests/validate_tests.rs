@@ -29,7 +29,7 @@ fn exec_spec_display_cmd_no_args() {
 }
 
 /// `display_program` overrides only the rendered program name; args (and
-/// their SEC-21 quoting) are unaffected. Builtins rely on this to render
+/// their quoting) are unaffected. Builtins rely on this to render
 /// `ops sec` while spawning the absolute `current_exe()` path.
 #[test]
 fn exec_spec_display_cmd_prefers_display_program() {
@@ -47,7 +47,7 @@ fn exec_spec_display_cmd_prefers_display_program() {
     assert_eq!(unsafe_display.display_cmd(), "'my ops' hi");
 }
 
-/// SEC-21: `display_program` is internal (builtins only). A `.ops.toml`
+/// `display_program` is internal (builtins only). A `.ops.toml`
 /// supplying it must fail to load — a config-settable display name that
 /// diverges from the real program could disguise what actually runs.
 #[test]
@@ -59,13 +59,10 @@ display_program = "harmless-looking"
 "#;
     let err = toml::from_str::<ExecCommandSpec>(toml)
         .expect_err("display_program must be rejected in config");
-    assert!(
-        err.to_string().contains("unknown field"),
-        "expected unknown-field error, got: {err}"
-    );
+    assert!(err.to_string().contains("unknown field"), "expected unknown-field error, got: {err}");
 }
 
-/// SEC-21 AC #3: an arg containing a space and a quote must round-trip
+/// an arg containing a space and a quote must round-trip
 /// through `display_cmd` in a form the user can disambiguate from two
 /// separate args. Without quoting, `["foo bar"]` and `["foo", "bar"]` would
 /// render identically.
@@ -95,7 +92,7 @@ fn exec_spec_display_cmd_quotes_metacharacters() {
     );
 }
 
-/// TASK-1431: `cwd` containing `..` must be rejected at load time so a
+/// `cwd` containing `..` must be rejected at load time so a
 /// hostile workspace config can't silently escape the workspace at exec.
 #[test]
 fn exec_spec_validate_rejects_cwd_with_parent_dir() {
@@ -106,17 +103,14 @@ fn exec_spec_validate_rejects_cwd_with_parent_dir() {
     assert!(err.contains(".."), "expected '..' mention, got: {err}");
 }
 
-/// TASK-1445: NUL or other C0 control characters in program/args/cwd
+/// NUL or other C0 control characters in program/args/cwd
 /// must fail at validate-time with a named error rather than at spawn.
 #[test]
 fn exec_spec_validate_rejects_nul_in_program() {
     let e = exec_spec("ec\u{0}ho", &["hi"]);
     let err = e.validate("bad").unwrap_err().to_string();
     assert!(err.contains("program"), "expected program error: {err}");
-    assert!(
-        err.contains("control character"),
-        "expected control char mention: {err}"
-    );
+    assert!(err.contains("control character"), "expected control char mention: {err}");
 }
 
 #[test]
@@ -134,14 +128,14 @@ fn exec_spec_validate_rejects_control_in_cwd() {
     assert!(err.contains("cwd"), "expected cwd error: {err}");
 }
 
-/// TASK-1445: tab is explicitly allowed (common in legitimate args).
+/// Tab is explicitly allowed (common in legitimate args).
 #[test]
 fn exec_spec_validate_allows_tab() {
     let e = exec_spec("echo", &["a\tb"]);
     assert!(e.validate("ok").is_ok());
 }
 
-/// SEC-11 / TASK-1826: a NUL in an `env` **value** reaches `Command::env`
+/// a NUL in an `env` **value** reaches `Command::env`
 /// unscreened before the fix and surfaces as std's anonymous "nul byte found
 /// in provided data". Validation must name the command and the variable.
 #[test]
@@ -151,13 +145,10 @@ fn exec_spec_validate_rejects_nul_in_env_value() {
     let err = e.validate("deploy").unwrap_err().to_string();
     assert!(err.contains("deploy"), "expected command name, got: {err}");
     assert!(err.contains("env[TOKEN]"), "expected the key, got: {err}");
-    assert!(
-        err.contains("control character"),
-        "expected control char mention: {err}"
-    );
+    assert!(err.contains("control character"), "expected control char mention: {err}");
 }
 
-/// SEC-11 / TASK-1826: a control character in an env **key** is rejected too —
+/// a control character in an env **key** is rejected too —
 /// the key is half of what `Command::env` receives.
 #[test]
 fn exec_spec_validate_rejects_control_char_in_env_key() {
@@ -168,7 +159,7 @@ fn exec_spec_validate_rejects_control_char_in_env_key() {
     assert!(err.contains("env key"), "expected env-key mention: {err}");
 }
 
-/// SEC-11 / TASK-1826: an `=` in an env key produces an entry the child's
+/// an `=` in an env key produces an entry the child's
 /// `getenv` can never retrieve, so it fails at load naming the key.
 #[test]
 fn exec_spec_validate_rejects_equals_in_env_key() {
@@ -180,7 +171,7 @@ fn exec_spec_validate_rejects_equals_in_env_key() {
     assert!(err.contains('='), "expected the '=' rule, got: {err}");
 }
 
-/// SEC-11 / TASK-1826: an ordinary env map still validates — the new screen
+/// an ordinary env map still validates — the new screen
 /// must not reject legitimate configs (tab stays allowed, as in `args`).
 #[test]
 fn exec_spec_validate_accepts_plain_env() {
@@ -190,7 +181,7 @@ fn exec_spec_validate_accepts_plain_env() {
     e.validate("ok").expect("plain env must validate");
 }
 
-/// TASK-1430: typo of the `program` field reports the Exec error, not
+/// Typo of the `program` field reports the Exec error, not
 /// the misleading Composite "missing field `commands`".
 #[test]
 fn command_spec_typo_in_exec_reports_exec_error() {
@@ -211,7 +202,7 @@ progam = "cargo"
     );
 }
 
-/// TASK-1430: typo on Composite side reports the Composite error.
+/// Typo on Composite side reports the Composite error.
 #[test]
 fn command_spec_typo_in_composite_reports_composite_error() {
     let toml_str = r#"
@@ -228,7 +219,7 @@ parralel = true
     );
 }
 
-/// TASK-1402: `CommandId` is parseable via the standard `str::parse` path.
+/// `CommandId` is parseable via the standard `str::parse` path.
 #[test]
 fn command_id_from_str() {
     let id: crate::config::CommandId = "build".parse().expect("infallible");
@@ -253,17 +244,13 @@ args = ["hi"]
 "#,
     )
     .unwrap();
-    let overlay = read_config_file(&path)
-        .expect("valid toml should parse")
-        .expect("file should be present");
+    let overlay =
+        read_config_file(&path).expect("valid toml should parse").expect("file should be present");
     let output = overlay.output.expect("output section present");
     assert_eq!(output.theme, Some("compact".to_string()));
     assert_eq!(output.columns, Some(100));
     assert_eq!(output.show_error_detail, Some(false));
-    assert!(overlay
-        .commands
-        .expect("commands present")
-        .contains_key("hello"));
+    assert!(overlay.commands.expect("commands present").contains_key("hello"));
 }
 
 #[test]
@@ -271,30 +258,21 @@ fn read_config_file_invalid_toml_returns_err() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = crate::test_utils::canonical_root(&dir).join("bad.toml");
     std::fs::write(&path, "not valid { toml }}}").unwrap();
-    assert!(
-        read_config_file(&path).is_err(),
-        "invalid TOML should return Err"
-    );
+    assert!(read_config_file(&path).is_err(), "invalid TOML should return Err");
 }
 
 #[test]
 fn read_config_file_missing_returns_ok_none() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = crate::test_utils::canonical_root(&dir).join("nonexistent.toml");
-    assert!(
-        matches!(read_config_file(&path), Ok(None)),
-        "missing file should return Ok(None)"
-    );
+    assert!(matches!(read_config_file(&path), Ok(None)), "missing file should return Ok(None)");
 }
 
 #[test]
 #[serial]
 fn global_config_path_uses_xdg_config_home() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    let _guard = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        temp_dir.path().to_string_lossy().as_ref(),
-    );
+    let _guard = EnvGuard::set("XDG_CONFIG_HOME", temp_dir.path().to_string_lossy().as_ref());
     // PERF-3 / TASK-1419: `global_config_path` is OnceLock-cached for
     // process-lifetime perf; tests that drive the env-precedence matrix
     // call the underlying resolver to bypass the cache.
@@ -325,7 +303,7 @@ fn global_config_path_falls_back_to_home_config() {
     assert!(path.ends_with("ops/config"));
 }
 
-/// PORT-5 (TASK-0696): Windows must resolve the config base from `%APPDATA%`
+/// PORT-5: Windows must resolve the config base from `%APPDATA%`
 /// rather than appending `.config/ops/config` to USERPROFILE. Compiled only
 /// on Windows; the cross-platform XDG override remains covered above.
 #[test]
@@ -362,7 +340,7 @@ fn global_config_path_uses_appdata_on_windows() {
 mod read_config_file_error_paths {
     use super::*;
 
-    /// TQ-EFF-001 / TEST-2 (TASK-1835): an unreadable config file must fail
+    /// TQ-EFF-001: an unreadable config file must fail
     /// **loud** — `Err`, not the `Ok(None)` that means "file absent". The two
     /// outcomes are the fail-closed / fail-open fork of the config reader, and
     /// the sibling `read_config_file_missing_returns_ok_none` pins the other
@@ -373,7 +351,7 @@ mod read_config_file_error_paths {
     /// to set file permissions. Windows file permissions work differently (ACLs)
     /// and would require a different test approach.
     ///
-    /// TEST-18 (TASK-1835): `chmod 0o000` is bypassed by `CAP_DAC_OVERRIDE`, so
+    /// `chmod 0o000` is bypassed by `CAP_DAC_OVERRIDE`, so
     /// under a privileged sandbox (CI as root, fakeroot) the read succeeds and
     /// there is nothing to assert. Detect that case the way
     /// `edit.rs::sync_parent_dir_warns_when_parent_open_fails` does — probe the
@@ -409,10 +387,7 @@ mod read_config_file_error_paths {
             // Privileged sandbox: DAC was bypassed, so the read is expected to
             // succeed. Pin that it is not silently swallowed as "absent".
             let overlay = result.expect("privileged read must succeed");
-            assert!(
-                overlay.is_some(),
-                "a readable file must never map to Ok(None)"
-            );
+            assert!(overlay.is_some(), "a readable file must never map to Ok(None)");
         }
     }
 }
@@ -424,9 +399,7 @@ fn validate_commands_rejects_unknown_composite_ref() {
         "verify".to_string(),
         CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["buidl"])),
     );
-    let err = config
-        .validate_commands(&[])
-        .expect_err("unknown ref must fail");
+    let err = config.validate_commands(&[]).expect_err("unknown ref must fail");
     let msg = format!("{err:#}");
     assert!(msg.contains("unknown command 'buidl'"), "got: {msg}");
 }
@@ -439,9 +412,7 @@ fn validate_commands_accepts_unknown_ref_resolved_via_externals() {
         CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["verify"])),
     );
     // `verify` is provided by stack defaults — pass it as external.
-    config
-        .validate_commands(&["verify"])
-        .expect("composite resolves via externals");
+    config.validate_commands(&["verify"]).expect("composite resolves via externals");
 }
 
 #[test]
@@ -451,9 +422,7 @@ fn validate_commands_rejects_self_cycle() {
         "loop".to_string(),
         CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["loop"])),
     );
-    let err = config
-        .validate_commands(&[])
-        .expect_err("self-cycle must fail");
+    let err = config.validate_commands(&[]).expect_err("self-cycle must fail");
     assert!(format!("{err:#}").contains("cycle"));
 }
 
@@ -468,9 +437,7 @@ fn validate_commands_rejects_indirect_cycle() {
         "b".to_string(),
         CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["a"])),
     );
-    let err = config
-        .validate_commands(&[])
-        .expect_err("indirect cycle must fail");
+    let err = config.validate_commands(&[]).expect_err("indirect cycle must fail");
     assert!(format!("{err:#}").contains("cycle"));
 }
 
@@ -482,15 +449,12 @@ fn validate_commands_rejects_depth_violation() {
     let n = MAX_COMPOSITE_DEPTH + 5;
     for i in 0..n {
         let next = format!("c{}", i + 1);
-        config.commands.insert(
-            format!("c{i}"),
-            CommandSpec::Composite(CompositeCommandSpec::new([next])),
-        );
+        config
+            .commands
+            .insert(format!("c{i}"), CommandSpec::Composite(CompositeCommandSpec::new([next])));
     }
     // Final exec leaf so refs resolve.
-    config
-        .commands
-        .insert(format!("c{n}"), CommandSpec::Exec(exec_spec("echo", &[])));
+    config.commands.insert(format!("c{n}"), CommandSpec::Exec(exec_spec("echo", &[])));
     let err = config.validate_commands(&[]).expect_err("depth must fail");
     assert!(format!("{err:#}").contains("depth"));
 }
@@ -501,27 +465,20 @@ fn validate_commands_accepts_diamond_dag() {
     // a -> [b, c]; b -> [d]; c -> [d]; d -> exec. Visiting `d` twice must
     // not be flagged as a cycle (matches runner expand_inner semantics).
     let mut config = Config::default();
-    config.commands.insert(
-        "a".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["b", "c"])),
-    );
-    config.commands.insert(
-        "b".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["d"])),
-    );
-    config.commands.insert(
-        "c".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["d"])),
-    );
     config
         .commands
-        .insert("d".to_string(), make_exec_spec("echo", &[]));
+        .insert("a".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["b", "c"])));
     config
-        .validate_commands(&[])
-        .expect("diamond is not a cycle");
+        .commands
+        .insert("b".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["d"])));
+    config
+        .commands
+        .insert("c".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["d"])));
+    config.commands.insert("d".to_string(), make_exec_spec("echo", &[]));
+    config.validate_commands(&[]).expect("diamond is not a cycle");
 }
 
-/// ERR-1 / TASK-1181: two commands declaring the same alias are silently
+/// Two commands declaring the same alias are silently
 /// resolved by `Config::resolve_alias` to whichever appears first in the
 /// `IndexMap`, with no diagnostic. `validate_commands` must catch this up
 /// front so the misconfiguration fails loud at config load instead of as
@@ -533,25 +490,16 @@ fn validate_commands_rejects_duplicate_alias_across_commands() {
     a.aliases = vec!["shared".to_string()];
     let mut b = exec_spec("echo", &["b"]);
     b.aliases = vec!["shared".to_string()];
-    config
-        .commands
-        .insert("alpha".to_string(), CommandSpec::Exec(a));
-    config
-        .commands
-        .insert("beta".to_string(), CommandSpec::Exec(b));
+    config.commands.insert("alpha".to_string(), CommandSpec::Exec(a));
+    config.commands.insert("beta".to_string(), CommandSpec::Exec(b));
 
-    let err = config
-        .validate_commands(&[])
-        .expect_err("duplicate alias must fail validation");
+    let err = config.validate_commands(&[]).expect_err("duplicate alias must fail validation");
     let msg = format!("{err:#}");
     assert!(msg.contains("'shared'"), "missing alias name; got: {msg}");
-    assert!(
-        msg.contains("alpha") && msg.contains("beta"),
-        "must name both candidates; got: {msg}"
-    );
+    assert!(msg.contains("alpha") && msg.contains("beta"), "must name both candidates; got: {msg}");
 }
 
-/// ERR-1 / TASK-1182: an alias that collides with an existing command name
+/// an alias that collides with an existing command name
 /// is silently dead because the External dispatcher matches the literal
 /// command name first. `validate_commands` must reject this so a config
 /// with `commands.build` and `commands.foo.aliases = ["build"]` fails at
@@ -561,26 +509,18 @@ fn validate_commands_rejects_alias_colliding_with_command_name() {
     let mut config = Config::default();
     let mut foo = exec_spec("echo", &["foo"]);
     foo.aliases = vec!["build".to_string()];
-    config.commands.insert(
-        "build".to_string(),
-        CommandSpec::Exec(exec_spec("echo", &["b"])),
-    );
-    config
-        .commands
-        .insert("foo".to_string(), CommandSpec::Exec(foo));
+    config.commands.insert("build".to_string(), CommandSpec::Exec(exec_spec("echo", &["b"])));
+    config.commands.insert("foo".to_string(), CommandSpec::Exec(foo));
 
     let err = config
         .validate_commands(&[])
         .expect_err("alias-vs-command-name collision must fail validation");
     let msg = format!("{err:#}");
-    assert!(
-        msg.contains("'build'"),
-        "must name the colliding alias; got: {msg}"
-    );
+    assert!(msg.contains("'build'"), "must name the colliding alias; got: {msg}");
     assert!(msg.contains("foo"), "must name the alias owner; got: {msg}");
 }
 
-/// TASK-1182 (also): an alias that collides with an external command name
+/// An alias that collides with an external command name
 /// (stack default / extension command id) must also be rejected — that's
 /// the exact dispatcher precedence that makes the alias dead.
 #[test]
@@ -588,18 +528,15 @@ fn validate_commands_rejects_alias_colliding_with_external_command() {
     let mut config = Config::default();
     let mut foo = exec_spec("echo", &["foo"]);
     foo.aliases = vec!["test".to_string()];
-    config
-        .commands
-        .insert("foo".to_string(), CommandSpec::Exec(foo));
+    config.commands.insert("foo".to_string(), CommandSpec::Exec(foo));
 
-    let err = config
-        .validate_commands(&["test"])
-        .expect_err("alias colliding with external must fail");
+    let err =
+        config.validate_commands(&["test"]).expect_err("alias colliding with external must fail");
     let msg = format!("{err:#}");
     assert!(msg.contains("'test'"), "got: {msg}");
 }
 
-/// ERR-1 / TASK-1221: `walk_composite` must leave `visiting` empty on every
+/// `walk_composite` must leave `visiting` empty on every
 /// exit path, including unknown-ref bail and child-error short-circuits.
 /// This test exercises the invariant directly — a future refactor that
 /// hoists `visiting` across sibling composite roots would otherwise silently
@@ -609,21 +546,16 @@ fn walk_composite_clears_visiting_on_unknown_ref_error() {
     use crate::config::CompositeCommandSpec;
     let mut config = Config::default();
     // Top-level composite with an unknown sub-ref so the inner loop bails.
-    config.commands.insert(
-        "outer".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["nope"])),
-    );
+    config
+        .commands
+        .insert("outer".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["nope"])));
     let mut state = crate::config::root::CompositeWalk::default();
     let known: std::collections::HashSet<&str> =
         config.commands.keys().map(String::as_str).collect();
-    let err = config
-        .walk_composite("outer", &known, &mut state, 0)
-        .expect_err("unknown ref must error");
+    let err =
+        config.walk_composite("outer", &known, &mut state, 0).expect_err("unknown ref must error");
     assert!(format!("{err:#}").contains("unknown command 'nope'"));
-    assert!(
-        state.path_is_empty(),
-        "visiting must be cleared after error; got: {state:?}"
-    );
+    assert!(state.path_is_empty(), "visiting must be cleared after error; got: {state:?}");
 }
 
 #[test]
@@ -632,14 +564,12 @@ fn walk_composite_clears_visiting_on_recursive_error() {
     let mut config = Config::default();
     // outer -> mid -> nope (unknown). Error surfaces from a deeper frame; the
     // outer frame must still clear its own entry on the way out.
-    config.commands.insert(
-        "outer".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["mid"])),
-    );
-    config.commands.insert(
-        "mid".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["nope"])),
-    );
+    config
+        .commands
+        .insert("outer".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["mid"])));
+    config
+        .commands
+        .insert("mid".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["nope"])));
     let mut state = crate::config::root::CompositeWalk::default();
     let known: std::collections::HashSet<&str> =
         config.commands.keys().map(String::as_str).collect();
@@ -665,7 +595,7 @@ fn scale_columns_handles_huge_widths_without_wrapping() {
     assert_eq!(scale_columns(u16::MAX), 58_981);
 }
 
-/// SEC-31 / TASK-1818: the two alias-hygiene rules must run in the **shipped
+/// The two alias-hygiene rules must run in the **shipped
 /// binary**. They lived only in `validate_commands`, which has no production
 /// caller, so a `.ops.toml` declaring the same alias twice loaded cleanly and
 /// then dispatched to whichever command happened to sit earlier in the
@@ -704,7 +634,7 @@ aliases = ["b"]
     );
 }
 
-/// SEC-31 / TASK-1818: the symmetric rule — an alias shadowing an existing
+/// The symmetric rule — an alias shadowing an existing
 /// command name is silently dead at dispatch, and must fail the real load
 /// path rather than at invocation time.
 #[test]
@@ -739,14 +669,14 @@ aliases = ["build"]
     assert!(msg.contains("build"), "error must name the alias: {msg}");
 }
 
-/// SEC-33 / TASK-1832: `walk_composite` kept no memory of subtrees it had
+/// `walk_composite` kept no memory of subtrees it had
 /// already validated, so every extra incoming edge re-walked the whole
 /// subtree. A 31-command `.ops.toml` where each composite lists the next one
 /// twice therefore cost 2^30 visits and hung `ops <anything>` — an
 /// unauthenticated local `DoS` from repo-supplied config, well inside every size
 /// cap. With the `validated` memo the walk is O(V+E) and returns instantly.
 ///
-/// TEST-15: the budget is deliberately enormous (five seconds against a walk
+/// The budget is deliberately enormous (five seconds against a walk
 /// that now takes microseconds) so the test cannot flake on a loaded CI box
 /// while still failing decisively if the memo is dropped — 2^30 visits do not
 /// complete in five seconds on any machine.
@@ -764,15 +694,10 @@ fn validate_commands_doubling_chain_is_not_exponential() {
             CommandSpec::Composite(CompositeCommandSpec::new([next.clone(), next])),
         );
     }
-    config.commands.insert(
-        format!("c{depth}"),
-        CommandSpec::Exec(exec_spec("true", &[])),
-    );
+    config.commands.insert(format!("c{depth}"), CommandSpec::Exec(exec_spec("true", &[])));
 
     let started = std::time::Instant::now();
-    config
-        .validate_commands(&[])
-        .expect("a doubling chain is a DAG, not a cycle");
+    config.validate_commands(&[]).expect("a doubling chain is a DAG, not a cycle");
     let elapsed = started.elapsed();
 
     assert!(
@@ -781,7 +706,7 @@ fn validate_commands_doubling_chain_is_not_exponential() {
     );
 }
 
-/// SEC-33 / TASK-1832: memoisation must not weaken the depth limit. A node
+/// Memoisation must not weaken the depth limit. A node
 /// validated at a shallow depth can still blow `MAX_COMPOSITE_DEPTH` when
 /// reached again from a deeper root, so the memo stores each subtree's height
 /// and re-checks `depth + height` on every hit. A bare "seen" flag would fail
@@ -800,20 +725,13 @@ fn validate_commands_memo_still_enforces_depth_limit() {
             CommandSpec::Composite(CompositeCommandSpec::new([format!("c{}", i + 1)])),
         );
     }
-    config
-        .commands
-        .insert(format!("c{n}"), CommandSpec::Exec(exec_spec("true", &[])));
+    config.commands.insert(format!("c{n}"), CommandSpec::Exec(exec_spec("true", &[])));
 
-    let err = config
-        .validate_commands(&[])
-        .expect_err("an over-deep chain must still be rejected");
-    assert!(
-        format!("{err:#}").contains("depth"),
-        "expected a depth-limit error, got: {err:#}"
-    );
+    let err = config.validate_commands(&[]).expect_err("an over-deep chain must still be rejected");
+    assert!(format!("{err:#}").contains("depth"), "expected a depth-limit error, got: {err:#}");
 }
 
-/// SEC-33 / TASK-1832, direct form: the sibling test above drives
+/// Direct form: the sibling test above drives
 /// `validate_commands`, which only reaches the memo *incidentally* — a change
 /// to root ordering could make it stop exercising the memo-hit branch at all
 /// while still passing. This one calls [`Config::walk_composite`] itself:
@@ -828,10 +746,9 @@ fn walk_composite_memo_hit_rechecks_depth() {
     let mut config = Config::default();
     // mid -> leaf, so `mid` memoises with height 1 rather than 0 and the
     // re-check has something to add to the entry depth.
-    config.commands.insert(
-        "mid".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec::new(["leaf"])),
-    );
+    config
+        .commands
+        .insert("mid".to_string(), CommandSpec::Composite(CompositeCommandSpec::new(["leaf"])));
     config.commands.insert(
         "leaf".to_string(),
         CommandSpec::Composite(CompositeCommandSpec::new(Vec::<String>::new())),
@@ -848,13 +765,10 @@ fn walk_composite_memo_hit_rechecks_depth() {
     let err = config
         .walk_composite("mid", &known, &mut state, MAX_COMPOSITE_DEPTH)
         .expect_err("a memoised node re-entered at the limit still overflows it");
-    assert!(
-        format!("{err:#}").contains("depth"),
-        "expected a depth-limit error, got: {err:#}"
-    );
+    assert!(format!("{err:#}").contains("depth"), "expected a depth-limit error, got: {err:#}");
 }
 
-/// SEC-33 / TASK-1849: `left_pad` sizes `" ".repeat(n)` in three renderers,
+/// `left_pad` sizes `" ".repeat(n)` in three renderers,
 /// and nothing validated `[themes]`, so a ~400-byte `.ops.toml` could panic
 /// the process with a capacity overflow. It must now be a clean `Err` from the
 /// real load path.
@@ -862,25 +776,19 @@ fn walk_composite_memo_hit_rechecks_depth() {
 #[serial]
 fn load_config_rejects_usize_max_left_pad() {
     let err = load_config_with_left_pad(&usize::MAX.to_string());
-    assert!(
-        err.contains("left_pad"),
-        "error must name the field, got: {err}"
-    );
+    assert!(err.contains("left_pad"), "error must name the field, got: {err}");
 }
 
-/// SEC-33 / TASK-1849: the allocation-failure shape (`memory allocation of
+/// The allocation-failure shape (`memory allocation of
 /// 50000000000 bytes failed`, an abort) is rejected the same way.
 #[test]
 #[serial]
 fn load_config_rejects_huge_left_pad() {
     let err = load_config_with_left_pad("50000000000");
-    assert!(
-        err.contains("left_pad"),
-        "error must name the field, got: {err}"
-    );
+    assert!(err.contains("left_pad"), "error must name the field, got: {err}");
 }
 
-/// SEC-33 / TASK-1849: a realistic margin still loads — the bound must not
+/// a realistic margin still loads — the bound must not
 /// reject legitimate themes.
 #[test]
 #[serial]
@@ -890,18 +798,15 @@ fn load_config_accepts_ordinary_left_pad() {
     // so the cached tempdir path cannot outlive this test.
     let _xdg = crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    std::fs::write(
-        crate::test_utils::canonical_root(&dir).join(".ops.toml"),
-        theme_toml("4"),
-    )
-    .unwrap();
+    std::fs::write(crate::test_utils::canonical_root(&dir).join(".ops.toml"), theme_toml("4"))
+        .unwrap();
 
     let config = crate::config::load_config_at(&crate::test_utils::canonical_root(&dir))
         .expect("an ordinary left_pad must load");
     assert_eq!(config.themes["wide"].left_pad, 4);
 }
 
-/// SEC-33 / TASK-1849: `ThemeConfig::validate` is the screen for a
+/// `ThemeConfig::validate` is the screen for a
 /// programmatically-built theme, which never passes through serde. Its message
 /// names the theme so an operator can find it.
 #[test]
@@ -951,11 +856,8 @@ fn load_config_with_left_pad(left_pad: &str) -> String {
     // so the cached tempdir path cannot outlive this test.
     let _xdg = crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    std::fs::write(
-        crate::test_utils::canonical_root(&dir).join(".ops.toml"),
-        theme_toml(left_pad),
-    )
-    .unwrap();
+    std::fs::write(crate::test_utils::canonical_root(&dir).join(".ops.toml"), theme_toml(left_pad))
+        .unwrap();
 
     let err = crate::config::load_config_at(&crate::test_utils::canonical_root(&dir))
         .expect_err("an out-of-range left_pad must be a clean Err, not a panic or an abort");
@@ -976,7 +878,7 @@ fn config_of(commands: Vec<(&str, CommandSpec)>) -> Config {
     config
 }
 
-/// TASK-2637 AC #4: a cycle fails the load naming the commands on it.
+/// a cycle fails the load naming the commands on it.
 #[test]
 fn validate_rejects_after_cycles_naming_the_commands() {
     let config = config_of(vec![
@@ -987,10 +889,7 @@ fn validate_rejects_after_cycles_naming_the_commands() {
     ]);
     let msg = config.validate().expect_err("cycle").to_string();
     assert!(msg.contains("a after b after c after a"), "{msg}");
-    assert!(
-        !msg.contains("free"),
-        "a step leading into the cycle is not on it: {msg}"
-    );
+    assert!(!msg.contains("free"), "a step leading into the cycle is not on it: {msg}");
 }
 
 #[test]
@@ -1006,10 +905,7 @@ fn validate_rejects_after_cycle_through_an_alias() {
     let mut b = exec_spec("echo", &[]);
     b.aliases = vec!["bee".to_string()];
     b.after = vec!["a".to_string()];
-    let config = config_of(vec![
-        ("a", exec_after(&["bee"])),
-        ("b", CommandSpec::Exec(b)),
-    ]);
+    let config = config_of(vec![("a", exec_after(&["bee"])), ("b", CommandSpec::Exec(b))]);
     assert!(config.validate().is_err());
 }
 
@@ -1032,9 +928,7 @@ fn validate_handles_a_long_after_chain() {
     let names: Vec<String> = (0..50_000).map(|i| format!("c{i}")).collect();
     let mut config = Config::empty();
     for pair in names.windows(2) {
-        config
-            .commands
-            .insert(pair[0].clone(), exec_after(&[pair[1].as_str()]));
+        config.commands.insert(pair[0].clone(), exec_after(&[pair[1].as_str()]));
     }
     config.validate().expect("a chain is not a cycle");
 }

@@ -16,13 +16,7 @@ use anyhow::{bail, Context};
 
 /// What `cargo check` runs with on the declared toolchain. `--all-targets`
 /// so test and bench code is type-checked too.
-const CHECK_ARGS: &[&str] = &[
-    "cargo",
-    "check",
-    "--workspace",
-    "--all-features",
-    "--all-targets",
-];
+const CHECK_ARGS: &[&str] = &["cargo", "check", "--workspace", "--all-features", "--all-targets"];
 
 /// `ops msrv`: verify `clippy.toml`'s `msrv` matches `rust-version`, then
 /// `cargo check` the workspace on that toolchain (installed first under
@@ -37,23 +31,14 @@ pub fn run_msrv(root: &Path, install: bool, dry_run: bool) -> anyhow::Result<Exi
     let rustup = ops_core::subprocess::resolve_rustup_bin();
     let mut steps: Vec<Vec<OsString>> = Vec::new();
     if install {
-        steps.push(os(&[
-            "toolchain",
-            "install",
-            &version,
-            "--profile",
-            "minimal",
-        ]));
+        steps.push(os(&["toolchain", "install", &version, "--profile", "minimal"]));
     }
     let mut check = os(&["run", &version]);
     check.extend(os(CHECK_ARGS));
     steps.push(check);
 
     let mut out = std::io::stdout().lock();
-    writeln!(
-        out,
-        "rust-version {version} matches clippy.toml msrv; checking on {version}"
-    )?;
+    writeln!(out, "rust-version {version} matches clippy.toml msrv; checking on {version}")?;
     for args in steps {
         if dry_run {
             writeln!(out, "{}", render(&rustup, &args))?;
@@ -137,9 +122,7 @@ fn clippy_msrv(root: &Path) -> anyhow::Result<(&'static str, Option<String>)> {
 fn validate(version: &str) -> anyhow::Result<()> {
     let parts: Vec<&str> = version.split('.').collect();
     let well_formed = (1..=3).contains(&parts.len())
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+        && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
     if !well_formed {
         bail!("rust-version {version:?} is not a version such as \"1.85\" or \"1.85.1\"");
     }
@@ -163,10 +146,8 @@ fn os(args: &[&str]) -> Vec<OsString> {
 }
 
 fn render(program: &OsString, args: &[OsString]) -> String {
-    let words: Vec<String> = std::iter::once(program)
-        .chain(args)
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
+    let words: Vec<String> =
+        std::iter::once(program).chain(args).map(|a| a.to_string_lossy().into_owned()).collect();
     shlex::try_join(words.iter().map(String::as_str)).unwrap_or_else(|_| words.join(" "))
 }
 
@@ -229,10 +210,7 @@ mod tests {
 
     #[test]
     fn unset_clippy_msrv_fails() {
-        for clippy in [
-            None,
-            Some(("clippy.toml", "too-many-lines-threshold = 80\n")),
-        ] {
+        for clippy in [None, Some(("clippy.toml", "too-many-lines-threshold = 80\n"))] {
             let dir = root(WORKSPACE, clippy);
             let err = checked_msrv(dir.path()).unwrap_err().to_string();
             assert!(err.contains("sets no msrv"), "{err}");

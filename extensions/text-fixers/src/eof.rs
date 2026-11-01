@@ -74,9 +74,8 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     // path below, and `get` over slicing keeps `clippy::indexing_slicing`
     // clean (`end <= input.len()` is the loop's invariant, so the `None`
     // arm is unreachable).
-    let run_is_cr_only = input
-        .get(end..)
-        .is_some_and(|run| !run.is_empty() && !run.contains(&b'\n'));
+    let run_is_cr_only =
+        input.get(end..).is_some_and(|run| !run.is_empty() && !run.contains(&b'\n'));
     let uses_crlf = detect_crlf(input);
     let terminator: &[u8] = if run_is_cr_only {
         b"\r"

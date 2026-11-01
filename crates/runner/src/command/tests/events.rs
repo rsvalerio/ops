@@ -16,10 +16,8 @@ fn emit_output_events_emits_stdout_and_stderr() {
         .iter()
         .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: false, .. }))
         .count();
-    let stderr_events = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: true, .. }))
-        .count();
+    let stderr_events =
+        events.iter().filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: true, .. })).count();
 
     assert_eq!(stdout_events, 2);
     assert_eq!(stderr_events, 1);

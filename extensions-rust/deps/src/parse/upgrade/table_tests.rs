@@ -89,11 +89,7 @@ Name   Old Req Compatible Latest  New Req
 serde  1.0.100 1.0.228    1.0.228 1.0.228
 ";
     let entries = parse_upgrade_table(stdout);
-    assert_eq!(
-        entries.len(),
-        1,
-        "case-flipped header must still be recognised; got: {entries:?}"
-    );
+    assert_eq!(entries.len(), 1, "case-flipped header must still be recognised; got: {entries:?}");
     assert_eq!(entries[0].name, "serde");
 }
 
@@ -113,10 +109,7 @@ tokio    1.35.0          1.38.0
 
     let (logged, entries) =
         crate::test_support::capture_tracing(tracing::Level::WARN, || parse_upgrade_table(stdout));
-    assert!(
-        entries.is_empty(),
-        "no column geometry means no entries can be sliced"
-    );
+    assert!(entries.is_empty(), "no column geometry means no entries can be sliced");
     assert!(
         logged.contains("no `====` separator"),
         "expected a separator-drift warn; got: {logged}"
@@ -172,11 +165,7 @@ fn categorize_upgrades_matches_incompatible_substring() {
         mk("e", None),
     ];
     let result = categorize_upgrades(entries);
-    let inc_names: Vec<_> = result
-        .incompatible
-        .iter()
-        .map(|e| e.name.as_str())
-        .collect();
+    let inc_names: Vec<_> = result.incompatible.iter().map(|e| e.name.as_str()).collect();
     let cmp_names: Vec<_> = result.compatible.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(inc_names, vec!["a", "b", "c"]);
     assert_eq!(cmp_names, vec!["d", "e"]);
@@ -203,11 +192,7 @@ fn categorize_upgrades_perf3_parity_after_alloc_free_scan() {
         mk("compat_only", Some("compatible")),
     ];
     let result = categorize_upgrades(entries);
-    let inc_names: Vec<_> = result
-        .incompatible
-        .iter()
-        .map(|e| e.name.as_str())
-        .collect();
+    let inc_names: Vec<_> = result.incompatible.iter().map(|e| e.name.as_str()).collect();
     let cmp_names: Vec<_> = result.compatible.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(inc_names, vec!["upper", "embedded"]);
     assert_eq!(cmp_names, vec!["compat_only"]);
@@ -320,8 +305,5 @@ fn classify_body() {
         classify_upgrade_line("serde  1.0.100 1.0.228    1.0.228 1.0.228"),
         UpgradeLine::Body
     ));
-    assert!(matches!(
-        classify_upgrade_line("Updating crates.io index"),
-        UpgradeLine::Body
-    ));
+    assert!(matches!(classify_upgrade_line("Updating crates.io index"), UpgradeLine::Body));
 }

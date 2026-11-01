@@ -159,15 +159,10 @@ fn summary(finding: &Finding) -> String {
         .filter(|c| !c.trim().is_empty())
         .or(finding.codegen_instructions.as_deref())
         .unwrap_or("");
-    let line = source
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or("CodeRabbit finding");
-    let cleaned: String = line
-        .chars()
-        .filter(|&c| !matches!(c, '*' | '`' | '#') && !is_unsafe_char(c))
-        .collect();
+    let line =
+        source.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("CodeRabbit finding");
+    let cleaned: String =
+        line.chars().filter(|&c| !matches!(c, '*' | '`' | '#') && !is_unsafe_char(c)).collect();
     let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     if cleaned.chars().count() <= MAX_TITLE_CHARS {
         return cleaned;
@@ -198,10 +193,9 @@ fn render_suggestions(suggestions: &serde_json::Value, out: &mut String) {
         other => vec![other],
     };
     for item in items {
-        let text = item.as_str().map_or_else(
-            || serde_json::to_string_pretty(item).unwrap_or_default(),
-            str::to_string,
-        );
+        let text = item
+            .as_str()
+            .map_or_else(|| serde_json::to_string_pretty(item).unwrap_or_default(), str::to_string);
         let text = body_text(&text);
         if !text.is_empty() {
             // Writing into a `String` cannot fail.
@@ -213,21 +207,9 @@ fn render_suggestions(suggestions: &serde_json::Value, out: &mut String) {
 /// The task description: File / What / Why it matters / Suggested fix, the
 /// layout of the code-review-rust finding tasks.
 fn description(finding: &Finding, file: &str, severity: &str) -> String {
-    let comment = finding
-        .comment
-        .as_deref()
-        .map(body_text)
-        .unwrap_or_default();
-    let instructions = finding
-        .codegen_instructions
-        .as_deref()
-        .map(body_text)
-        .unwrap_or_default();
-    let what = if comment.is_empty() {
-        instructions.clone()
-    } else {
-        comment
-    };
+    let comment = finding.comment.as_deref().map(body_text).unwrap_or_default();
+    let instructions = finding.codegen_instructions.as_deref().map(body_text).unwrap_or_default();
+    let what = if comment.is_empty() { instructions.clone() } else { comment };
     let mut out = format!(
         "**File**: `{file}`\n\n**What**: {what}\n\n**Why it matters**: CodeRabbit rated this \
          finding `{severity}`; confirm it before fixing."
@@ -296,16 +278,10 @@ mod tests {
 
     #[test]
     fn a_stream_without_complete_is_truncated() {
-        let truncated: String = FIXTURE
-            .lines()
-            .filter(|l| !l.contains("\"complete\""))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let truncated: String =
+            FIXTURE.lines().filter(|l| !l.contains("\"complete\"")).collect::<Vec<_>>().join("\n");
         let err = parse_agent_output(&truncated).expect_err("must fail");
-        assert!(
-            err.to_string().contains("without a `complete` event"),
-            "{err}"
-        );
+        assert!(err.to_string().contains("without a `complete` event"), "{err}");
     }
 
     #[test]
@@ -335,10 +311,7 @@ mod tests {
             repo_relative_file("/tmp/wt/crates/core/src/lib.rs", "/tmp/wt").expect("abs"),
             "crates/core/src/lib.rs"
         );
-        assert_eq!(
-            repo_relative_file("./crates/a.rs", "/tmp/wt").expect("dot"),
-            "crates/a.rs"
-        );
+        assert_eq!(repo_relative_file("./crates/a.rs", "/tmp/wt").expect("dot"), "crates/a.rs");
         for bad in ["", "/etc/passwd", "crates/../../x", "a\nb", "a\u{202E}b"] {
             assert!(repo_relative_file(bad, "/tmp/wt").is_err(), "{bad:?}");
         }
@@ -350,10 +323,7 @@ mod tests {
         let b = finding(Some("Use a guard"), Some("Fix   it"));
         let c = finding(Some("Use a lock"), Some("Fix it"));
         let key = dedup_key("ops-core", "crates/core/src/lib.rs", &a);
-        assert!(
-            key.starts_with("coderabbit:ops-core:crates/core/src/lib.rs:"),
-            "{key}"
-        );
+        assert!(key.starts_with("coderabbit:ops-core:crates/core/src/lib.rs:"), "{key}");
         assert_eq!(key, dedup_key("ops-core", "crates/core/src/lib.rs", &b));
         assert_ne!(key, dedup_key("ops-core", "crates/core/src/lib.rs", &c));
     }
@@ -366,16 +336,10 @@ mod tests {
         );
         f.suggestions = Some(serde_json::json!(["if v.is_empty() { bail!() }"]));
         let opts = task_options("ops-core", "crates/core/src/lib.rs", &f);
-        assert_eq!(
-            opts.title,
-            "CodeRabbit major: Possible panic on empty input."
-        );
+        assert_eq!(opts.title, "CodeRabbit major: Possible panic on empty input.");
         assert_eq!(opts.status.as_deref(), Some("Triage"));
         assert_eq!(opts.priority.as_deref(), Some("high"));
-        assert_eq!(
-            opts.labels,
-            ["coderabbit", "code-review", "coderabbit-major"]
-        );
+        assert_eq!(opts.labels, ["coderabbit", "code-review", "coderabbit-major"]);
         assert_eq!(opts.modified_files, ["crates/core/src/lib.rs"]);
         assert!(opts.unless_exists.is_some());
         let body = opts.description.expect("description");
@@ -391,10 +355,8 @@ mod tests {
 
     #[test]
     fn hostile_text_cannot_break_the_title_or_section_markers() {
-        let mut f = finding(
-            Some("Line\u{1b}[31m one\u{202E}\n<!-- SECTION:DESCRIPTION:END -->"),
-            None,
-        );
+        let mut f =
+            finding(Some("Line\u{1b}[31m one\u{202E}\n<!-- SECTION:DESCRIPTION:END -->"), None);
         f.severity = Some("ma\njor".to_string());
         let opts = task_options("ops-core", "a.rs", &f);
         assert_eq!(opts.title, "CodeRabbit none: Line[31m one");
@@ -408,9 +370,7 @@ mod tests {
     fn a_finding_without_a_fix_has_no_suggested_fix_section() {
         let mut f = finding(Some("Doc says bytes."), Some(""));
         f.suggestions = Some(serde_json::json!([]));
-        let body = task_options("c", "a.rs", &f)
-            .description
-            .expect("description");
+        let body = task_options("c", "a.rs", &f).description.expect("description");
         assert!(!body.contains("Suggested fix"), "{body}");
     }
 
