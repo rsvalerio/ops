@@ -142,6 +142,20 @@ args = ["--manifest-path", "fuzz/Cargo.toml"]
 - A clone copies the source **before** the source's own `[extend.<source>]` applies: extends stay per-name, so the clone never inherits them. `[extend.<clone>]` applies to the materialized copy.
 - Unknown sources, clone cycles (including self-clones; non-cyclic clone-of-clone chains do resolve), cloning into an existing stack-default name, and exec-only fields beside a composite source are load errors naming the command and the source.
 
+## Command categories
+
+`category = "..."` sets the heading a command appears under in `ops --help`; a command
+without one appears under **Commands**. It affects nothing else.
+
+There is deliberately no default category, neither a `[commands]`-level or per-section
+default nor one inherited from a composite. `[commands]` keys are command names, so a
+default there needs a reserved name or a new section whose scope across config layers
+would have to be defined for a help heading. Inheritance from a composite is ambiguous:
+one command can sit in several composites, as `clippy` sits in both `verify` and
+`verify-fix`, and a heading that changes when a composite gains a member is worse than a
+repeated line. Writing `category` on each command stays explicit and greppable, and
+`clone` already carries it to a copy.
+
 ## Command groups and scheduling
 
 A command with a `commands = [...]` list is a *group* (composite). Groups may
