@@ -371,6 +371,22 @@ fn a_config_field_newer_than_the_ops_pin_is_drift_and_waivable() {
     assert!(report.drift.is_empty(), "{:?}", report.drift);
 }
 
+/// A mise location only the pin lookup reads is not a foundation file, so
+/// its parse failure must surface here: a silent pass would hide the very
+/// fields this check exists to flag.
+#[test]
+fn a_broken_mise_location_is_drift_not_a_silent_pass() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::write(dir.path().join(".ops.toml"), "[commands.a]\nprogram = \"x\"\nraw = true\n")
+        .expect("write");
+    std::fs::write(dir.path().join(".mise.toml"), "not = = toml").expect("write");
+    let report = check(dir.path(), &no_waivers(), &[]).expect("check");
+    assert_eq!(report.drift.len(), 1, "{:?}", report.drift);
+    assert_eq!(report.drift[0].location, "mise.toml");
+    assert!(report.drift[0].message.contains(".mise.toml"), "{:?}", report.drift);
+}
+
 #[test]
 fn a_config_that_does_not_parse_is_drift_against_the_pin_not_an_error() {
     let dir = workspace();

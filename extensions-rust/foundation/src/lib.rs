@@ -379,10 +379,23 @@ pub fn check(
 /// Report each field of the project's config that its own `ops` pin would
 /// reject, at `<file>:<field>`: CI runs the pin, so those fail every step
 /// there. A pin naming no release is already [`check_ops_pin`]'s drift, and
-/// a mise file that does not parse is [`check_file`]'s.
+/// a `mise.toml` that does not parse is [`check_file`]'s. The other mise
+/// locations only the pin lookup reads are this check's to report: their
+/// parse failure leaves no pin to compare against, and passing silently
+/// would hide the very fields it exists to flag.
 fn check_config_against_pin(root: &Path, out: &mut Vec<Drift>) {
-    let Ok(Some(pin)) = mise_ops_pin(root) else {
-        return;
+    let pin = match mise_ops_pin(root) {
+        Ok(Some(pin)) => pin,
+        Ok(None) => return,
+        Err(e) => {
+            // An unversioned winning pin in `mise.toml` is already the
+            // floor check's drift, one row for one cause; only locations
+            // the floor check never reads are reported here.
+            if !out.iter().any(|d| d.location == format!("{MISE}:tools.ops")) {
+                out.push(Drift::new(MISE, format!("{e:#}")));
+            }
+            return;
+        }
     };
     match fields_used(root) {
         Ok(fields) => {
