@@ -1,10 +1,10 @@
 ---
 id: TASK-2637
 title: 'Composite steps: declare ordering with after = [...] instead of using exclusive as a stage barrier'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-26 22:12'
-updated_date: '2026-10-31 23:55'
+updated_date: '2026-11-01 00:30'
 labels:
   - feature
   - config
@@ -28,8 +28,17 @@ Proposal: a step-level after = ["build"] (or depends_on) honoured inside a paral
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A step with after = ["build"] starts only after build completes in a parallel plan
-- [ ] #2 Under fail_fast, a failed dependency skips its dependents
-- [ ] #3 ops explain shows the dependency edges
-- [ ] #4 Cycles and unknown names are load errors naming the commands
+- [x] #1 A step with after = ["build"] starts only after build completes in a parallel plan
+- [x] #2 Under fail_fast, a failed dependency skips its dependents
+- [x] #3 ops explain shows the dependency edges
+- [x] #4 Cycles and unknown names are load errors naming the commands
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Design: after is honoured by waiting inside the concurrent batch (a watch channel per step, awaited before the semaphore permit), so unrelated steps never wait and no stage is split. Under fail_fast a dependent reads the dependency's own result rather than racing abort_all; without fail_fast it runs once the dependency finished. Expansion stably reorders leaves within a stage so --raw and --dry-run walk a valid order. A dependency behind an exclusive step is an expansion error (AfterLaterStage); a composite name is an error (AfterComposite).
+
+AC #4 substitution: cycles are true load errors (Config::validate). Unknown names cannot be, because the loader never sees the extension and builtin stores: extensions register after config load. They are rejected by expand_to_plan, across every command in every store, before any step starts, on any ops <cmd>, --dry-run or ops explain. Commands that expand no plan do not report them.
+<!-- SECTION:NOTES:END -->

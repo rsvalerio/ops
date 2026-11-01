@@ -1,10 +1,10 @@
 ---
 id: TASK-2644
 title: 'code-review-plan-wave75'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-31 23:55'
-updated_date: '2026-10-31 23:55'
+updated_date: '2026-11-01 00:35'
 labels:
   - code-review-wave
 dependencies:
@@ -48,4 +48,8 @@ New step/command fields (after, wrap) that change how a plan resolves and runs a
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2645 (crates/cli/src/dry_run.rs, crates/core/src/config/commands.rs, docs/commands.md, docs/configuration.md); TASK-2646 (docs/configuration.md)
+
+Branch: code-review/TASK-2644
+Worktree: /home/rsvalerio/projects/.wave-TASK-2644
+
 <!-- SECTION:NOTES:END -->
