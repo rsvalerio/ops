@@ -136,22 +136,41 @@ fn package_name(manifest: &toml::Table) -> Option<&str> {
     manifest.get("package")?.get("name")?.as_str()
 }
 
-/// The required (non-optional, non-dev) dependency names a manifest declares:
-/// the keys of its `[dependencies]`, `[build-dependencies]` and
-/// `[target.'...'.dependencies]` tables, minus the entries carrying
-/// `optional = true`. Dev-dependency tables are skipped: a lockfile records
-/// them only for a workspace's own members, so their absence on one side is
-/// legitimate.
-fn required_deps(manifest: &toml::Table) -> Vec<String> {
+/// The required (non-optional, non-dev) dependency names a manifest declares,
+/// as the crate names the lockfile records edges under: the keys of its
+/// `[dependencies]`, `[build-dependencies]` and `[target.'...'.dependencies]`
+/// tables, minus the entries carrying `optional = true`, with a rename
+/// (`my-serde = { package = "serde" }`) resolved to the crate's real name —
+/// through `[workspace.dependencies]` too, for an inherited rename.
+/// Dev-dependency tables are skipped: a lockfile records them only for a
+/// workspace's own members, so their absence on one side is legitimate.
+fn required_deps(manifest: &toml::Table, workspace_deps: Option<&toml::Table>) -> Vec<String> {
     let mut out = Vec::new();
     let mut visit = |table: &toml::Table| {
         for (key, spec) in table {
-            let optional = spec
-                .as_table()
+            let entry = spec.as_table();
+            let optional = entry
                 .is_some_and(|t| t.get("optional").and_then(toml::Value::as_bool) == Some(true));
-            if !optional {
-                out.push(key.clone());
+            if optional {
+                continue;
             }
+            // A rename: the edge is recorded under the crate's real name. An
+            // inherited `workspace = true` entry renames only if the
+            // workspace dependency itself does.
+            let renamed =
+                entry.and_then(|t| t.get("package")).and_then(toml::Value::as_str).or_else(|| {
+                    let inherited =
+                        entry?.get("workspace").and_then(toml::Value::as_bool) == Some(true);
+                    if !inherited {
+                        return None;
+                    }
+                    workspace_deps
+                        .and_then(|w| w.get(key))
+                        .and_then(toml::Value::as_table)?
+                        .get("package")
+                        .and_then(toml::Value::as_str)
+                });
+            out.push(renamed.unwrap_or(key).to_owned());
         }
     };
     if let Some(deps) = manifest.get("dependencies").and_then(toml::Value::as_table) {
@@ -173,11 +192,12 @@ fn required_deps(manifest: &toml::Table) -> Vec<String> {
     out
 }
 
-/// `<group>.<key>` → normalised value for every entry under a manifest's
-/// lint tables: the `[workspace.lints]` sub-table of a root manifest, the
-/// `[lints]` table of a nested one. A value is normalised with sorted keys
-/// and no whitespace, so a reflowed copy of a table is the same policy —
-/// which it is.
+/// `<group>.<key>` → policy for every entry under a manifest's lint tables:
+/// the `[workspace.lints]` sub-table of a root manifest, the `[lints]` table
+/// of a nested one. A value is compared as the policy it configures — level
+/// and priority, the priority defaulting the way cargo defaults it — so
+/// `"deny"` and `{ level = "deny" }` are the same lint, and a reflowed copy
+/// of a table is the same table.
 fn lints_of(lints: Option<&toml::Value>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let Some(lints) = lints.and_then(toml::Value::as_table) else { return out };
@@ -187,15 +207,30 @@ fn lints_of(lints: Option<&toml::Value>) -> BTreeMap<String, String> {
             // stray entry is compared as written rather than ignored).
             toml::Value::Table(t) => {
                 for (lint, value) in t {
-                    out.insert(format!("{key}.{lint}"), normalise(value));
+                    out.insert(format!("{key}.{lint}"), policy(value));
                 }
             }
             value => {
-                out.insert(key.clone(), normalise(value));
+                out.insert(key.clone(), policy(value));
             }
         }
     }
     out
+}
+
+/// A lint value as the policy it sets: a bare string is a level at cargo's
+/// default priority, a table is its `level` and `priority`. Anything else a
+/// lint table may one day hold is compared structurally.
+fn policy(value: &toml::Value) -> String {
+    match value {
+        toml::Value::String(level) => format!("{level} (priority 0)"),
+        toml::Value::Table(t) => {
+            let level = t.get("level").and_then(toml::Value::as_str).unwrap_or_default();
+            let priority = t.get("priority").and_then(toml::Value::as_integer).unwrap_or(0);
+            format!("{level} (priority {priority})")
+        }
+        other => normalise(other),
+    }
 }
 
 /// A lint value as one comparable string: strings quoted, tables as sorted
@@ -213,14 +248,22 @@ fn normalise(value: &toml::Value) -> String {
     }
 }
 
-/// Every manifest under `root`, as `[package] name` → path. The manifests
-/// the missing-edge rule can consult are the ones in this repo, wherever in
-/// the tree they sit; build output and dot-directories are not looked into.
-fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, PathBuf>> {
-    fn walk(dir: &Path, out: &mut BTreeMap<String, PathBuf>) -> anyhow::Result<()> {
+/// Every manifest under `root`, as `[package] name` → the paths claiming it.
+/// The manifests the missing-edge rule can consult are the ones in this
+/// repo, wherever in the tree they sit; build output and dot-directories are
+/// not looked into, and a symlinked `Cargo.toml` is skipped unread — the
+/// walk never follows a link, in line with the repo's rule that nothing
+/// follows a symlink out of the project. A name claimed by more than one
+/// manifest (a fixture, a vendored copy) is ambiguous, and the caller skips
+/// it rather than trusting one arbitrary copy.
+fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, Vec<PathBuf>>> {
+    fn walk(dir: &Path, out: &mut BTreeMap<String, Vec<PathBuf>>) -> anyhow::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let file_type = entry.file_type()?;
+            if file_type.is_symlink() {
+                continue;
+            }
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if file_type.is_dir() {
@@ -232,7 +275,7 @@ fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, PathBuf>> {
                 let text = std::fs::read_to_string(entry.path())?;
                 if let Ok(manifest) = text.parse::<toml::Table>() {
                     if let Some(name) = package_name(&manifest) {
-                        out.insert(name.to_owned(), entry.path());
+                        out.entry(name.to_owned()).or_default().push(entry.path());
                     }
                 }
             }
@@ -244,25 +287,33 @@ fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, PathBuf>> {
     Ok(out)
 }
 
+/// What every [`check_lock`] pass walks with: the root lockfile's packages,
+/// the repo's manifests by package name, and the root
+/// `[workspace.dependencies]` for resolving an inherited rename.
+struct LockCtx<'a> {
+    root_pkgs: &'a [LockPkg],
+    manifests: &'a BTreeMap<String, Vec<PathBuf>>,
+    workspace_deps: Option<&'a toml::Table>,
+}
+
 /// Append the lockfile findings for one nested workspace: version triples,
 /// then edges, each as one human-readable line.
 fn check_lock(
     root: &Path,
     entry: &str,
-    root_pkgs: &[LockPkg],
-    manifests: &BTreeMap<String, PathBuf>,
+    ctx: &LockCtx<'_>,
     out: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let nested_path = root.join(entry).join("Cargo.lock");
     let nested_pkgs = parse_lock(&snapshot(&nested_path)?)?;
 
     let root_triples: BTreeSet<(&str, &str, &str)> =
-        root_pkgs.iter().map(LockPkg::triple).collect();
+        ctx.root_pkgs.iter().map(LockPkg::triple).collect();
     let root_by_triple: BTreeMap<(&str, &str, &str), &LockPkg> =
-        root_pkgs.iter().map(|p| (p.triple(), p)).collect();
+        ctx.root_pkgs.iter().map(|p| (p.triple(), p)).collect();
     let root_versions: BTreeMap<&str, Vec<&str>> = {
         let mut map: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for pkg in root_pkgs {
+        for pkg in ctx.root_pkgs {
             map.entry(pkg.name.as_str()).or_default().push(&pkg.version);
         }
         map
@@ -315,11 +366,17 @@ fn check_lock(
         if !root_triples.contains(&pkg.triple()) {
             continue;
         }
-        let Some(manifest_path) = manifests.get(pkg.name.as_str()) else { continue };
+        // A name claimed by several manifests is ambiguous — a fixture or a
+        // vendored copy — and the intended edge set is not knowable from an
+        // arbitrary one of them, so the crate is skipped.
+        let [manifest_path] = ctx.manifests.get(pkg.name.as_str()).map_or(&[][..], Vec::as_slice)
+        else {
+            continue;
+        };
         let manifest: toml::Table = std::fs::read_to_string(manifest_path)?
             .parse()
             .with_context(|| format!("parsing {}", manifest_path.display()))?;
-        for dep in required_deps(&manifest) {
+        for dep in required_deps(&manifest, ctx.workspace_deps) {
             let Some(root_record) = root_by_triple.get(&pkg.triple()) else { continue };
             if !root_record.deps.contains(&dep) {
                 out.push(format!(
@@ -412,9 +469,15 @@ pub fn run_workspace_check(
     let root_pkgs = parse_lock(&snapshot(&root.join("Cargo.lock")).context(
         "the root Cargo.lock is the baseline every nested lockfile is checked against",
     )?)?;
+    let root_manifest: toml::Table = snapshot(&root.join("Cargo.toml"))?.parse()?;
+    let workspace_deps = root_manifest
+        .get("workspace")
+        .and_then(|w| w.get("dependencies"))
+        .and_then(toml::Value::as_table);
     let manifests = manifests_in(root)?;
+    let ctx = LockCtx { root_pkgs: &root_pkgs, manifests: &manifests, workspace_deps };
     for &entry in &entries {
-        check_lock(root, entry, &root_pkgs, &manifests, &mut findings)?;
+        check_lock(root, entry, &ctx, &mut findings)?;
         let exemptions: BTreeMap<String, String> = cargo
             .lint_exemptions
             .as_ref()
@@ -594,7 +657,7 @@ mod tests {
         let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
         assert_eq!(code, ExitCode::FAILURE, "{out}");
         assert!(
-            out.contains("root sets rust.unsafe_code = \"forbid\", its [lints] sets \"allow\""),
+            out.contains("root sets rust.unsafe_code = forbid (priority 0), its [lints] sets allow (priority 0)"),
             "{out}"
         );
         assert!(out.contains("its [lints] sets rust.missing_docs"), "{out}");
@@ -662,7 +725,9 @@ mod tests {
         let (code, out) = run(dir.path(), &cargo);
         assert_eq!(code, ExitCode::FAILURE, "{out}");
         assert!(
-            out.contains("its [lints] sets rust.missing_docs = \"warn\", root does not set it"),
+            out.contains(
+                "its [lints] sets rust.missing_docs = warn (priority 0), root does not set it"
+            ),
             "{out}"
         );
     }
@@ -675,6 +740,94 @@ mod tests {
             "unsafe_code = \"forbid\"\n[lints.clippy]\nall = { priority = -1, level = \"deny\" }\n"
                 .to_owned();
         repo(dir.path(), &root_lock(), &agreeing_nested_lock(), &lints);
+        let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
+        assert_eq!(code, ExitCode::SUCCESS, "{out}");
+    }
+
+    #[test]
+    fn a_shorthand_lint_and_its_table_form_are_the_same_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        // The root spells the level as a bare string, the nested tables as
+        // a table. One policy, not drift.
+        let lints = "unsafe_code = { level = \"forbid\" }\n[lints.clippy]\nall = { level = \"deny\", priority = -1 }\n".to_owned();
+        repo(dir.path(), &root_lock(), &agreeing_nested_lock(), &lints);
+        let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
+        assert_eq!(code, ExitCode::SUCCESS, "{out}");
+    }
+
+    #[test]
+    fn a_renamed_dependency_is_required_under_its_crate_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("crates/app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n[workspace.lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        // The manifest renames serde; both lockfiles record the edge under
+        // the crate's real name, which is the one required.
+        std::fs::write(
+            dir.path().join("crates/app/Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nmy-serde = { package = \"serde\", version = \"1\" }\n",
+        )
+        .unwrap();
+        let lock = "[[package]]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\"serde\"]\n"
+            .to_owned();
+        std::fs::write(dir.path().join("Cargo.lock"), &lock).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[workspace]\n\n[lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("fuzz/Cargo.lock"), &lock).unwrap();
+        let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
+        assert_eq!(code, ExitCode::SUCCESS, "{out}");
+    }
+
+    #[test]
+    fn a_symlinked_manifest_is_skipped_unread() {
+        let dir = tempfile::tempdir().unwrap();
+        // A `Cargo.toml` symlinked out of the repo: reading it would follow
+        // the link (and here, fail on a directory); the walk skips it.
+        std::fs::create_dir_all(dir.path().join("decoy")).unwrap();
+        std::os::unix::fs::symlink("/", dir.path().join("decoy/Cargo.toml")).unwrap();
+        let (code, out) = run(dir.path(), &section(&["."], &[]));
+        assert_eq!(code, ExitCode::SUCCESS, "{out}");
+    }
+
+    #[test]
+    fn an_ambiguous_package_name_skips_the_missing_edge_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        // Two manifests claim `app`. Trusting either would consult a
+        // manifest the lockfiles may not describe, so the crate is skipped:
+        // the unambiguous missing edge (`left-out`) is not reported.
+        std::fs::create_dir_all(dir.path().join("crates/app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("vendor/app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n[workspace.lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("crates/app/Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nleft-out = \"1\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("vendor/app/Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let lock = "[[package]]\nname = \"app\"\nversion = \"0.1.0\"\n".to_owned();
+        std::fs::write(dir.path().join("Cargo.lock"), &lock).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[workspace]\n\n[lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("fuzz/Cargo.lock"), &lock).unwrap();
         let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
         assert_eq!(code, ExitCode::SUCCESS, "{out}");
     }
