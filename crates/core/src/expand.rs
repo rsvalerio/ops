@@ -53,7 +53,7 @@ impl std::error::Error for ExpandError {
 /// A genuine `Err(VarError)` from the lookup (e.g. `VarError::NotUnicode`
 /// for a non-UTF-8 env value) is *not* the same as a missing variable.
 /// We log such errors at `tracing::warn!` with the offending variable
-/// name (ERR-1) before falling back to `Cow::Borrowed(input)`, so config
+/// name before falling back to `Cow::Borrowed(input)`, so config
 /// bugs are visible instead of silently passing through unchanged.
 #[derive(Debug, Clone)]
 pub struct Variables {
@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(result, format!("{home}/.config"));
     }
 
-    /// PERF-3 / TASK-1183: two `from_env` calls with the same `ops_root`
+    /// Two `from_env` calls with the same `ops_root`
     /// must hand out the same `Arc<str>` for `OPS_ROOT` (LRU-of-1 cache),
     /// mirroring the TMPDIR amortisation invariant captured below.
     #[test]
@@ -657,7 +657,7 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-0967: every `Variables::from_env` call must reuse the
+    /// Every `Variables::from_env` call must reuse the
     /// same `Arc<str>` for the cached `TMPDIR` rather than allocating a
     /// fresh `String`. Verified via `Arc::ptr_eq` on the values stored in
     /// the builtins map; the API surface (`expand` / `try_expand`) is
@@ -671,7 +671,7 @@ mod tests {
         assert!(Arc::ptr_eq(a, b), "TMPDIR must be the same Arc across from_env calls");
     }
 
-    /// TASK-2649: `${OPS_BIN}` expands to the running binary's absolute
+    /// `${OPS_BIN}` expands to the running binary's absolute
     /// path — the config-side spelling for re-invoking *this* ops (see
     /// `current_ops_program`) without resolving a bare `"ops"` through
     /// `PATH`. Both reference forms must work, like every other builtin.
@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(vars.expand("$OPS_BIN"), expected);
     }
 
-    /// TASK-2649: `OPS_BIN` is a builtin, so an ambient `OPS_BIN` in the
+    /// `OPS_BIN` is a builtin, so an ambient `OPS_BIN` in the
     /// environment can never redirect what "the running ops" means — the
     /// same shadowing policy `OPS_ROOT` applies. Pin it: a hostile or
     /// accidentally-exported `OPS_BIN` is ignored.
@@ -715,10 +715,10 @@ mod tests {
         );
     }
 
-    /// READ-5 / TASK-1068: lock in the documented process-lifetime contract
+    /// Lock in the documented process-lifetime contract
     /// of [`TMPDIR_DISPLAY`]. Once `Variables::from_env` has been called in
     /// the process, swapping `TMPDIR` via `set_var` is invisible — the cache
-    /// is deliberate (PERF-3 / TASK-0967) and tests that need a different
+    /// is deliberate and tests that need a different
     /// `TMPDIR` must set it before any `from_env` call. This test asserts
     /// that the post-init swap is *not* observed.
     #[test]
@@ -816,7 +816,7 @@ mod tests {
         assert_eq!(result, input);
     }
 
-    /// READ-4 regression: pinning pass-through for a *deterministically*
+    /// Regression: pinning pass-through for a *deterministically*
     /// unset env var (removed via `remove_var`) rather than relying on a
     /// long unlikely-to-exist name. If shellexpand ever changes `Ok(None)`
     /// behaviour to substitute empty strings, this test breaks loudly.
@@ -832,7 +832,7 @@ mod tests {
         assert_eq!(result.as_ref(), input, "missing env var must pass through");
     }
 
-    /// ERR-1 regression: a `VarError::NotUnicode` from the lookup must not
+    /// Regression: a `VarError::NotUnicode` from the lookup must not
     /// be conflated with "missing variable". The current contract is to log
     /// at warn and pass the input through unchanged; this test pins that
     /// pass-through for a deliberately-corrupt env value.
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(result.as_ref(), input, "non-UTF-8 env value must fall back to original input");
     }
 
-    /// ERR-1 / TASK-1224: when `expand` falls back on a `VarError`, the
+    /// When `expand` falls back on a `VarError`, the
     /// first failure per distinct variable name surfaces via the always-on
     /// `crate::ui::warn` channel; subsequent failures of the same variable
     /// must stay structured-only so a single bad env value in a hot loop
@@ -906,7 +906,7 @@ mod tests {
         super::reset_expand_warn_seen();
     }
 
-    /// CONC-1 / TASK-1418: the `ops_root_cache` must stay bounded under a
+    /// The `ops_root_cache` must stay bounded under a
     /// stream of distinct workspace roots (e.g. an embedder rotating
     /// projects). Insert past the cap and assert the map size clamps to
     /// [`super::OPS_ROOT_CACHE_CAP`] with FIFO eviction so a new distinct
@@ -931,7 +931,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// PERF-3 / TASK-1423: the cache hit path must reuse the same
+    /// The cache hit path must reuse the same
     /// `Arc<str>` across many lookups on the same root, going through the
     /// borrow-by-`&Path` fast path rather than allocating a fresh
     /// `PathBuf` per call. We can't observe the absence of allocation
@@ -955,7 +955,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// ERR-1 / TASK-1462: a non-UTF-8 workspace root must fail
+    /// a non-UTF-8 workspace root must fail
     /// `Variables::from_env` with a typed `ExpandError::NotUnicode`
     /// instead of being lossy-rendered through `Path::display()` and
     /// silently flowing into argv / cwd / env via `try_expand`. The
@@ -985,12 +985,12 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1465: once the `OPS_ROOT` cache has been warmed for a
+    /// Once the `OPS_ROOT` cache has been warmed for a
     /// given workspace root, subsequent `from_env` calls must skip the
     /// `std::fs::canonicalize` syscall entirely — the hit path probes the
     /// cache by raw `&Path` before paying any IO.
     ///
-    /// TEST-15 / TASK-1664: asserted by **counting the syscall**, not by
+    /// Asserted by **counting the syscall**, not by
     /// timing. The previous form ran 200k calls against a one-second
     /// wall-clock budget, which is load-dependent in a debug build: it passes
     /// on an idle machine and fails under CPU contention (measured here at
@@ -1030,7 +1030,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// ERR-1 / TASK-1424: two semantically equal workspace roots — here, a
+    /// Two semantically equal workspace roots — here, a
     /// real tempdir and a symlink that points at it — must yield the same
     /// `OPS_ROOT` `Arc<str>` so a single process that derives the root
     /// twice (relative for dry-run, absolute for exec) cannot leak two
@@ -1059,7 +1059,7 @@ mod tests {
         super::reset_ops_root_cache();
     }
 
-    /// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: an adversarial stream of
+    /// An adversarial stream of
     /// distinct variable names must not grow `expand_warn_seen` without
     /// bound. The cap is documented at [`super::EXPAND_WARN_SEEN_CAP`];
     /// eviction is FIFO so a new distinct name still surfaces a one-shot
@@ -1095,7 +1095,7 @@ mod tests {
         super::reset_expand_warn_seen();
     }
 
-    /// TASK-1444 AC#3: the bound must be large enough that realistic
+    /// The bound must be large enough that realistic
     /// command-spec workloads never evict (>= 64). Pin the documented floor
     /// at compile time so a future tightening surfaces in build output.
     const _: () = assert!(
@@ -1103,7 +1103,7 @@ mod tests {
         "documented floor (TASK-1444): cap must accommodate realistic workloads"
     );
 
-    /// TASK-0450: strict `try_expand` must surface the underlying
+    /// Strict `try_expand` must surface the underlying
     /// `VarError::NotUnicode` so the caller can fail the spawn instead of
     /// materialising a literal `${VAR}` into argv / cwd.
     #[cfg(unix)]
@@ -1182,7 +1182,7 @@ mod tests {
         }
     }
 
-    /// ERR-1 / TASK-1805: a non-UTF-8 temporary directory must surface as an
+    /// a non-UTF-8 temporary directory must surface as an
     /// `ExpandError` rather than being lossy-rendered through
     /// `Path::display()` into a U+FFFD-corrupted `TMPDIR` builtin.
     #[cfg(unix)]
@@ -1204,7 +1204,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1805 (AC#2): a refused non-UTF-8 rendering must not be
+    /// A refused non-UTF-8 rendering must not be
     /// cached. A later caller with a valid temporary directory still gets a
     /// clean UTF-8 value rather than an inherited corruption.
     #[cfg(unix)]
@@ -1227,7 +1227,7 @@ mod tests {
         );
     }
 
-    /// SEC-31 / TASK-1854 (AC#3): pin what an *undefined* variable actually
+    /// Pin what an *undefined* variable actually
     /// does. Bare and braced references stay literal; the `:-` form resolves
     /// to its default. `try_expand` does not error on any of them — which is
     /// exactly why the fail-closed fallback below has to exist.
@@ -1251,7 +1251,7 @@ mod tests {
         );
     }
 
-    /// SEC-31 / TASK-1854 (AC#4): the construction-failure fallback must fail
+    /// The construction-failure fallback must fail
     /// closed. With `OPS_ROOT` set in the ambient process environment, a
     /// poisoned `Variables` must **not** silently resolve `$OPS_ROOT` to that
     /// unrelated directory — the old empty-builtins fallback did exactly that.

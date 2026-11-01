@@ -1,7 +1,7 @@
 //! Sequential plan execution: per-step exec dispatch and `run_plan` /
 //! `run_plan_raw` / `run_raw` orchestration.
 //!
-//! Split out of `command/mod.rs` (ARCH-1 / TASK-0303) alongside `parallel`.
+//! Split out of `command/mod.rs` alongside `parallel`.
 
 use super::events::PlanLifecycle;
 use super::exec::{exec_command_raw, resolution_failure};

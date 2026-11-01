@@ -1,6 +1,6 @@
 //! Shared SQL utilities for `SQLite` extensions.
 //!
-//! # Security (SEC-001)
+//! # Security
 //!
 //! Ingest data reaches the engine as **bound parameters**: the staged JSON
 //! bytes are read through the verified [`IngestDir`] anchor in Rust and
@@ -27,13 +27,13 @@ pub(crate) mod validation;
 /// Run `query_fn` and return its `Ok` value, or log the error and return
 /// `fallback`.
 ///
-/// DUP-1 (TASK-0475): consolidates the seven near-identical
+/// Consolidates the seven near-identical
 /// `match query_X(db) { Ok(v) => v, Err(e) => { tracing::warn!(...); fallback } }`
 /// blocks scattered across `extensions-rust/about`. Callers pass the query
 /// label and a brief description of the degraded outcome so the log line
 /// stays diagnostic.
 ///
-/// ERR-7 / TASK-0855 — severity routing:
+/// Severity routing:
 /// - [`DbError::MutexPoisoned`] and [`DbError::Timeout`] log at `error!`
 ///   level. A poisoned `SQLite` connection reflects partially-applied state
 ///   the connection module explicitly chose not to trust (see
@@ -77,12 +77,12 @@ where
     }
 }
 
-/// ERR-7 / TASK-0855: walk the anyhow error chain looking for a
+/// Walk the anyhow error chain looking for a
 /// [`DbError`] variant that signals trust-broken state (`MutexPoisoned`)
 /// or a liveness failure (Timeout). Returns true → log at `error!` rather
 /// than `warn!`.
 ///
-/// ERR-7 / TASK-1859: the walk does **not** stop at the first `DbError` it
+/// The walk does **not** stop at the first `DbError` it
 /// downcasts. [`DbError::External`] exists precisely to carry an arbitrary
 /// cause graph — it is how `collect_tokei`, `collect_coverage` and
 /// `check_metadata_output` funnel an `anyhow::Error` into `DbError` — so a
@@ -110,7 +110,7 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
 /// column. This is the single path-relativization policy for every
 /// extension that feeds a `SQLite` view from a JSON sidecar.
 ///
-/// READ-5 (TASK-0504): intentionally lossy. The sidecar-backed views
+/// Intentionally lossy. The sidecar-backed views
 /// (`tokei_files`, `rust_loc_files`) are read-only at the value level —
 /// they never round-trip the path back to disk — so corrupting an invalid
 /// UTF-8 byte to `U+FFFD` only affects display and join-by-string-prefix
@@ -150,8 +150,8 @@ mod tests {
     use super::*;
     use crate::error::DbError;
 
-    /// READ-5 (TASK-0504), moved from the `tokei` extension by DUP-1 /
-    /// TASK-2183: pin the lossy contract — non-UTF-8 bytes in a relative
+    /// Moved from the `tokei` extension.
+    /// Pin the lossy contract — non-UTF-8 bytes in a relative
     /// path round-trip as `U+FFFD`. Avoids silent regressions if the
     /// `to_string_lossy` is later "fixed" to a strict path policy without
     /// updating the surrounding caller chain.
@@ -197,7 +197,7 @@ mod tests {
         assert!(!is_hard_failure(&qf));
     }
 
-    /// ERR-7 / TASK-0855: detection must walk through anyhow context
+    /// Detection must walk through anyhow context
     /// layers — a caller that wrapped `DbError::MutexPoisoned` with
     /// `.context("...")` still triggers the hard-failure path.
     #[test]
@@ -209,7 +209,7 @@ mod tests {
         assert!(is_hard_failure(&err));
     }
 
-    /// ERR-7 / TASK-1859: a `MutexPoisoned` nested under
+    /// a `MutexPoisoned` nested under
     /// `DbError::External` (the shape every `external_err` caller produces)
     /// must still classify as hard — the walk continues past the soft
     /// `External` it downcasts first.
@@ -220,7 +220,7 @@ mod tests {
         assert!(is_hard_failure(&err));
     }
 
-    /// ERR-7 / TASK-1859: same for a `Timeout` nested under `External`.
+    /// Same for a `Timeout` nested under `External`.
     #[test]
     fn is_hard_failure_sees_timeout_nested_under_external() {
         let nested: anyhow::Error =
@@ -229,7 +229,7 @@ mod tests {
         assert!(is_hard_failure(&err));
     }
 
-    /// ERR-7 / TASK-1859: continuing the walk must not turn every nested
+    /// Continuing the walk must not turn every nested
     /// chain hard — a fully-soft chain still returns false.
     #[test]
     fn is_hard_failure_stays_false_for_a_fully_soft_nested_chain() {
@@ -242,7 +242,7 @@ mod tests {
         assert!(!is_hard_failure(&err));
     }
 
-    /// ERR-7 / TASK-0855: `query_or_warn` still falls back on hard
+    /// `query_or_warn` still falls back on hard
     /// failures — the elevation is about log severity, not propagation.
     /// (Verifying the actual log level emitted requires a tracing
     /// subscriber and is covered indirectly via `is_hard_failure` above.)

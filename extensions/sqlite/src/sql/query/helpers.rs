@@ -77,7 +77,7 @@ impl CrateCoverage {
 
 /// Returns the SELECT column expressions for coverage SUM/CASE aggregation.
 ///
-/// SEC-12: the prefix is typed as `Option<&ColumnAlias>` rather than `&str`
+/// The prefix is typed as `Option<&ColumnAlias>` rather than `&str`
 /// so callers cannot forward an unvalidated alias into the formatted SQL.
 /// `None` produces direct column references (e.g. `SUM(lines_count)`),
 /// `Some(alias)` produces `SUM(<alias>.lines_count)` after the alias has
@@ -136,7 +136,7 @@ where
     Ok(acc)
 }
 
-/// DUP-1 / TASK-1629: shared scaffolding for project-level queries that
+/// Shared scaffolding for project-level queries that
 /// fetch a single row. Acquires the DB lock, returns `default` when the
 /// table is missing, otherwise runs `sql` with no parameters and maps the
 /// resulting row via `row_mapper`. Centralises the lock + `table_exists` +
@@ -171,7 +171,7 @@ where
 /// Shared scaffolding: lock db, check table exists, run a scalar aggregate query.
 /// Returns `Ok(0)` if the table doesn't exist.
 ///
-/// DUP-1 / TASK-1629: delegates to [`query_project_row`] so the lock +
+/// Delegates to [`query_project_row`] so the lock +
 /// table-exists + `with_context` prologue lives in exactly one place.
 pub(super) fn query_project_scalar(
     db: &Sqlite,
@@ -307,12 +307,12 @@ where
 
 /// Parameters for a per-crate i64 query. Identifier fields are newtyped so
 /// that swapping `join_alias` and `join_column` at construction is a type
-/// error (API-1) and validation is enforced once at construction time.
+/// error and validation is enforced once at construction time.
 pub(super) struct PerCrateI64Query<'a> {
     pub db: &'a Sqlite,
     pub table: QueryTableName,
     pub member_paths: &'a [&'a str],
-    /// SEC-12 / API-2 / TASK-1630: a SQL fragment interpolated alongside
+    /// a SQL fragment interpolated alongside
     /// the surrounding `TableName` / `ColumnAlias` / `ColumnName`
     /// newtypes. Constrained to `&'static str` so the compiler rejects
     /// any future dynamic source (e.g. config-derived `String`) at the
@@ -361,9 +361,9 @@ pub(super) fn query_per_crate_i64(
     })
 }
 
-/// TASK-0959: SUM(...)/COUNT(*) over a per-crate LEFT JOIN cannot legitimately
+/// SUM(...)/COUNT(*) over a per-crate LEFT JOIN cannot legitimately
 /// go negative; if it does, the underlying view has been corrupted or its
-/// shape has drifted. Mirror `coerce_count_to_usize` (TASK-0506) on the
+/// shape has drifted. Mirror `coerce_count_to_usize` on the
 /// per-crate path: warn loudly and clamp to 0 so a schema bug surfaces as
 /// "no data + log entry" rather than as `-123 lines of code`.
 pub(super) fn clamp_non_negative_i64(value: i64, label: &str, path: &str) -> i64 {
@@ -384,7 +384,7 @@ pub(super) fn clamp_non_negative_i64(value: i64, label: &str, path: &str) -> i64
 mod tests {
     use super::*;
 
-    /// SEC-12 AC #2: legitimate "no prefix" form selects the bare columns.
+    /// Legitimate "no prefix" form selects the bare columns.
     #[test]
     fn coverage_col_select_with_no_prefix() {
         let sql = coverage_col_select(None);
@@ -394,7 +394,7 @@ mod tests {
         assert!(!sql.contains(".lines_count"), "got: {sql}");
     }
 
-    /// SEC-12 AC #2: legitimate aliased form uses the validated alias.
+    /// Legitimate aliased form uses the validated alias.
     #[test]
     fn coverage_col_select_with_validated_alias() {
         let alias = ColumnAlias::new("c").expect("static alias is valid");
@@ -403,7 +403,7 @@ mod tests {
         assert!(sql.contains("SUM(c.lines_covered)"));
     }
 
-    /// ERR-1: a query that returns the same key twice (e.g. dropped GROUP BY)
+    /// a query that returns the same key twice (e.g. dropped GROUP BY)
     /// must not silently produce a single row in the resulting map. Pinning
     /// behaviour via in-memory `SQLite` so the regression is visible without a
     /// tracing-subscriber dev-dep.
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(clamp_non_negative_i64(42, "label", "path"), 42);
     }
 
-    /// TASK-0959: a synthetic negative row from a corrupted view is folded
+    /// a synthetic negative row from a corrupted view is folded
     /// into the result map as 0, not as a negative value reaching downstream
     /// rendering (e.g. `unit.loc = Some(-123)` in extensions/about).
     #[test]
@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(res.get("b").copied(), Some(5));
     }
 
-    /// SEC-12 AC #1: an attacker-shaped "prefix" cannot reach the formatted
+    /// an attacker-shaped "prefix" cannot reach the formatted
     /// SQL because `ColumnAlias::new` rejects non-identifier strings before
     /// a value can be passed in. This is the regression guard the typed
     /// signature is meant to provide.

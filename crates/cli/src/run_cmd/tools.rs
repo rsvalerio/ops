@@ -165,7 +165,7 @@ const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Longest version string reported: the first output line of a tool is its
 /// version banner, and a tool that prints something else is not echoed
-/// wholesale into the JSON (SEC-33).
+/// wholesale into the JSON.
 const MAX_VERSION_LEN: usize = 200;
 
 /// The installed version of `tool`, from the first line its `--version`

@@ -7,12 +7,12 @@ use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 
 /// Query total normal-dependency count from `crate_dependencies`.
 ///
-/// ERR-1 (TASK-0506): a negative i64 from COUNT (which `SQLite` should never
+/// a negative i64 from COUNT (which `SQLite` should never
 /// emit but a future cast or schema bug could) is surfaced via `tracing::warn`
 /// before falling back to 0, so a misbehaving view doesn't impersonate
 /// "no dependencies".
 ///
-/// PATTERN-1 / TASK-1075: filter to `dependency_kind = 'normal'` so the
+/// Filter to `dependency_kind = 'normal'` so the
 /// scalar matches the "Dependencies" identity-card label rendered by
 /// `extensions-rust/about/src/identity/metrics.rs`. Without the filter,
 /// the count silently includes dev- and build-deps (often 2-3× normal
@@ -88,7 +88,7 @@ pub fn query_crate_deps(db: &Sqlite) -> anyhow::Result<HashMap<String, Vec<(Stri
 /// Returns a map of `crate_manifest_path` -> normal dependency count.
 /// Returns an empty map if the view doesn't exist (graceful degradation).
 ///
-/// ERR-2 / TASK-1253: keyed by `crate_manifest_path` (uniquely identifying a
+/// Keyed by `crate_manifest_path` (uniquely identifying a
 /// workspace member) rather than bare `crate_name`, which would
 /// mis-attribute counts for renamed packages (`[package] name = "alt-name"`)
 /// and collapse members that share a `package.name` into a single map entry.
@@ -144,7 +144,7 @@ pub fn query_crate_dep_counts(db: &Sqlite) -> anyhow::Result<HashMap<String, i64
 mod tests {
     use super::coerce_count_to_usize;
 
-    /// ERR-1 (TASK-0506): a negative scalar coerces to 0 (the safe degraded
+    /// a negative scalar coerces to 0 (the safe degraded
     /// value) but does not panic. The accompanying warn covers the alerting
     /// requirement; this test pins the value-level contract.
     #[test]

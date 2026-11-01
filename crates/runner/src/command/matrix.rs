@@ -1,4 +1,4 @@
-//! Matrix commands (TASK-2277): one exec step that runs once per cell.
+//! Matrix commands: one exec step that runs once per cell.
 //!
 //! A command with `[commands.<name>.strategy]` is a single leaf to the plan
 //! around it — scheduling (`exclusive` stages, the plan's `fail_fast`) treats

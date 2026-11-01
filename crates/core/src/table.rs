@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(before, after);
     }
 
-    /// PERF-3 / TASK-1439 + TEST-1 / TASK-1856: `OpsTable::new` must obtain
+    /// `OpsTable::new` must obtain
     /// its TTY state from the shared `style::stdout_is_terminal` cache rather
     /// than issuing its own `stdout().is_terminal()`.
     ///
@@ -251,7 +251,7 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-2032 AC#4: a control-sequence-bearing value rendered
+    /// a control-sequence-bearing value rendered
     /// through the table must leave no byte a terminal acts on. `OpsTable`
     /// is the shared sink for every table in the workspace, so this is the
     /// one place the guarantee has to hold.
@@ -276,7 +276,7 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-2032: the coloured constructor delegates to the
+    /// The coloured constructor delegates to the
     /// sanitising one, so a caller cannot pick colour and lose the defence.
     #[test]
     fn cell_sanitises_on_both_tty_paths() {
@@ -289,7 +289,7 @@ mod tests {
         }
     }
 
-    /// SEC-11 / TASK-1939 (moved here by TASK-2032): printable text and
+    /// Printable text and
     /// non-ASCII scripts survive untouched — this is a control-character
     /// filter, not a charset restriction.
     #[test]
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(sanitise_table_text(""), "");
     }
 
-    /// SEC-11 / TASK-1939 (moved here by TASK-2032): the `Cf` format
+    /// The `Cf` format
     /// characters are invisible to width accounting but change what the
     /// operator reads, so they are stripped alongside the `Cc` controls.
     #[test]

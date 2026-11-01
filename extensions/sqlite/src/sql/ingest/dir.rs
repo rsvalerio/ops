@@ -635,7 +635,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// SEC-25 / TASK-0787: ingest dir must be 0o700 on Unix on both fresh
+    /// Ingest dir must be 0o700 on Unix on both fresh
     /// create and pre-existing dir paths.
     #[cfg(unix)]
     #[test]
@@ -662,7 +662,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1000: only the leaf ingest dir is 0o700.
+    /// Only the leaf ingest dir is 0o700.
     #[cfg(unix)]
     #[test]
     fn create_ingest_dir_does_not_lock_down_intermediate_parents() {
@@ -686,7 +686,7 @@ mod tests {
         }
     }
 
-    /// SEC-25: the ingest dir's parent is the database's own directory —
+    /// The ingest dir's parent is the database's own directory —
     /// possibly the workspace root — so staging must neither change its mode
     /// nor refuse it for being group- or world-writable.
     #[cfg(unix)]
@@ -712,7 +712,7 @@ mod tests {
         }
     }
 
-    /// SEC-25: the anchor does not lean on the parent's mode, so it must
+    /// The anchor does not lean on the parent's mode, so it must
     /// itself refuse a directory that is not private — the shape another
     /// principal's swapped-in directory, or one of ours that was never
     /// hardened, would have.
@@ -734,7 +734,7 @@ mod tests {
         );
     }
 
-    /// SEC-25: `ops` must not chmod a `/tmp`-style sticky directory it
+    /// `ops` must not chmod a `/tmp`-style sticky directory it
     /// happens to stage under.
     #[cfg(unix)]
     #[test]
@@ -752,7 +752,7 @@ mod tests {
         assert_eq!(mode, 0o1777, "a sticky shared parent must keep its mode; got {mode:o}");
     }
 
-    /// SEC-25: a symlink planted at the ingest-dir path must be rejected, and
+    /// a symlink planted at the ingest-dir path must be rejected, and
     /// the symlink's target must keep the mode it had.
     #[cfg(unix)]
     #[test]
@@ -779,7 +779,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2430: a symlink at the staging *parent* is followed, not
+    /// a symlink at the staging *parent* is followed, not
     /// refused — `Sqlite::open` follows the same link for the database file,
     /// and the leaf anchor (owner, mode, identity, `*at` staging) is the
     /// defence, not the parent's shape. Ingest through a symlinked parent
@@ -813,7 +813,7 @@ mod tests {
         );
     }
 
-    /// SEC-25: the pre-existing-path policy is shared by both platform
+    /// The pre-existing-path policy is shared by both platform
     /// branches, so pin it directly. The non-Unix branch of
     /// `create_ingest_dir` cannot be exercised on this host, but it calls
     /// exactly this function, so a regression here breaks both.
@@ -850,7 +850,7 @@ mod tests {
         }
     }
 
-    /// SEC-25 / TASK-1857: a plain file occupying the ingest-dir path is a
+    /// a plain file occupying the ingest-dir path is a
     /// hard error rather than something we chmod and write into.
     #[cfg(unix)]
     #[test]
@@ -965,7 +965,7 @@ mod tests {
         assert!(result.is_err(), "should fail for missing file");
     }
 
-    /// SEC-25 / TASK-2054 (the finding's second acceptance criterion): once the
+    /// Once the
     /// ingest dir is verified and its handle held, **replacing the directory's
     /// name cannot redirect a staged write** — and nothing here depends on the
     /// staging parent's mode.
@@ -1012,7 +1012,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2054: anchoring is worthless if the *entry name* can walk
+    /// Anchoring is worthless if the *entry name* can walk
     /// out of the directory, so a name that is not a single path component is
     /// refused before it reaches `openat`.
     #[test]
@@ -1032,7 +1032,7 @@ mod tests {
         }
     }
 
-    /// SEC-25 / TASK-2054: `IngestDir::open` refuses a symlink at the ingest
+    /// `IngestDir::open` refuses a symlink at the ingest
     /// path outright, so the anchor is never taken on an attacker-chosen
     /// directory in the first place.
     #[cfg(unix)]
@@ -1048,7 +1048,7 @@ mod tests {
         assert!(matches!(err, DbError::Io(_)), "expected DbError::Io, got {err:?}");
     }
 
-    /// SEC-25 / TASK-2054: the anchored rename/unlink pair used by
+    /// The anchored rename/unlink pair used by
     /// `cleanup_artifacts` round-trips, and the write is atomic (no `.tmp.`
     /// sibling survives a successful stage).
     #[test]
@@ -1106,7 +1106,7 @@ mod tests {
         assert_eq!(c1, c2, "checksum should be deterministic");
     }
 
-    /// ERR-13: an IO failure on a staged entry names the entry's path and
+    /// an IO failure on a staged entry names the entry's path and
     /// keeps the OS error as its source.
     #[test]
     fn staged_entry_io_errors_name_the_path_and_keep_the_os_error() {
@@ -1134,7 +1134,7 @@ mod tests {
         }
     }
 
-    /// ERR-13: a failure creating the ingest dir names the directory.
+    /// a failure creating the ingest dir names the directory.
     #[test]
     fn create_ingest_dir_errors_name_the_directory() {
         let tmp = tempfile::tempdir().expect("tempdir");

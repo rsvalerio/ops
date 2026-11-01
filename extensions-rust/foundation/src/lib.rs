@@ -146,7 +146,7 @@ impl Root {
 }
 
 /// Resolve members through the same glob expander the about providers use,
-/// dropping any entry that would escape the workspace (SEC-14). A root that
+/// dropping any entry that would escape the workspace. A root that
 /// is also a package is its own member and opts in like any other.
 ///
 /// # Errors

@@ -1,4 +1,4 @@
-//! `JUnit` XML report for [`super::ProgressDisplay`] (TASK-2338).
+//! `JUnit` XML report for [`super::ProgressDisplay`].
 //!
 //! `--junit <file>` writes one `<testcase>` per plan step when the run
 //! finishes, so CI test-report consumers (dorny/test-reporter, GitLab's

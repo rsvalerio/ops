@@ -327,7 +327,7 @@ fn file_scope<'a>(entries: &'a [TaskEntry], wave: &TaskDoc) -> std::collections:
         .collect()
 }
 
-/// Task ids in numeric order (`TASK-999` before `TASK-1000`), falling back
+/// Task ids in numeric order (the number, so 999 before 1000), falling back
 /// to a case-insensitive string order for ids without a numeric suffix.
 fn id_order(a: &str, b: &str) -> std::cmp::Ordering {
     fn key(id: &str) -> (String, Option<u64>, String) {
@@ -631,7 +631,7 @@ fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow
     Ok(())
 }
 
-/// Does this look like a task id (`TASK-0042`) rather than a person?
+/// Does this look like a task id rather than a person?
 fn looks_like_task_id(value: &str) -> bool {
     let Some((_, number)) = value.rsplit_once('-') else {
         return false;

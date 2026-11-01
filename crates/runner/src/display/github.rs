@@ -1,4 +1,4 @@
-//! GitHub Actions integration for [`super::ProgressDisplay`] (TASK-2325).
+//! GitHub Actions integration for [`super::ProgressDisplay`].
 //!
 //! When `ops` runs under GitHub Actions (`GITHUB_ACTIONS=true`) the plain
 //! step lines are hard to read in the job log: a failing step only shows its

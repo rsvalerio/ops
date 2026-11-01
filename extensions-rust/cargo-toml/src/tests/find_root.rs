@@ -3,7 +3,7 @@ use crate::workspace_root::content_declares_workspace;
 use std::fs;
 use std::path::Path;
 
-/// ERR-7 (TASK-0947): tracing fields for ancestor-walk Cargo.toml paths
+/// Tracing fields for ancestor-walk Cargo.toml paths
 /// flow through the `?` formatter so an attacker-controlled CWD path with
 /// embedded newlines / ANSI escapes cannot forge log records.
 #[test]
@@ -38,7 +38,7 @@ fn find_root_in_parent() {
     assert_eq!(root, fs::canonicalize(temp_dir.path()).unwrap());
 }
 
-/// SEC-25 / TASK-0379: a symlinked ancestor must resolve once up front
+/// a symlinked ancestor must resolve once up front
 /// and the walk must terminate even when a symlink loop is on the path.
 #[cfg(unix)]
 #[test]
@@ -55,7 +55,7 @@ fn find_root_terminates_on_symlink_loop() {
     assert!(result.is_err());
 }
 
-/// TASK-0501: from inside a member crate, walk past the member manifest to
+/// From inside a member crate, walk past the member manifest to
 /// the parent that declares `[workspace]`. Returning the member silently
 /// produced empty units/coverage when running `ops about` from `crates/foo`.
 #[test]
@@ -118,7 +118,7 @@ fn find_root_falls_back_to_nearest_when_no_workspace_in_chain() {
     assert_eq!(found, fs::canonicalize(root).unwrap());
 }
 
-/// SEC-25 / TASK-0604: `start` is canonicalised once before the walk, so a
+/// `start` is canonicalised once before the walk, so a
 /// symlinked parent directory in the input path resolves to the real
 /// filesystem location and the walk operates on that resolved chain.
 #[cfg(unix)]
@@ -144,7 +144,7 @@ fn find_root_resolves_symlinked_parent_in_start_path() {
     assert_eq!(found, fs::canonicalize(&real_root).unwrap());
 }
 
-/// TASK-0963: the ancestor-depth bound must be honored. Verified via the
+/// The ancestor-depth bound must be honored. Verified via the
 /// injectable [`find_workspace_root_with_depth`] entry point so the test
 /// does not have to materialise a 64-deep directory hierarchy. With
 /// `max_depth = 1`, a Cargo.toml in the start dir's *grandparent* is
@@ -176,7 +176,7 @@ fn find_root_not_found() {
     assert!(result.unwrap_err().to_string().contains("no Cargo.toml found"));
 }
 
-/// ARCH-2 / TASK-0871: `NotFound` and `CanonicalizeFailed` must be
+/// `NotFound` and `CanonicalizeFailed` must be
 /// distinguishable via the typed error so consumers
 /// (`is_manifest_missing`) don't need to chain-walk an `io::Error`.
 #[test]
@@ -187,7 +187,7 @@ fn find_root_typed_not_found_variant() {
     assert!(err.is_not_found());
 }
 
-/// ARCH-2 / TASK-0918: a missing-or-deleted `start` path now routes
+/// a missing-or-deleted `start` path now routes
 /// through `NotFound` (matching the no-Cargo.toml branch), not
 /// `CanonicalizeFailed`. Pre-fix this surfaced as a confusing
 /// "failed to canonicalize" error during transient cwd unlinks (CI
@@ -205,7 +205,7 @@ fn find_root_canonicalize_notfound_routes_to_not_found_variant() {
     assert!(err.is_not_found());
 }
 
-/// SEC-25 / TASK-1204: pin that the lenient walk follows a symlinked
+/// Pin that the lenient walk follows a symlinked
 /// ancestor into an attacker tree. A symlink replaces `inner_link` →
 /// `attacker/`, and the lenient walker — which canonicalises once up
 /// front — walks inside the attacker subtree and returns the attacker's
@@ -239,10 +239,10 @@ fn find_root_lenient_follows_symlinked_ancestor_into_attacker_tree() {
     );
 }
 
-/// SEC-25 / TASK-1204: the strict variant accepts a candidate whose
+/// The strict variant accepts a candidate whose
 /// canonical parent is on the canonical start's ancestor chain.
 ///
-/// TEST-6 / TASK-1785: renamed from
+/// Renamed from
 /// `find_root_strict_skips_off_chain_canonical_ancestor`, which promised a
 /// rejection this body never exercised (it plants no symlink and asserts
 /// nothing the lenient walk does not already satisfy). The rejection arms
@@ -270,7 +270,7 @@ fn find_root_strict_accepts_on_chain_canonical_ancestor() {
     assert_eq!(lenient, leaf);
 }
 
-/// TEST-6 / TASK-1785: pin the actual scope of the strict variant against
+/// Pin the actual scope of the strict variant against
 /// the symlinked-ancestor layout its doc comment describes.
 ///
 /// A symlink inside the *caller's* `start` path is resolved by the shared
@@ -306,7 +306,7 @@ fn find_root_strict_also_follows_symlink_inside_the_start_path() {
     );
 }
 
-/// SEC-25 / TASK-2026: the strict variant's *reachable* defence — a
+/// The strict variant's *reachable* defence — a
 /// `Cargo.toml` that is itself a symlink into an attacker tree.
 ///
 /// This is the layout the strict variant's ancestor-chain check cannot see:
@@ -349,7 +349,7 @@ fn find_root_strict_rejects_symlinked_manifest_that_lenient_accepts() {
     );
 }
 
-/// TEST-6 / TASK-1785: the off-chain rejection arm
+/// The off-chain rejection arm
 /// (`workspace_root.rs`, `CandidateAction::Skip`) is unreachable through a
 /// quiescent filesystem — every lexical ancestor of an already-canonical
 /// path is canonical — so it is driven here through the injected
@@ -377,7 +377,7 @@ fn strict_candidate_action_skips_off_chain_canonical_parent() {
     );
 }
 
-/// TEST-6 / TASK-1785: the second `CandidateAction::Skip` arm — a candidate
+/// The second `CandidateAction::Skip` arm — a candidate
 /// ancestor whose `canonicalize` fails — is likewise unreachable through a
 /// quiescent filesystem, since `walk_ancestors` already canonicalized the
 /// start successfully.
@@ -401,7 +401,7 @@ fn strict_candidate_action_skips_ancestor_that_fails_to_canonicalize() {
     );
 }
 
-/// TEST-6 / TASK-1785: the accept arms of the same function, so the two
+/// The accept arms of the same function, so the two
 /// `Skip` tests above cannot pass by the function returning `Skip`
 /// unconditionally.
 #[test]
@@ -428,7 +428,7 @@ fn strict_candidate_action_accepts_on_chain_parent() {
     );
 }
 
-/// ARCH-2 / TASK-0918: a non-NotFound canonicalize failure still
+/// a non-NotFound canonicalize failure still
 /// surfaces as a typed `FindWorkspaceRootError` variant so it remains
 /// investigable. Use a 0o000-permission directory on Unix to force a
 /// `PermissionDenied` at canonicalize time.
@@ -437,7 +437,7 @@ fn strict_candidate_action_accepts_on_chain_parent() {
 /// how the kernel surfaces EACCES on a descendant — Linux and macOS
 /// differ — so the assertion accepts either.
 ///
-/// TEST-18 / TASK-1802: the 0o000 directory is owned by a `Drop` guard so a
+/// The 0o000 directory is owned by a `Drop` guard so a
 /// panic in the body cannot leak an undeletable directory past the
 /// `TempDir`, and the guard probes whether the mode bits are enforced at all
 /// — as uid 0 the traversal succeeds and there is no error to assert on.
@@ -474,7 +474,7 @@ fn find_root_canonicalize_perm_denied_returns_typed_error() {
     );
 }
 
-/// PERF-3 / TASK-1512: `[workspace.metadata]` (a sub-table of workspace)
+/// `[workspace.metadata]` (a sub-table of workspace)
 /// must still count as declaring a workspace.
 #[test]
 fn content_declares_workspace_subtable() {
@@ -482,7 +482,7 @@ fn content_declares_workspace_subtable() {
     assert!(content_declares_workspace(content));
 }
 
-/// PERF-3 / TASK-1512: a string value containing `[workspace]` must NOT
+/// a string value containing `[workspace]` must NOT
 /// register as declaring a workspace — only real table headers count.
 #[test]
 fn content_declares_workspace_ignores_string_value() {
@@ -497,7 +497,7 @@ version = "0.1.0"
     assert!(!content_declares_workspace(content));
 }
 
-/// PERF-3 / TASK-1512: literal multi-line strings (''') also suppress false
+/// Literal multi-line strings (''') also suppress false
 /// positives.
 #[test]
 fn content_declares_workspace_ignores_literal_multiline_string() {
@@ -560,14 +560,14 @@ fn content_declares_workspace_tracks_multiline_string_state_across_lines() {
     }
 }
 
-/// PERF-3 / TASK-1512: a real `[workspace]` header is detected.
+/// a real `[workspace]` header is detected.
 #[test]
 fn content_declares_workspace_detects_bare_workspace() {
     let content = "[workspace]\nmembers = [\"crates/*\"]\n";
     assert!(content_declares_workspace(content));
 }
 
-/// SEC-11 / TASK-1781: a trailing comment on the table header is ordinary,
+/// a trailing comment on the table header is ordinary,
 /// valid TOML. Missing it made the walk climb past the real workspace root
 /// into attacker-plantable ancestors.
 #[test]
@@ -582,7 +582,7 @@ fn content_declares_workspace_accepts_trailing_comment() {
     }
 }
 
-/// SEC-11 / TASK-1781: quoted bare keys are valid TOML table keys.
+/// Quoted bare keys are valid TOML table keys.
 #[test]
 fn content_declares_workspace_accepts_quoted_key() {
     for content in [
@@ -596,7 +596,7 @@ fn content_declares_workspace_accepts_quoted_key() {
     }
 }
 
-/// SEC-11 / TASK-1781: the accept-side widening must not weaken the existing
+/// The accept-side widening must not weaken the existing
 /// false-positive guarantees.
 #[test]
 fn content_declares_workspace_rejects_non_headers() {

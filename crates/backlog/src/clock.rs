@@ -2,9 +2,9 @@
 //!
 //! `created_date` needs only a UTC civil date plus minute resolution, but the
 //! epoch → civil-date reduction that produces it is exactly the arithmetic
-//! TIME-1 forbids hand-rolling, so it is delegated to `chrono`.
+//! that must not be hand-rolled, so it is delegated to `chrono`.
 //!
-//! ERR-6: reading the clock is fallible and says so. When the host clock reads
+//! Reading the clock is fallible and says so. When the host clock reads
 //! before 1970-01-01 — a container started before NTP steps it, an RTC-less
 //! board that boots at 0, a VM restored from a bad snapshot — [`UtcStamp::now`]
 //! returns an error naming the clock instead of substituting the Unix epoch.
@@ -76,7 +76,7 @@ mod tests {
         UtcStamp::from_unix_secs(secs).expect("timestamp must be representable")
     }
 
-    /// TEST-11: pin the full formatted stamp, not just `is_some`-style
+    /// Pin the full formatted stamp, not just `is_some`-style
     /// structural checks. Expected values verified against `date -u -d @…`.
     #[test]
     fn from_unix_secs_formats_known_timestamps() {
@@ -126,7 +126,7 @@ mod tests {
         assert!(UtcStamp::from_unix_secs(u64::MAX).is_none());
     }
 
-    /// ERR-6: a clock reading before the epoch is an error naming the clock,
+    /// a clock reading before the epoch is an error naming the clock,
     /// never a stamp dated 1970-01-01.
     #[test]
     fn pre_epoch_clock_is_an_error_naming_the_clock() {

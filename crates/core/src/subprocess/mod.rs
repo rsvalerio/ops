@@ -357,7 +357,7 @@ pub fn resolve_rustup_bin() -> std::ffi::OsString {
 mod tests {
     use super::*;
 
-    /// PORT-5 (TASK-0697): cargo subcommands inherit `$CARGO` from the
+    /// PORT-5: cargo subcommands inherit `$CARGO` from the
     /// parent cargo process; `run_cargo` must honour it instead of relying
     /// on a fresh `$PATH` lookup that may resolve to a different toolchain.
     mod cargo_bin {
@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(out.stdout, b"hello");
     }
 
-    /// ERR-4 / TASK-0925: a spawn failure (binary not on PATH) used to
+    /// a spawn failure (binary not on PATH) used to
     /// surface as a bare `RunError::Io` carrying only `No such file or
     /// directory (os error 2)`. The error must now be a `RunError::Spawn`
     /// whose Display includes the caller-supplied label and the program
@@ -452,7 +452,7 @@ mod tests {
         }
     }
 
-    /// SEC-33 / TASK-1050: a child that emits `> cap` bytes must be
+    /// a child that emits `> cap` bytes must be
     /// truncated to `<= cap` so a runaway cargo subprocess cannot grow the
     /// in-memory capture buffer without bound. The pre-fix behaviour
     /// called `read_to_end` and would have buffered the full output.
@@ -504,7 +504,7 @@ mod tests {
         }
     }
 
-    /// ASYNC-6: killing the timed-out child does not close the pipe ends a
+    /// Killing the timed-out child does not close the pipe ends a
     /// *grandchild* inherited, so the post-kill drain must be bounded. The
     /// backgrounded `sleep` here outlives the shell we kill and keeps
     /// stdout/stderr open; before the drain grace, the call blocked for the

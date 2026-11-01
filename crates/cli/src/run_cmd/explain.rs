@@ -799,9 +799,9 @@ commands = ["next", "build"]
 parallel = true
 "#;
 
-    /// TASK-2637 AC #3: both views show the edges, the plan is listed in
+    /// Both views show the edges, the plan is listed in
     /// dependency order, and a name outside the stage is no edge.
-    /// TASK-2641 AC #2: the wrapper stays apart from the wrapped command.
+    /// The wrapper stays apart from the wrapped command.
     #[test]
     #[serial_test::serial]
     fn explain_shows_after_edges_and_wrapper() {

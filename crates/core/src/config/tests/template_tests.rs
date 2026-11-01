@@ -64,7 +64,7 @@ fn init_template_without_stack_omits_stack_commands() {
     assert!(config.commands.is_empty(), "init without detected stack should have no commands");
 }
 
-/// READ-5 / TASK-1416: `OutputConfig::resolve_columns` memoises the auto
+/// `OutputConfig::resolve_columns` memoises the auto
 /// probe behind a `OnceLock<u16>`. Repeat calls with the AUTO sentinel
 /// must return the same width — SIGWINCH within a single `ops <cmd>` is
 /// not observed by design, matching the `TMPDIR_DISPLAY` /
@@ -84,7 +84,7 @@ fn resolve_columns_memoises_auto_probe() {
     }
 }
 
-/// READ-5 / TASK-1416: a pinned `columns` value bypasses the cache and is
+/// a pinned `columns` value bypasses the cache and is
 /// returned verbatim — the memoisation only applies to the AUTO sentinel.
 #[test]
 fn resolve_columns_pinned_value_is_not_cached() {

@@ -119,11 +119,11 @@ mod tests {
         assert!(files[1].ends_with("b.toml"));
     }
 
-    /// ERR-7 / TASK-0965: tracing fields for `.ops.d/*.toml` overlay paths
+    /// Tracing fields for `.ops.d/*.toml` overlay paths
     /// flow through the `?` formatter so an attacker-controlled filename with
     /// embedded newlines / ANSI escapes cannot forge a log record. Mirrors the
     /// regression guard pattern used by the `manifest_declares_workspace` /
-    /// hook-common ERR-7 sweep tests.
+    /// hook-common log-forging sweep tests.
     #[test]
     fn conf_d_path_debug_escapes_control_characters() {
         let p = PathBuf::from("malicious\n[fake] info: pwned\u{1b}[31m.toml");
@@ -164,7 +164,7 @@ args = ["hello"]
         assert!(config.commands.contains_key("extra"));
     }
 
-    /// ERR-7 / TASK-1400: a `read_dir` failure (e.g. permission denied on
+    /// a `read_dir` failure (e.g. permission denied on
     /// the `.ops.d` directory itself) must surface as a hard error with the
     /// offending path attached rather than being warn-and-skipped. Mirrors
     /// the "loud failure" contract that already governs parse errors.
@@ -195,13 +195,13 @@ args = ["hello"]
         );
     }
 
-    /// ERR-4 / TASK-1448: a broken `.toml` symlink in `.ops.d` is listed by
+    /// a broken `.toml` symlink in `.ops.d` is listed by
     /// `read_dir` but fails to open at merge time. The "loud failure"
     /// contract on `merge_conf_d` requires this to abort the load, not to be
     /// silently mapped to `Ok(None)`.
     ///
-    /// TEST-1 / TASK-1852: the assertion pins the **specific** error the code
-    /// produces today — the SEC-25 `O_NOFOLLOW` refusal, since a dangling
+    /// The assertion pins the **specific** error the code
+    /// produces today — the `O_NOFOLLOW` refusal, since a dangling
     /// symlink returns `ELOOP` rather than `NotFound`. Asserting only that the
     /// message names `dangling.toml` was satisfied by *either* branch, so the
     /// `Ok(None)` bail this test is named for could have been deleted with the
@@ -232,7 +232,7 @@ args = ["hello"]
         );
     }
 
-    /// SEC-14 / TASK-1847 + TASK-1852 (recorded decision): the symlink
+    /// Recorded decision: the symlink
     /// relaxation for the user's own global config must NOT reach `.ops.d`.
     /// A `.ops.d` fragment symlinked to a real, readable file outside the
     /// workspace is still refused, because `.ops.d` is repo-supplied content.

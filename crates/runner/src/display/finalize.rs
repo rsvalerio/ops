@@ -1,6 +1,6 @@
 //! Run-finished finalization helpers for `ProgressDisplay`.
 //!
-//! ARCH-1 (TASK-0581) + FN-1 (TASK-0582): the `RunFinished` dispatch
+//! The `RunFinished` dispatch
 //! previously dispatched four independent finishing concerns inline:
 //! orphan-bar finalization, tap-truncation reporting, boxed-layout border
 //! emission, and flat-layout summary fallback. Each owns its own state
@@ -22,7 +22,7 @@ impl ProgressDisplay {
     /// hole in the boxed frame and a visible row count that disagrees with
     /// `Done N/M`.
     ///
-    /// Each finalized orphan also bumps `completed_steps` (ERR-1 / TASK-0333):
+    /// Each finalized orphan also bumps `completed_steps`:
     /// without that, the footer shows `Done 1/3` while three rows are visibly
     /// finished — defeating the very disagreement this routine was added to
     /// fix.
@@ -61,7 +61,7 @@ impl ProgressDisplay {
         }
     }
 
-    /// TASK-2338: write the `--junit` report. A write failure is reported
+    /// Write the `--junit` report. A write failure is reported
     /// on stderr but never fails the run the report describes — the same
     /// contract as a truncated tap file.
     pub(super) fn write_junit_report(&self, duration_secs: f64) {
@@ -83,7 +83,7 @@ impl ProgressDisplay {
         }
     }
 
-    /// ERR-2 / TASK-0458 + ARCH-1 / TASK-0581: surface tap-file truncation
+    /// Surface tap-file truncation
     /// if we hit a write error mid-run. Emitted exactly once per run to
     /// both stderr (for the user) and the tap file itself (for downstream
     /// test harnesses that scan the tap), so a partial tap is never

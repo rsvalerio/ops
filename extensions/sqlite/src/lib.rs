@@ -34,7 +34,7 @@ use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// SEC-38 / TASK-2018: the `as_ref()` reborrow is load-bearing.
+/// The `as_ref()` reborrow is load-bearing.
 ///
 /// `ops_extension` gives `SqliteHandle` a blanket impl over every
 /// `'static + Send + Sync` type, and `Arc<dyn SqliteHandle>` is itself one of
@@ -341,7 +341,7 @@ mod tests {
         );
     }
 
-    /// SEC-38 / TASK-2018: the accessors above happen to be exercised from a
+    /// The accessors above happen to be exercised from a
     /// module where `SqliteHandle` is *not* imported, which is exactly the
     /// condition under which a bare `as_any()` on an `Arc` receiver resolves
     /// correctly. This module imports the trait, so the blanket impl for

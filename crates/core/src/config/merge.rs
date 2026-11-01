@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(base["cmd-c"], 3, "new overlay key inserted");
     }
 
-    /// SEC-21 / TASK-0745: a config-supplied key with embedded control
+    /// a config-supplied key with embedded control
     /// characters must not forge log entries. Subscribe with a plain
     /// fmt-layer writer (which renders fields via Display) and assert that
     /// the captured output contains no raw newline within the keys field
@@ -491,7 +491,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274: `help` / `category` are scalars, so they replace instead
+    /// `help` / `category` are scalars, so they replace instead
     /// of concatenating — the last layer that sets one wins, and a layer
     /// that sets none keeps the earlier layer's value.
     #[test]
@@ -533,7 +533,7 @@ mod tests {
         );
     }
 
-    /// TASK-2272 #4: exec-target extends concatenate across layers with the
+    /// Exec-target extends concatenate across layers with the
     /// same rule as composite extends — a `.ops.d` fragment's `args` stack on
     /// `.ops.toml`'s, never replace them.
     #[test]

@@ -30,7 +30,7 @@ fn test_themes() -> IndexMap<String, ThemeConfig> {
     themes
 }
 
-/// DUP-004: Reduce repeated `ProgressDisplay` test setup.
+/// Reduce repeated `ProgressDisplay` test setup.
 fn test_display(entries: &[(&str, &str)]) -> ProgressDisplay {
     test_display_with_config(&config::OutputConfig::default(), entries)
 }
@@ -242,7 +242,7 @@ fn render_config_uses_output_settings() {
     assert_eq!(display.render.stderr_tail, StderrTail::Limited(10));
 }
 
-/// TASK-0762: user's `stderr_tail_lines` config value is preserved when verbose
+/// User's `stderr_tail_lines` config value is preserved when verbose
 /// is true — verbose overrides at the display layer via `StderrTail::Unbounded`
 /// without mutating the underlying config.
 #[test]
@@ -289,7 +289,7 @@ fn progress_display_handles_step_skipped() {
     assert_eq!(display.state.bars.len(), 1);
 }
 
-/// TASK-2325: under GitHub Actions the display consumes step output and
+/// Under GitHub Actions the display consumes step output and
 /// finished/failed/orphaned steps, and `RunFinished` appends the run summary
 /// to `$GITHUB_STEP_SUMMARY`.
 #[test]
@@ -329,7 +329,7 @@ fn github_actions_summary_covers_every_step() {
     assert!(written.contains("1 failed, 1 succeeded of 3"), "{written}");
 }
 
-/// TASK-2338: `--junit <file>` writes one testcase per plan step — failed
+/// `--junit <file>` writes one testcase per plan step — failed
 /// (with message and output tail), succeeded, and orphaned-as-skipped — at
 /// `RunFinished`.
 #[test]
@@ -617,13 +617,13 @@ mod unknown_command_tests {
     /// its bar stays visible in the boxed frame instead of being dropped from
     /// the multi-progress draw.
     ///
-    /// TASK-0329: this test exercises the orphan-finalization path beyond mere
+    /// This test exercises the orphan-finalization path beyond mere
     /// `is_finished()` liveness — it also asserts the rendered message reflects
     /// `StepStatus::Skipped` (so a regression that finalizes with Failed/Succeeded
     /// would be caught) and that the elapsed value flows from the bar's own
     /// timer rather than a hard-coded zero.
     ///
-    /// TASK-0333: the footer count must include orphan-finalized rows so that
+    /// The footer count must include orphan-finalized rows so that
     /// `Done N/M` agrees with the number of rendered rows.
     #[test]
     fn run_finished_finalizes_orphan_running_bars() {

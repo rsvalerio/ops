@@ -433,7 +433,7 @@ mod run_command_dry_run_tests {
         assert!(output.contains("program: cargo"), "got: {output}");
     }
 
-    /// TASK-2641 AC #2: the preview keeps the wrapper apart from the wrapped
+    /// The preview keeps the wrapper apart from the wrapped
     /// command, and shows the step's `after`.
     #[test]
     fn dry_run_shows_wrapper_and_after_separately() {

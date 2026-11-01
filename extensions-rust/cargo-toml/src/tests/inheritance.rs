@@ -268,7 +268,7 @@ tokio = { version = "1", default_features = true, features = ["full"] }
     assert!(!tokio.uses_default_features());
 }
 
-/// ERR-1 regression (TASK-0555): with `default-features = false` set on the
+/// Regression: with `default-features = false` set on the
 /// workspace dep, a member that *re-enables* defaults locally still gets
 /// `default-features = false` resolved — matching cargo's documented
 /// behavior (member cannot un-disable workspace defaults).
@@ -295,7 +295,7 @@ tokio = { version = "1", default-features = false, features = ["macros"] }
     );
 }
 
-/// ERR-1 regression (TASK-0555): a non-optional workspace dep can be
+/// Regression: a non-optional workspace dep can be
 /// opted-in to optional by an inheriting member.
 #[test]
 fn resolve_workspace_non_optional_local_optional_becomes_optional() {
@@ -332,7 +332,7 @@ fn inheritable_field_value_and_inherited() {
     assert_eq!(inherited.as_str(), None);
 }
 
-/// ERR-6 / TASK-1793: the default is `Absent`, not `Value(T::default())`.
+/// The default is `Absent`, not `Value(T::default())`.
 /// The old contract (`as_str() == Some("")`, `value() == Some(&vec![])`) made
 /// an undeclared field indistinguishable from an empty one.
 #[test]
@@ -347,7 +347,7 @@ fn inheritable_field_default_is_absent() {
     assert_eq!(vec_field.value(), None);
 }
 
-/// ERR-6 / TASK-1793: `Absent` must survive the provider's
+/// `Absent` must survive the provider's
 /// typed → JSON → typed round-trip, otherwise the distinction is only
 /// in-process and every cross-extension consumer reading via
 /// `Context::cached` still sees the sentinel.
@@ -376,12 +376,12 @@ fn inheritable_field_absent_round_trips_through_json() {
     assert!(back.package.as_ref().expect("package exists").version.is_absent());
 }
 
-/// SEC-31 / TASK-1789: `publish = { workspace = true }` against a
+/// `publish = { workspace = true }` against a
 /// `[workspace.package]` with no `publish` key must stay unresolved.
 ///
 /// `WorkspacePackage::publish` defaults to `PublishSpec::None`, which
 /// `is_publishable()` maps to `Some(true)`, so substituting it would flip the
-/// safe default open — the signal loss TASK-1196 introduced `Option<bool>`
+/// safe default open — the signal loss `Option<bool>` was introduced
 /// to prevent. Mirrors
 /// `resolve_package_inheritance_missing_ws_value_stays_inherited`.
 #[test]
@@ -414,7 +414,7 @@ version = "1.0.0"
     );
 }
 
-/// SEC-31 / TASK-1789: a workspace that *does* declare `publish` still
+/// a workspace that *does* declare `publish` still
 /// resolves, for both the `Bool` and `Registries` shapes.
 #[test]
 fn resolve_package_inheritance_declared_ws_publish_still_resolves() {

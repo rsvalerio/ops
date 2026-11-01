@@ -36,7 +36,7 @@ fn resolve_by_alias() {
     assert!(runner.resolve("unknown").is_none());
 }
 
-/// PERF-3 / TASK-0774: `register_commands` merges new aliases incrementally
+/// `register_commands` merges new aliases incrementally
 /// rather than rebuilding the full alias map on each batch. Verify that:
 /// - aliases registered across N successive 1-entry batches are all resolvable
 /// - re-registering the same id with different aliases prunes the stale ones
@@ -85,7 +85,7 @@ fn register_commands_re_registration_prunes_stale_aliases() {
     );
 }
 
-/// CONC-3 / TASK-1137: when an extension/stack alias collides with a
+/// When an extension/stack alias collides with a
 /// config-defined alias of the same name, `merge_alias_for` must surface
 /// the cross-store collision via `tracing::warn!`. Pre-fix only same-store
 /// (stack vs extension) collisions warned, so a config alias silently
@@ -126,7 +126,7 @@ fn expand_to_leaves_via_alias() {
     assert_eq!(plan, vec!["build"]);
 }
 
-/// ERR-1 / TASK-1089: when a configured command that owns an alias is
+/// When a configured command that owns an alias is
 /// deleted (a user edits `.ops.toml` and removes the entry), the alias
 /// must still resolve if the same canonical name exists as a stack
 /// default. The pre-fix `resolve_alias` returned the `None` from
@@ -209,7 +209,7 @@ fn builtin_commands_resolve_by_name_and_alias() {
     assert!(runner.resolve("tw").is_some(), "alias must resolve");
 }
 
-/// TASK-2280: `locate` resolves names and aliases to the canonical name and
+/// `locate` resolves names and aliases to the canonical name and
 /// the store expansion would take the spec from.
 #[test]
 fn locate_names_canonical_and_store() {
@@ -296,7 +296,7 @@ mod proptest_tests {
 ///
 /// `expand_inner` once OR-folded `parallel` across the whole traversal, so one
 /// `parallel = true` descendant silently promoted a `parallel = false`
-/// ancestor (TASK-1657). Now the root decides: a sequential root runs a nested
+/// ancestor. Now the root decides: a sequential root runs a nested
 /// parallel group sequentially, which is always safe; a parallel root rejects
 /// a nested sequential group, whose ordering it could not honour. `fail_fast`
 /// must agree across the plan.
@@ -323,7 +323,7 @@ mod schedule_flag_agreement_tests {
         test_runner(commands)
     }
 
-    /// TASK-2275: sequential parent, parallel child (a hook group wrapping
+    /// Sequential parent, parallel child (a hook group wrapping
     /// a parallel `verify`) — the child is its own parallel stage, so its
     /// staged schedule survives under the sequential parent.
     #[test]
@@ -369,7 +369,7 @@ mod schedule_flag_agreement_tests {
         );
     }
 
-    /// TASK-2275: a `fail_fast = false` child under a sequential parent is
+    /// a `fail_fast = false` child under a sequential parent is
     /// no longer a conflict — each entry keeps its own value, and one
     /// `false` makes the tree's effective fail-fast false.
     #[test]
@@ -517,7 +517,7 @@ mod nested_composite_tests {
         );
     }
 
-    /// PATTERN-1 / TASK-0505: a diamond composite topology (two siblings
+    /// a diamond composite topology (two siblings
     /// referencing the same composite child) is a DAG, not a cycle. The
     /// previous "all-time visited" set incorrectly flagged the second visit
     /// to D as a cycle; the fix tracks only the active recursion stack.
@@ -638,12 +638,12 @@ mod depth_limit_tests {
         );
     }
 
-    /// PERF-3 / TASK-0766: pin the post-fold hot path. The pre-fix code paid
+    /// Pin the post-fold hot path. The pre-fix code paid
     /// two store traversals per node (`canonical_id` + `resolve`); folding
     /// them into one pass via `canonical_with_spec` cuts the lookups on every
     /// visit in half.
     ///
-    /// TEST-15 / TASK-1664: asserted by **counting traversals**, not by
+    /// Asserted by **counting traversals**, not by
     /// timing. The previous form ran 1k expansions against a two-second
     /// wall-clock budget, which failed at 9.8s under CPU contention — the
     /// normal state of a shared CI runner, and the reason this test could not

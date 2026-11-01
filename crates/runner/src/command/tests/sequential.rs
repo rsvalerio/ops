@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// SEC-14 / TASK-0886: when the runner is configured with
+/// When the runner is configured with
 /// `CwdEscapePolicy::Deny` (the policy the hook-triggered entry points
 /// install), a command spec with `cwd = "/etc"` (or any escaping path)
 /// must be refused at spawn time. Pins the threading from
@@ -28,11 +28,11 @@ async fn deny_policy_refuses_escaping_cwd_on_hook_path() {
     );
 }
 
-/// SEC-14: complement to the Deny test above — under `WarnAndAllow`
+/// Complement to the Deny test above — under `WarnAndAllow`
 /// (the default for interactive `ops <cmd>`) the same escaping cwd
 /// must NOT be refused at the policy layer. The spawn may still fail
 /// (no /etc/true binary on most systems) but the failure shape must
-/// not be the SEC-14 `PermissionDenied` refusal — that is the precise
+/// not be the `PermissionDenied` refusal — that is the precise
 /// behaviour-change-free guarantee the hook split was designed for.
 #[tokio::test]
 async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {
@@ -82,7 +82,7 @@ async fn run_sequential_composite() {
     assert_eq!(events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).count(), 2);
 }
 
-/// PERF-16 / TASK-1923: pins the retention contract documented on
+/// Pins the retention contract documented on
 /// `DEFAULT_OUTPUT_BYTE_CAP` — captured output is retained *per step for the
 /// whole plan*, so the bound is `steps × 2 × cap`, not
 /// `min(steps, OPS_MAX_PARALLEL) × 2 × cap`.

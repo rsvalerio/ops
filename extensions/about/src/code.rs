@@ -128,7 +128,7 @@ mod tests {
         assert!(output.contains("100.0%"));
     }
 
-    /// Regression for ERR-4: a poisoned `Sqlite` mutex must produce graceful
+    /// Regression: a poisoned `Sqlite` mutex must produce graceful
     /// `None` (not a panic) and exercise the warn-and-continue path. We
     /// verify behavior; tracing assertion would require pulling in
     /// `tracing-subscriber` as a dev-dep, which we deliberately avoid for a

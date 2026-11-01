@@ -1,6 +1,6 @@
 //! SQL utilities for LLVM coverage data.
 //!
-//! # Security (SEC-001)
+//! # Security
 //!
 //! Path validation and SQL escaping are handled by `ops_sqlite::sql`
 //! (shared defense-in-depth validation). This module only contains

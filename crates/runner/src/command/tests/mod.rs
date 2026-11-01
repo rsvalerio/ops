@@ -1,4 +1,4 @@
-//! Tests for command execution, split per concern (TASK-0423).
+//! Tests for command execution, split per concern.
 
 pub use super::*;
 pub use crate::command::abort::AbortSignal;

@@ -13,8 +13,7 @@
 //!
 //! Program resolution, display and scheduling defaults come from
 //! [`ExecCommandSpec::ops_subcommand`], shared with the extension
-//! registrations of the same command ids so the two cannot diverge
-//! (SEC-13 / TASK-2122).
+//! registrations of the same command ids so the two cannot diverge.
 
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
@@ -34,7 +33,7 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// `doc-ids` included) only read and are marked [`read_only`]. `msrv`,
 /// `semver` and `feature-matrix` compile into `target/`, so they keep the
 /// exclusive default like any build step. `sec` also
-/// never writes the worktree, but it stays exclusive (TASK-2263): Trivy
+/// never writes the worktree, but it stays exclusive: Trivy
 /// reads the *whole* tree, build outputs included, and aborts the scan when
 /// a file vanishes mid-walk — which is exactly what a concurrent build or
 /// test step does to `target/`. Overlapping `sec` with those steps is a
@@ -89,7 +88,7 @@ fn builtin_exec(subcommand: &'static str, aliases: &[&'static str]) -> ExecComma
 
 /// Let a builtin that never writes to the worktree overlap other steps.
 ///
-/// `sec` is deliberately excluded (TASK-2263): although it never *writes*,
+/// `sec` is deliberately excluded: although it never *writes*,
 /// its Trivy scan reads the entire tree — build outputs included — and
 /// aborts with `fs scan error … no such file or directory` when a
 /// concurrent build or test step deletes a file mid-walk. A scan that races
@@ -192,7 +191,7 @@ mod tests {
         }
     }
 
-    /// TASK-2263 AC #3: pin `sec` as exclusive on its own, so a future
+    /// Pin `sec` as exclusive on its own, so a future
     /// refactor that reintroduces the `read_only` wrapper for it fails here
     /// rather than resurrecting the Trivy-vs-build race in a parallel plan.
     #[test]

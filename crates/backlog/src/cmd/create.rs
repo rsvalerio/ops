@@ -44,7 +44,7 @@ const CREATE_ATTEMPTS: usize = 8;
 ///
 /// # Errors
 ///
-/// The clock is unreadable (ERR-6), the key is blank, the allocation lock
+/// The clock is unreadable, the key is blank, the allocation lock
 /// cannot be taken, a task file does not parse during the key check, or the
 /// file cannot be written — errors name the path.
 pub fn run_create<W: Write>(

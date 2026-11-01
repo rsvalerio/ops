@@ -256,7 +256,7 @@ mod unix_open {
     /// * `O_RDONLY` — the caller gets a readable `File`.
     /// * `O_NOFOLLOW` — the component must not be a symlink.
     /// * `O_NONBLOCK` — a FIFO planted at the final component cannot block the
-    ///   `open(2)` itself (SEC-33); cleared once the type check has passed.
+    ///   `open(2)` itself; cleared once the type check has passed.
     /// * `O_CLOEXEC` — the descriptor must not leak into the subprocesses
     ///   `ops` spawns.
     ///
@@ -715,7 +715,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// SEC-2 / TASK-1238 / TASK-2116: pin the shared rejected set at the
+    /// Pin the shared rejected set at the
     /// codepoints the policy names — C0 / DEL / C1 controls plus the
     /// zero-width, BOM, bidi, and separator list. A codepoint added to one
     /// consumer's local copy must show up here or the copies have drifted.
@@ -788,7 +788,7 @@ mod tests {
     }
 
     /// The motivating spoof shapes: a RIGHT-TO-LEFT OVERRIDE and a zero-width
-    /// space inside an otherwise clean URL are rejected (SEC-2 / TASK-1238).
+    /// space inside an otherwise clean URL are rejected.
     #[test]
     fn contains_unsafe_display_chars_rejects_bidi_and_zero_width() {
         assert!(contains_unsafe_display_chars("https://host/\u{202e}fake/repo"));
@@ -886,7 +886,7 @@ mod tests {
         assert!(res.is_none());
     }
 
-    /// SEC-33 (TASK-0932): files larger than the cap must be rejected by the
+    /// Files larger than the cap must be rejected by the
     /// shared reader without slurping the full content into memory. The
     /// callback in `for_each_trimmed_line` must not run.
     ///
@@ -916,7 +916,7 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
-    /// ERR-2 / TASK-1855: an oversized file whose cap boundary splits a
+    /// an oversized file whose cap boundary splits a
     /// multi-byte character must still report the cap and the override env
     /// var. Before the size/decode reorder, `read_to_string` failed first
     /// with "stream did not contain valid UTF-8" and the cap branch was dead
@@ -937,7 +937,7 @@ mod tests {
         assert!(msg.contains(MANIFEST_MAX_BYTES_ENV), "must name the override env var, got: {msg}");
     }
 
-    /// ERR-2 / TASK-1855: the reorder must not swallow a genuine encoding
+    /// The reorder must not swallow a genuine encoding
     /// failure — an under-cap file that is not valid UTF-8 still errors.
     #[test]
     fn read_capped_to_string_under_cap_invalid_utf8_still_errors() {
@@ -970,7 +970,7 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
-    /// SEC-25 / TASK-1442: a symlink at a manifest path must not be
+    /// a symlink at a manifest path must not be
     /// followed — even if the link target is readable — because an
     /// adversarial repo can plant `package.json -> /etc/passwd` to leak
     /// privileged file contents through diagnostics.
@@ -992,7 +992,7 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-1810: a symlink at an *intermediate* component must be
+    /// a symlink at an *intermediate* component must be
     /// refused too. `O_NOFOLLOW` alone only guards the final component, so a
     /// hostile repo shipping `members = ["evil"]` plus `evil -> /etc` used to
     /// reach `/etc/Cargo.toml`.
@@ -1011,7 +1011,7 @@ mod tests {
         assert!(err.to_string().contains("symlink"), "error should mention symlink, got {err}");
     }
 
-    /// ARCH-2 / TASK-2038: the intermediate-component refusal must leave a
+    /// The intermediate-component refusal must leave a
     /// breadcrumb naming the offending component, so a degraded about card or
     /// an unloadable `.ops.toml` layer is explainable rather than surfacing as
     /// a bare `InvalidInput` from somewhere in the read stack.
@@ -1038,7 +1038,7 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-1810: the walk must still read an ordinary nested file —
+    /// The walk must still read an ordinary nested file —
     /// the refusal is for symlinked components, not for depth.
     #[cfg(unix)]
     #[test]
@@ -1083,7 +1083,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-1853: a FIFO planted at a manifest path must be refused,
+    /// a FIFO planted at a manifest path must be refused,
     /// not opened. `open(2)` on a FIFO without `O_NONBLOCK` blocks until a
     /// writer appears, which wedged `ops` with no error and no diagnostic —
     /// every downstream byte-cap defence lives *after* the open.
@@ -1123,7 +1123,7 @@ mod tests {
         );
     }
 
-    /// ERR-4 / TASK-1393: `PermissionDenied` (and other propagated io
+    /// `PermissionDenied` (and other propagated io
     /// errors) must include the path in the message so callers that
     /// surface the bare error to users still get a useful diagnostic.
     #[cfg(unix)]
@@ -1152,7 +1152,7 @@ mod tests {
         }
     }
 
-    /// ARCH-9 / TASK-1228: pin the `parse_byte_cap_env` shared parser across
+    /// Pin the `parse_byte_cap_env` shared parser across
     /// the unset / zero / unparseable / valid matrix. Both
     /// `manifest_max_bytes` and `ops_toml_max_bytes` route through this so
     /// fixing the matrix here pins both surfaces.
@@ -1184,10 +1184,10 @@ mod tests {
         assert!(warn.is_none());
     }
 
-    /// ERR-1 / TASK-1443: an oversized cap (here, `u64::MAX`) must clamp to
+    /// an oversized cap (here, `u64::MAX`) must clamp to
     /// [`BYTE_CAP_ENV_MAX`] and surface a one-shot warn message so a
     /// misconfigured `OPS_MANIFEST_MAX_BYTES=18446744073709551615` cannot
-    /// silently defeat the SEC-33 cap contract.
+    /// silently defeat the byte-cap contract.
     #[test]
     fn parse_byte_cap_env_u64_max_clamps_with_warn() {
         let (cap, warn) = parse_byte_cap_env("X", Some(&u64::MAX.to_string()), 100);
@@ -1197,7 +1197,7 @@ mod tests {
         assert!(msg.contains(&BYTE_CAP_ENV_MAX.to_string()), "warn must name the bound: {msg}");
     }
 
-    /// ERR-1 / TASK-1443: a value exactly at [`BYTE_CAP_ENV_MAX`] is the
+    /// a value exactly at [`BYTE_CAP_ENV_MAX`] is the
     /// boundary — accept it unchanged with no warn.
     #[test]
     fn parse_byte_cap_env_at_bound_is_accepted() {
@@ -1218,7 +1218,7 @@ mod tests {
         );
     }
 
-    /// ERR-7 (TASK-0944): the warn event in `for_each_trimmed_line`
+    /// The warn event in `for_each_trimmed_line`
     /// Debug-formats the path so a manifest path containing newlines or
     /// ANSI escapes cannot forge log records. Pin the value-level escape
     /// without a tracing-subscriber dev-dep.
@@ -1231,7 +1231,7 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// TEST-19 (TASK-1033): the `chmod 0o000` mechanism only synthesises a
+    /// The `chmod 0o000` mechanism only synthesises a
     /// `PermissionDenied` read error for non-root callers; the kernel skips
     /// DAC checks for effective UID 0, so this assertion silently inverts
     /// (read succeeds, callback runs, `for_each_trimmed_line` returns

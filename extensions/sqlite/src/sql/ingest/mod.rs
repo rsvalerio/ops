@@ -1,6 +1,6 @@
 //! Table creation, sidecar I/O, and data pipeline helpers.
 //!
-//! ARCH-1 / TASK-1146: split the previous 1500+ line module into four
+//! Split the previous 1500+ line module into four
 //! per-concern submodules. The crate-level `pub use` surface in
 //! `super::sql` is preserved so downstream callers see no churn.
 

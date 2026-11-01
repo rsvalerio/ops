@@ -69,7 +69,7 @@ pub fn query_project_loc(db: &Sqlite) -> anyhow::Result<i64> {
 /// Query per-language breakdown from `tokei_files`: LOC, file count, and
 /// percentages of both. Ordered by LOC descending.
 ///
-/// READ-5 / TASK-0362: languages whose `loc_pct` rounds below 0.1% are
+/// Languages whose `loc_pct` rounds below 0.1% are
 /// omitted, *including* the case where every language is sub-threshold.
 /// The empty return is the signal callers rely on to distinguish
 /// "no tokei data" from "every language tiny", matching the documented

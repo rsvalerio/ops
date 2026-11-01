@@ -377,7 +377,7 @@ fn validate_field(field: &str, value: &str, max_chars: usize) -> anyhow::Result<
 struct TaskPlan<'a> {
     /// Main-task number; the id and both filename families share it.
     main_number: u32,
-    /// Zero-padded main-task id, e.g. `TASK-0042`.
+    /// Zero-padded main-task id, e.g. `TASK-<number>`.
     main_id: String,
     /// Main-task title, `<stem>-<date>-<n>`.
     main_title: String,
@@ -392,7 +392,7 @@ struct TaskPlan<'a> {
 struct PlannedSubtask<'a> {
     /// 1-based position among the sibling subtasks.
     index: usize,
-    /// Dotted id, e.g. `TASK-0042.03`.
+    /// Dotted id, e.g. `TASK-<number>.<pos>`.
     id: String,
     /// Subtask title.
     title: String,
@@ -542,7 +542,7 @@ fn write_task_set(
 struct TaskFile<'a> {
     /// Filename inside `.backlog/tasks/`.
     name: String,
-    /// Zero-padded id, e.g. `TASK-0042` or `TASK-0042.03`.
+    /// Zero-padded id, e.g. `TASK-<number>` or `TASK-<number>.<pos>`.
     id: &'a str,
     /// Task title.
     title: &'a str,
@@ -1132,7 +1132,7 @@ mod tests {
                 .collect()
         });
 
-        /// `created TASK-0002 review-request-2026-08-20-1 (2 subtasks)` → the
+        /// `created TASK-<n> review-request-2026-08-20-1 (2 subtasks)` → the
         /// whitespace-separated field at `field`.
         fn reported(out: &str, field: usize) -> &str {
             out.split_whitespace().nth(field).expect("report names the id and title")

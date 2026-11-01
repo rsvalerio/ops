@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(got.len(), at_cap);
     }
 
-    /// SEC-14 / TASK-2433: a root-level manifest that is itself a symlink
+    /// a root-level manifest that is itself a symlink
     /// pointing outside the workspace root must be refused (with a warn),
     /// not read and surfaced in `ops about` output.
     #[cfg(unix)]

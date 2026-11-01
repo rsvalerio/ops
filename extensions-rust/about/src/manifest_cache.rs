@@ -52,7 +52,7 @@
 //! `into_inner` + `clear_poison` and warns on every recovery, so a panic in a
 //! sibling provider cannot silently degrade the cache to "always-miss".
 //!
-//! # CONC-7: concurrency contract
+//! # Concurrency contract
 //!
 //! The wrapper is a single `Mutex<HashMap>`, which serialises every probe.
 //! This is intentional and bounded by the workload it guards:
@@ -62,7 +62,7 @@
 //!   tick under the lock and never holds the lock across IO or parsing.
 //! - **Daemon / language-server hosts:** when multiple worker threads start
 //!   running providers in parallel against many distinct workspace roots, this
-//!   single-mutex shape becomes the bottleneck (CONC-7 forbids
+//!   single-mutex shape becomes the bottleneck (the contract forbids
 //!   `Mutex<Collection>` on hot paths exactly because of this). At that point
 //!   the cache MUST migrate to `DashMap<PathBuf, TypedManifestEntry>` plus a
 //!   separate small `parking_lot::Mutex<()>` only for the LRU eviction scan —
@@ -238,7 +238,7 @@ fn lock_typed_manifest_cache(
 
 /// Drop the cached entry for `root` (`ctx.refresh` semantics).
 ///
-/// One lock scope, no IO: the CONC-7 contract is checkable at a glance.
+/// One lock scope, no IO: the contract is checkable at a glance.
 pub fn evict(root: &Path) {
     let mut guard = lock_typed_manifest_cache(typed_manifest_cache());
     guard.cache.remove(root);

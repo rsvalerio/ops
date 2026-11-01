@@ -74,7 +74,7 @@ async fn handle_parallel_events_no_abort_without_fail_fast() {
     assert!(!abort.is_set(), "abort should NOT be set without fail_fast");
 }
 
-/// CONC-6 / TASK-1177: a panicked sibling under `fail_fast` must trip abort
+/// a panicked sibling under `fail_fast` must trip abort
 /// at the same point a `StepFailed` event would. Pre-fix the abort signal
 /// only fired on `RunnerEvent::StepFailed`, so a task that panicked rather
 /// than emitting a failure event kept its siblings running until the
@@ -143,7 +143,7 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
     assert_eq!(harvested.len(), 2, "both tasks must have been harvested before the loop exited");
 }
 
-/// CONC-3 / TASK-1921: the panic trigger must fire while a sibling is still
+/// The panic trigger must fire while a sibling is still
 /// flooding `StepOutput`, not only once the flood stops.
 ///
 /// The pre-fix loop polled its two `select!` arms `biased`, top-to-bottom,
@@ -154,7 +154,7 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
 /// the loop polls it again and `rx.recv()` is ready every single time. The
 /// panicked sibling is then the only way out of the loop — under `biased`
 /// it is never observed and this test hangs to its timeout, which is
-/// precisely the `fail_fast` promise the CONC-6 / TASK-1177 contract makes.
+/// precisely the `fail_fast` promise the contract makes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fail_fast_trips_on_panic_while_a_sibling_floods_output() {
     let (tx, rx) = mpsc::channel(64);
@@ -223,7 +223,7 @@ async fn fail_fast_trips_on_panic_while_a_sibling_floods_output() {
     );
 }
 
-/// TASK-0334: panic payloads from `JoinError` must not surface verbatim in
+/// Panic payloads from `JoinError` must not surface verbatim in
 /// `StepResult.message`.
 #[tokio::test(flavor = "multi_thread")]
 async fn collect_join_results_redacts_panic_payload() {

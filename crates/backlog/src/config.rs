@@ -16,7 +16,7 @@ pub struct BacklogConfig {
     pub default_status: String,
     /// Backlog directory relative to the workspace root.
     pub backlog_directory: String,
-    /// Task id prefix (`TASK-0001`).
+    /// Task id prefix.
     pub task_prefix: String,
     /// Zero-padding width of the numeric id part.
     pub zero_padded_ids: usize,
@@ -46,7 +46,7 @@ impl BacklogConfig {
     /// # Errors
     ///
     /// The file exists but a needed key carries a shape this parser cannot
-    /// read; the error names the file (ERR-13).
+    /// read; the error names the file.
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let path = dir.join("backlog.config.yml");
         // Absent means defaults; every other read failure (permissions,
@@ -138,8 +138,7 @@ impl BacklogConfig {
 ///
 /// # Errors
 ///
-/// The file already exists, or the atomic write failed — both name the path
-/// (ERR-13).
+/// The file already exists, or the atomic write failed — both name the path.
 pub fn write_config_yml(dir: &Path, cfg: &BacklogConfig) -> anyhow::Result<()> {
     let path = dir.join("backlog.config.yml");
     crate::cmd::atomic_write_noclobber(&path, &cfg.to_yaml())

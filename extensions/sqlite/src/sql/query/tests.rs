@@ -134,7 +134,7 @@ fn query_crate_loc_empty_table() {
     assert_eq!(result["crates/my-cli"], 0);
 }
 
-/// SEC-12: member paths are bound parameters, so a directory name holding
+/// Member paths are bound parameters, so a directory name holding
 /// parentheses, `+`, `@` or non-ASCII text must be queried, not rejected.
 #[test]
 fn query_crate_loc_accepts_member_paths_with_punctuation_and_non_ascii() {
@@ -245,7 +245,7 @@ fn query_crate_dep_counts_with_data() {
     assert_eq!(result["/ws/cli/Cargo.toml"], 1);
 }
 
-/// ERR-2 / TASK-1253: when two workspace members share the same
+/// When two workspace members share the same
 /// `crate_name` (legal in cargo for renamed packages), keying by manifest
 /// path keeps both rows distinct rather than collapsing into a single map
 /// entry that silently mis-attributes counts.
@@ -638,7 +638,7 @@ fn query_rust_loc_file_count_no_table() {
     assert_eq!(files, 0);
 }
 
-/// TASK-2282: `query_rust_loc_files` returns one row per (file, region),
+/// `query_rust_loc_files` returns one row per (file, region),
 /// ordered, with `files` fixed at 1 so a caller's sum is a file count.
 #[test]
 fn query_rust_loc_files_returns_every_row() {

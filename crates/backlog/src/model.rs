@@ -60,7 +60,7 @@ pub fn file_slug(title: &str) -> String {
 
 /// YAML scalar for a frontmatter value.
 ///
-/// SEC-11 lineage: a single-quoted scalar cannot encode a control character —
+/// A single-quoted scalar cannot encode a control character —
 /// a newline in the value would split the scalar across lines and desynchronise
 /// the document, so the `---` terminator is read as a second document and the
 /// file the crate just wrote no longer parses. Values are validated at the
@@ -917,7 +917,7 @@ priority: low
 
     /// `status` is user-supplied, so a YAML-hostile status must come back
     /// out quoted: the file this crate writes has to re-parse (the same
-    /// SEC-11 round-trip rule the module header states for titles), while
+    /// round-trip rule the module header states for titles), while
     /// a plain status keeps its bare CLI byte shape.
     #[test]
     fn hostile_status_round_trips_and_plain_status_stays_bare() {

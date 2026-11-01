@@ -8,7 +8,7 @@ use super::{CommandRunner, ExpandError, ResolveExecError, UnknownCommand};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
-/// One command's execution plan after composite expansion (TASK-2275).
+/// One command's execution plan after composite expansion.
 ///
 /// Expansion used to flatten the whole composite tree into one leaf list
 /// scheduled by its root, so a sequential root silently downgraded a nested
@@ -92,7 +92,7 @@ impl CommandPlan {
     }
 }
 
-/// Which command store a resolved command lives in (TASK-2280), in
+/// Which command store a resolved command lives in, in
 /// resolution priority order: config shadows stack defaults, which shadow
 /// extensions, which shadow builtins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,7 +396,7 @@ impl CommandRunner {
         Ok(self.expand_to_plan(id)?.leaf_ids())
     }
 
-    /// Expand a named command into a [`CommandPlan`] tree (TASK-2275).
+    /// Expand a named command into a [`CommandPlan`] tree.
     ///
     /// One walk of the composite tree produces both the structure and every
     /// stage's scheduling flags, so the executed steps and their schedule

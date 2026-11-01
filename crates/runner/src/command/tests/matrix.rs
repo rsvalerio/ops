@@ -1,4 +1,4 @@
-//! TASK-2277: matrix commands run once per cell as one plan step.
+//! Matrix commands run once per cell as one plan step.
 //!
 //! Cells are `sh -c` scripts so a cell's outcome is picked by its value.
 //! Overlap is proven with a lock file rather than timing: under `set -C`

@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(fuzz_clippy.args, default.args, "clone copies the source args");
     }
 
-    /// TASK-2280: a materialized clone records its source and whether it
+    /// a materialized clone records its source and whether it
     /// overrode `exclusive`, so a plan can report the clone's origin.
     #[test]
     fn clone_records_provenance() {

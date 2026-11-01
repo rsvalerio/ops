@@ -52,7 +52,7 @@ pub struct ConfigOverlay {
     pub stack: Option<String>,
 }
 
-/// Generate a single-field overlay struct (DUP-3 collapse).
+/// Generate a single-field overlay struct (one macro instead of three).
 ///
 /// `ExtensionConfigOverlay`, `AboutConfigOverlay`, and `DataConfigOverlay`
 /// all follow the same shape: one `Option<T>` field plus

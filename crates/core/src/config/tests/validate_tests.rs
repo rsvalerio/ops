@@ -29,7 +29,7 @@ fn exec_spec_display_cmd_no_args() {
 }
 
 /// `display_program` overrides only the rendered program name; args (and
-/// their SEC-21 quoting) are unaffected. Builtins rely on this to render
+/// their quoting) are unaffected. Builtins rely on this to render
 /// `ops sec` while spawning the absolute `current_exe()` path.
 #[test]
 fn exec_spec_display_cmd_prefers_display_program() {
@@ -47,7 +47,7 @@ fn exec_spec_display_cmd_prefers_display_program() {
     assert_eq!(unsafe_display.display_cmd(), "'my ops' hi");
 }
 
-/// SEC-21: `display_program` is internal (builtins only). A `.ops.toml`
+/// `display_program` is internal (builtins only). A `.ops.toml`
 /// supplying it must fail to load — a config-settable display name that
 /// diverges from the real program could disguise what actually runs.
 #[test]
@@ -62,7 +62,7 @@ display_program = "harmless-looking"
     assert!(err.to_string().contains("unknown field"), "expected unknown-field error, got: {err}");
 }
 
-/// SEC-21 AC #3: an arg containing a space and a quote must round-trip
+/// an arg containing a space and a quote must round-trip
 /// through `display_cmd` in a form the user can disambiguate from two
 /// separate args. Without quoting, `["foo bar"]` and `["foo", "bar"]` would
 /// render identically.
@@ -92,7 +92,7 @@ fn exec_spec_display_cmd_quotes_metacharacters() {
     );
 }
 
-/// TASK-1431: `cwd` containing `..` must be rejected at load time so a
+/// `cwd` containing `..` must be rejected at load time so a
 /// hostile workspace config can't silently escape the workspace at exec.
 #[test]
 fn exec_spec_validate_rejects_cwd_with_parent_dir() {
@@ -103,7 +103,7 @@ fn exec_spec_validate_rejects_cwd_with_parent_dir() {
     assert!(err.contains(".."), "expected '..' mention, got: {err}");
 }
 
-/// TASK-1445: NUL or other C0 control characters in program/args/cwd
+/// NUL or other C0 control characters in program/args/cwd
 /// must fail at validate-time with a named error rather than at spawn.
 #[test]
 fn exec_spec_validate_rejects_nul_in_program() {
@@ -128,14 +128,14 @@ fn exec_spec_validate_rejects_control_in_cwd() {
     assert!(err.contains("cwd"), "expected cwd error: {err}");
 }
 
-/// TASK-1445: tab is explicitly allowed (common in legitimate args).
+/// Tab is explicitly allowed (common in legitimate args).
 #[test]
 fn exec_spec_validate_allows_tab() {
     let e = exec_spec("echo", &["a\tb"]);
     assert!(e.validate("ok").is_ok());
 }
 
-/// SEC-11 / TASK-1826: a NUL in an `env` **value** reaches `Command::env`
+/// a NUL in an `env` **value** reaches `Command::env`
 /// unscreened before the fix and surfaces as std's anonymous "nul byte found
 /// in provided data". Validation must name the command and the variable.
 #[test]
@@ -148,7 +148,7 @@ fn exec_spec_validate_rejects_nul_in_env_value() {
     assert!(err.contains("control character"), "expected control char mention: {err}");
 }
 
-/// SEC-11 / TASK-1826: a control character in an env **key** is rejected too —
+/// a control character in an env **key** is rejected too —
 /// the key is half of what `Command::env` receives.
 #[test]
 fn exec_spec_validate_rejects_control_char_in_env_key() {
@@ -159,7 +159,7 @@ fn exec_spec_validate_rejects_control_char_in_env_key() {
     assert!(err.contains("env key"), "expected env-key mention: {err}");
 }
 
-/// SEC-11 / TASK-1826: an `=` in an env key produces an entry the child's
+/// an `=` in an env key produces an entry the child's
 /// `getenv` can never retrieve, so it fails at load naming the key.
 #[test]
 fn exec_spec_validate_rejects_equals_in_env_key() {
@@ -171,7 +171,7 @@ fn exec_spec_validate_rejects_equals_in_env_key() {
     assert!(err.contains('='), "expected the '=' rule, got: {err}");
 }
 
-/// SEC-11 / TASK-1826: an ordinary env map still validates — the new screen
+/// an ordinary env map still validates — the new screen
 /// must not reject legitimate configs (tab stays allowed, as in `args`).
 #[test]
 fn exec_spec_validate_accepts_plain_env() {
@@ -181,7 +181,7 @@ fn exec_spec_validate_accepts_plain_env() {
     e.validate("ok").expect("plain env must validate");
 }
 
-/// TASK-1430: typo of the `program` field reports the Exec error, not
+/// Typo of the `program` field reports the Exec error, not
 /// the misleading Composite "missing field `commands`".
 #[test]
 fn command_spec_typo_in_exec_reports_exec_error() {
@@ -202,7 +202,7 @@ progam = "cargo"
     );
 }
 
-/// TASK-1430: typo on Composite side reports the Composite error.
+/// Typo on Composite side reports the Composite error.
 #[test]
 fn command_spec_typo_in_composite_reports_composite_error() {
     let toml_str = r#"
@@ -219,7 +219,7 @@ parralel = true
     );
 }
 
-/// TASK-1402: `CommandId` is parseable via the standard `str::parse` path.
+/// `CommandId` is parseable via the standard `str::parse` path.
 #[test]
 fn command_id_from_str() {
     let id: crate::config::CommandId = "build".parse().expect("infallible");
@@ -303,7 +303,7 @@ fn global_config_path_falls_back_to_home_config() {
     assert!(path.ends_with("ops/config"));
 }
 
-/// PORT-5 (TASK-0696): Windows must resolve the config base from `%APPDATA%`
+/// PORT-5: Windows must resolve the config base from `%APPDATA%`
 /// rather than appending `.config/ops/config` to USERPROFILE. Compiled only
 /// on Windows; the cross-platform XDG override remains covered above.
 #[test]
@@ -340,7 +340,7 @@ fn global_config_path_uses_appdata_on_windows() {
 mod read_config_file_error_paths {
     use super::*;
 
-    /// TQ-EFF-001 / TEST-2 (TASK-1835): an unreadable config file must fail
+    /// TQ-EFF-001: an unreadable config file must fail
     /// **loud** — `Err`, not the `Ok(None)` that means "file absent". The two
     /// outcomes are the fail-closed / fail-open fork of the config reader, and
     /// the sibling `read_config_file_missing_returns_ok_none` pins the other
@@ -351,7 +351,7 @@ mod read_config_file_error_paths {
     /// to set file permissions. Windows file permissions work differently (ACLs)
     /// and would require a different test approach.
     ///
-    /// TEST-18 (TASK-1835): `chmod 0o000` is bypassed by `CAP_DAC_OVERRIDE`, so
+    /// `chmod 0o000` is bypassed by `CAP_DAC_OVERRIDE`, so
     /// under a privileged sandbox (CI as root, fakeroot) the read succeeds and
     /// there is nothing to assert. Detect that case the way
     /// `edit.rs::sync_parent_dir_warns_when_parent_open_fails` does — probe the
@@ -478,7 +478,7 @@ fn validate_commands_accepts_diamond_dag() {
     config.validate_commands(&[]).expect("diamond is not a cycle");
 }
 
-/// ERR-1 / TASK-1181: two commands declaring the same alias are silently
+/// Two commands declaring the same alias are silently
 /// resolved by `Config::resolve_alias` to whichever appears first in the
 /// `IndexMap`, with no diagnostic. `validate_commands` must catch this up
 /// front so the misconfiguration fails loud at config load instead of as
@@ -499,7 +499,7 @@ fn validate_commands_rejects_duplicate_alias_across_commands() {
     assert!(msg.contains("alpha") && msg.contains("beta"), "must name both candidates; got: {msg}");
 }
 
-/// ERR-1 / TASK-1182: an alias that collides with an existing command name
+/// an alias that collides with an existing command name
 /// is silently dead because the External dispatcher matches the literal
 /// command name first. `validate_commands` must reject this so a config
 /// with `commands.build` and `commands.foo.aliases = ["build"]` fails at
@@ -520,7 +520,7 @@ fn validate_commands_rejects_alias_colliding_with_command_name() {
     assert!(msg.contains("foo"), "must name the alias owner; got: {msg}");
 }
 
-/// TASK-1182 (also): an alias that collides with an external command name
+/// An alias that collides with an external command name
 /// (stack default / extension command id) must also be rejected — that's
 /// the exact dispatcher precedence that makes the alias dead.
 #[test]
@@ -536,7 +536,7 @@ fn validate_commands_rejects_alias_colliding_with_external_command() {
     assert!(msg.contains("'test'"), "got: {msg}");
 }
 
-/// ERR-1 / TASK-1221: `walk_composite` must leave `visiting` empty on every
+/// `walk_composite` must leave `visiting` empty on every
 /// exit path, including unknown-ref bail and child-error short-circuits.
 /// This test exercises the invariant directly — a future refactor that
 /// hoists `visiting` across sibling composite roots would otherwise silently
@@ -595,7 +595,7 @@ fn scale_columns_handles_huge_widths_without_wrapping() {
     assert_eq!(scale_columns(u16::MAX), 58_981);
 }
 
-/// SEC-31 / TASK-1818: the two alias-hygiene rules must run in the **shipped
+/// The two alias-hygiene rules must run in the **shipped
 /// binary**. They lived only in `validate_commands`, which has no production
 /// caller, so a `.ops.toml` declaring the same alias twice loaded cleanly and
 /// then dispatched to whichever command happened to sit earlier in the
@@ -634,7 +634,7 @@ aliases = ["b"]
     );
 }
 
-/// SEC-31 / TASK-1818: the symmetric rule — an alias shadowing an existing
+/// The symmetric rule — an alias shadowing an existing
 /// command name is silently dead at dispatch, and must fail the real load
 /// path rather than at invocation time.
 #[test]
@@ -669,14 +669,14 @@ aliases = ["build"]
     assert!(msg.contains("build"), "error must name the alias: {msg}");
 }
 
-/// SEC-33 / TASK-1832: `walk_composite` kept no memory of subtrees it had
+/// `walk_composite` kept no memory of subtrees it had
 /// already validated, so every extra incoming edge re-walked the whole
 /// subtree. A 31-command `.ops.toml` where each composite lists the next one
 /// twice therefore cost 2^30 visits and hung `ops <anything>` — an
 /// unauthenticated local `DoS` from repo-supplied config, well inside every size
 /// cap. With the `validated` memo the walk is O(V+E) and returns instantly.
 ///
-/// TEST-15: the budget is deliberately enormous (five seconds against a walk
+/// The budget is deliberately enormous (five seconds against a walk
 /// that now takes microseconds) so the test cannot flake on a loaded CI box
 /// while still failing decisively if the memo is dropped — 2^30 visits do not
 /// complete in five seconds on any machine.
@@ -706,7 +706,7 @@ fn validate_commands_doubling_chain_is_not_exponential() {
     );
 }
 
-/// SEC-33 / TASK-1832: memoisation must not weaken the depth limit. A node
+/// Memoisation must not weaken the depth limit. A node
 /// validated at a shallow depth can still blow `MAX_COMPOSITE_DEPTH` when
 /// reached again from a deeper root, so the memo stores each subtree's height
 /// and re-checks `depth + height` on every hit. A bare "seen" flag would fail
@@ -731,7 +731,7 @@ fn validate_commands_memo_still_enforces_depth_limit() {
     assert!(format!("{err:#}").contains("depth"), "expected a depth-limit error, got: {err:#}");
 }
 
-/// SEC-33 / TASK-1832, direct form: the sibling test above drives
+/// Direct form: the sibling test above drives
 /// `validate_commands`, which only reaches the memo *incidentally* — a change
 /// to root ordering could make it stop exercising the memo-hit branch at all
 /// while still passing. This one calls [`Config::walk_composite`] itself:
@@ -768,7 +768,7 @@ fn walk_composite_memo_hit_rechecks_depth() {
     assert!(format!("{err:#}").contains("depth"), "expected a depth-limit error, got: {err:#}");
 }
 
-/// SEC-33 / TASK-1849: `left_pad` sizes `" ".repeat(n)` in three renderers,
+/// `left_pad` sizes `" ".repeat(n)` in three renderers,
 /// and nothing validated `[themes]`, so a ~400-byte `.ops.toml` could panic
 /// the process with a capacity overflow. It must now be a clean `Err` from the
 /// real load path.
@@ -779,7 +779,7 @@ fn load_config_rejects_usize_max_left_pad() {
     assert!(err.contains("left_pad"), "error must name the field, got: {err}");
 }
 
-/// SEC-33 / TASK-1849: the allocation-failure shape (`memory allocation of
+/// The allocation-failure shape (`memory allocation of
 /// 50000000000 bytes failed`, an abort) is rejected the same way.
 #[test]
 #[serial]
@@ -788,7 +788,7 @@ fn load_config_rejects_huge_left_pad() {
     assert!(err.contains("left_pad"), "error must name the field, got: {err}");
 }
 
-/// SEC-33 / TASK-1849: a realistic margin still loads — the bound must not
+/// a realistic margin still loads — the bound must not
 /// reject legitimate themes.
 #[test]
 #[serial]
@@ -806,7 +806,7 @@ fn load_config_accepts_ordinary_left_pad() {
     assert_eq!(config.themes["wide"].left_pad, 4);
 }
 
-/// SEC-33 / TASK-1849: `ThemeConfig::validate` is the screen for a
+/// `ThemeConfig::validate` is the screen for a
 /// programmatically-built theme, which never passes through serde. Its message
 /// names the theme so an operator can find it.
 #[test]
@@ -878,7 +878,7 @@ fn config_of(commands: Vec<(&str, CommandSpec)>) -> Config {
     config
 }
 
-/// TASK-2637 AC #4: a cycle fails the load naming the commands on it.
+/// a cycle fails the load naming the commands on it.
 #[test]
 fn validate_rejects_after_cycles_naming_the_commands() {
     let config = config_of(vec![

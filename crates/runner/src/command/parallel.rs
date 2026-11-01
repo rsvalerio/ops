@@ -699,7 +699,7 @@ impl CommandRunner {
     /// `collect_join_results` output without losing the panic-aware
     /// step ids `id_map` records.
     ///
-    /// `matrix_cells` names the rows of matrix steps (TASK-2277). A failing
+    /// `matrix_cells` names the rows of matrix steps. A failing
     /// cell's `StepFailed` does not trip `fail_fast`: the cells answer to
     /// their own `strategy.fail_fast`, and the matrix step trips the plan
     /// when its aggregate result comes back failed (see `harvest_joined`).

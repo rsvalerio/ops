@@ -474,7 +474,7 @@ fn external_tools_mirror_the_probed_tool_table() {
 mod extension_tests {
     use super::*;
 
-    /// SEC-13: the registered command spawns an absolute
+    /// The registered command spawns an absolute
     /// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`,
     /// and renders as `ops deps`. It only reads, so it stays non-exclusive.
     #[test]

@@ -270,7 +270,7 @@ mod tests {
         )
     }
 
-    /// `<tmp>/repo` holding one committed wave TASK-1; worktrees default to
+    /// `<tmp>/repo` holding one committed wave (task id 1); worktrees default to
     /// `<tmp>/.wave-TASK-1`, inside the tempdir.
     fn repo() -> (tempfile::TempDir, PathBuf, Store) {
         let dir = tempfile::tempdir().expect("tempdir");

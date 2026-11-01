@@ -33,7 +33,7 @@ use ops_extension::{Context, DataProviderError, DataRegistry};
 /// process-global current directory) and sets `refresh` on the result.
 ///
 /// `subpage` names the caller so the `current_dir` failure is attributable
-/// (ERR-4) instead of surfacing the same bare OS error from five different
+///  instead of surfacing the same bare OS error from five different
 /// subcommands.
 ///
 /// # Errors
@@ -229,7 +229,7 @@ mod tests {
         units: Vec<UnitCoverageStub>,
     }
 
-    /// ERR-4 + ERR-14: a payload-shape failure must name the
+    /// A payload-shape failure must name the
     /// provider that produced it, the type it was being read into, and the
     /// concrete field path. A bare `invalid type: string, expected f64` is
     /// unattributable across four subpages and a hundred fields.

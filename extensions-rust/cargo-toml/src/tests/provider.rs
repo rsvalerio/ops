@@ -56,7 +56,7 @@ fn provider_invalid_toml() {
 /// Unix-only: the mechanism is the DAC mode bits, and Windows manages file
 /// access through ACLs.
 ///
-/// TEST-18 / TASK-1802: the chmod is owned by a `Drop` guard so a panic in
+/// The chmod is owned by a `Drop` guard so a panic in
 /// the body still leaves the tempdir removable, and the guard probes whether
 /// 0o000 is actually enforced — under `CAP_DAC_OVERRIDE` (uid 0, the default
 /// in most CI container images) the read succeeds and the old
@@ -111,7 +111,7 @@ members = ["."]
 serde = "1.0"
 "#;
 
-/// READ-6 / TASK-1798: hold the published schema and the emitted JSON
+/// Hold the published schema and the emitted JSON
 /// together. The previous assertion only checked that the schema *listed*
 /// `dev-dependencies`, so it stayed green while serde serialised the field
 /// as `dev_dependencies` and every consumer reading the documented key got
@@ -155,7 +155,7 @@ fn provider_schema_names_match_serialized_manifest() {
     }
 }
 
-/// READ-6 / TASK-1798: the wire format accepts both spellings on the read
+/// The wire format accepts both spellings on the read
 /// side, so a consumer that round-trips provider JSON back into `CargoToml`
 /// keeps working, and so does a hand-written `snake_case` payload.
 #[test]
@@ -260,7 +260,7 @@ serde = "1.0"
     assert_eq!(manifest.package.as_ref().unwrap().edition.as_str(), Some("2024"));
 }
 
-/// SEC-25 / TASK-2143: the auto-discovering provider (the no-root shape the
+/// The auto-discovering provider (the no-root shape the
 /// `linkme` factory registers) must resolve its root with the strict walk,
 /// like `about` and `create-review-tasks` do directly — not the lenient walk
 /// it previously used.
@@ -308,7 +308,7 @@ fn auto_discovering_provider_uses_the_strict_root_walk() {
     );
 }
 
-/// The positive half of TASK-2143: auto-discovery still finds the real
+/// The positive half: auto-discovery still finds the real
 /// workspace root from inside a member crate, so switching the provider to
 /// the strict walk changed which candidates are *skipped*, not whether a
 /// genuine root is found.

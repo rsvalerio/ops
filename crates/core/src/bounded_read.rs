@@ -320,7 +320,7 @@ pub fn report_walk_errors<R: FileRunReport>(
 mod tests {
     use super::*;
 
-    /// TASK-2162 AC #5, pinning the hardening config-checkers picked up:
+    /// Pinning the hardening config-checkers picked up:
     /// a symlink is judged by itself, never by its target. With
     /// `fs::metadata` this read would have *succeeded* and returned the
     /// target's bytes; the no-follow walk refuses the link itself.

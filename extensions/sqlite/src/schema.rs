@@ -218,7 +218,7 @@ mod tests {
         assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
     }
 
-    /// ERR-1 (TASK-0885): the column must hold i64 so counts exceeding
+    /// The column must hold i64 so counts exceeding
     /// `i32::MAX` round-trip without truncation or driver-level bind error
     /// (SQLite INTEGER is i64 natively).
     #[test]

@@ -237,7 +237,7 @@ pub struct ExecCommandSpec {
     /// as `/home/…/bin/ops sec` instead of `ops sec`). Deliberately
     /// `serde(skip)` + `deny_unknown_fields`, so a `.ops.toml` cannot set
     /// it: a config-supplied display name diverging from the real program
-    /// is exactly the misleading-render hazard SEC-21 guards against.
+    /// is exactly the misleading-render hazard the skip prevents.
     #[serde(skip)]
     pub display_program: Option<String>,
     /// Run the command once per matrix cell; see

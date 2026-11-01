@@ -1,6 +1,6 @@
 //! Tap-file lifecycle for `ProgressDisplay`.
 //!
-//! ARCH-1 (TASK-0581): owns the tap-file state (open File handle, original
+//! Owns the tap-file state (open File handle, original
 //! path for re-opening on failure, captured truncation kind) so the
 //! progress-rendering surface no longer mixes tap concerns with indicatif
 //! lifecycle. Behavior is preserved verbatim from the previous in-line
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 /// `on_run_finished` can emit a single user-visible "tap truncated" warning
 /// and best-effort append a marker line at the end of the tap file itself.
 ///
-/// # Buffering (PERF-2 / TASK-1928)
+/// # Buffering
 ///
 /// The file is wrapped in a [`BufWriter`]. `std::fs::File` has no buffering
 /// of its own, so the previous bare-`File` handle cost at least one
@@ -38,7 +38,7 @@ pub struct TapWriter {
     file: Option<BufWriter<File>>,
     path: Option<PathBuf>,
     truncation: Option<(String, String)>,
-    /// CONC-7 / TASK-1176: capture the `io::ErrorKind` of the first write
+    /// Capture the `io::ErrorKind` of the first write
     /// failure so [`Self::append_marker`] can short-circuit when re-opening
     /// the same path could only fail again (e.g. ENOSPC) or hang (e.g. a
     /// stale NFS mount). Pre-fix `append_marker` blindly re-opened on every
@@ -92,7 +92,7 @@ impl TapWriter {
 
     /// Flush buffered tap output to disk.
     ///
-    /// PERF-2 / TASK-1928: called at `RunFinished` so the tap file is
+    /// Called at `RunFinished` so the tap file is
     /// complete for a downstream reader the moment the run reports done,
     /// not merely by the time the process exits. A flush failure is
     /// recorded exactly like a write failure, so `report_tap_truncation`
@@ -186,7 +186,7 @@ impl TapWriter {
 }
 
 impl Drop for TapWriter {
-    /// PERF-2 / TASK-1928: last-resort flush. `RunFinished` is the normal
+    /// Last-resort flush. `RunFinished` is the normal
     /// flush point; this covers the runs that never reach it (an early
     /// return, an error path, a `?` in the caller) so a buffered tail is not
     /// silently lost. `BufWriter`'s own `Drop` would also attempt a flush,
@@ -201,10 +201,10 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    /// ERR-7 (TASK-0940): tracing fields for tap paths flow through the `?`
+    /// Tracing fields for tap paths flow through the `?`
     /// formatter so a config-supplied path containing newlines or ANSI
     /// escapes cannot forge log records.
-    /// CONC-7 / TASK-1176: when the prior write failure kind is
+    /// When the prior write failure kind is
     /// `StorageFull` or `BrokenPipe`, `append_marker` must short-circuit
     /// rather than re-open the path. Re-opening can only repeat the
     /// failure (ENOSPC) or hang on a stale mount (`BrokenPipe`). We pin
@@ -268,7 +268,7 @@ mod tests {
         );
     }
 
-    /// PERF-2 / TASK-1928: with buffering, "the lines were written" is no
+    /// With buffering, "the lines were written" is no
     /// longer the same claim as "the lines are on disk". Pin both flush
     /// points: an explicit `flush` (what `RunFinished` calls) makes the file
     /// complete while the writer is still alive, and `Drop` catches a run

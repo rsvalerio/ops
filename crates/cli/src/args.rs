@@ -618,7 +618,7 @@ pub enum BacklogWaveAction {
     },
     /// List one wave's member tasks.
     Members {
-        /// Wave task id (e.g. TASK-0119).
+        /// Wave task id (e.g. TASK-<number>).
         wave_id: String,
         /// Plain text output.
         #[arg(long)]
@@ -681,7 +681,7 @@ pub enum BacklogWaveAction {
     /// Claim a wave: create its branch and worktree, then flip it to In
     /// Progress. Refused, with nothing changed, when the branch exists.
     Claim {
-        /// Wave task id (e.g. TASK-0119).
+        /// Wave task id (e.g. TASK-<number>).
         wave_id: String,
         /// Branch to create (default `code-review/<wave-id>`).
         #[arg(long)]
@@ -696,7 +696,7 @@ pub enum BacklogWaveAction {
     /// Park a wave whose merge did not land: keep its branch and worktree,
     /// set its status and record why.
     Park {
-        /// Wave task id (e.g. TASK-0119).
+        /// Wave task id (e.g. TASK-<number>).
         wave_id: String,
         /// Why the wave was parked.
         #[arg(long)]
@@ -774,7 +774,7 @@ pub struct BacklogCreateArgs {
 /// variant does not inflate every `CoreSubcommand`.
 #[derive(clap::Args, Debug, Clone)]
 pub struct BacklogEditArgs {
-    /// Task id (e.g. TASK-0042).
+    /// Task id (e.g. TASK-<number>).
     pub task_id: String,
     /// New status.
     #[arg(short, long)]
@@ -870,7 +870,7 @@ pub enum BacklogTaskAction {
     },
     /// Show one task.
     View {
-        /// Task id (e.g. TASK-0042).
+        /// Task id (e.g. TASK-<number>).
         task_id: String,
         /// Plain text output (first line is `File: <path>`).
         #[arg(long, conflicts_with = "json")]
@@ -1184,7 +1184,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "extension", "show", "metadata"]);
         match cli.subcommand {
             Some(CoreSubcommand::Extension { action: ExtensionAction::Show { name } }) => {
-                assert_eq!(name, Some("metadata".to_string()))
+                assert_eq!(name, Some("metadata".to_string()));
             }
             other => panic!("expected Extension Show, got {other:?}"),
         }
@@ -1195,7 +1195,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "extension", "show"]);
         match cli.subcommand {
             Some(CoreSubcommand::Extension { action: ExtensionAction::Show { name } }) => {
-                assert_eq!(name, None)
+                assert_eq!(name, None);
             }
             other => panic!("expected Extension Show with None, got {other:?}"),
         }

@@ -1,4 +1,4 @@
-//! TASK-2277: `[commands.<name>.strategy]` end to end through
+//! `[commands.<name>.strategy]` end to end through
 //! `load_config_at` — parsing, load-time validation, clone and extend.
 
 use crate::config::{load_config_at, CommandSpec, Config, ExecCommandSpec};

@@ -11,7 +11,6 @@
 //! - Writes are atomic: a sibling temp file is written then renamed, so a
 //!   crash mid-write leaves the previous content intact.
 //!
-//! See also ERR-5, SEC-25, SEC-32 in the backlog for the motivating findings.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
@@ -99,7 +98,7 @@ pub fn command_names(path: &Path) -> anyhow::Result<Vec<String>> {
 ///
 /// Shared by `new-command` and `import-makefile` so the on-disk command
 /// schema and the duplicate-rejection wording live in exactly one place —
-/// the same consolidation rationale as [`ensure_table`] (DUP-1). An empty
+/// the same consolidation rationale as [`ensure_table`]. An empty
 /// `args` slice omits the `args` key entirely.
 ///
 /// # Errors
@@ -223,7 +222,7 @@ fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> 
 }
 
 /// Fallback mode for `atomic_write` when the
-/// destination is absent, non-regular, or a symlink. Tied to SEC-25 /
+/// destination is absent, non-regular, or a symlink.
 /// A planted symlink at the
 /// destination must not let the link target's mode drive the new file's
 /// perms — 0o600 is the conservative "owner-only" default that keeps
@@ -406,7 +405,7 @@ mod tests {
         pub(super) static FAIL_AFTER_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
 
-    /// SEC-33 / TASK-0943: `read_ops_toml` must surface a bounded-read
+    /// `read_ops_toml` must surface a bounded-read
     /// error when the on-disk file exceeds the configured byte cap,
     /// rather than slurping the entire file into the `toml_edit` parser.
     #[test]
@@ -489,7 +488,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
     }
 
-    /// ERR-1 / TASK-1134: a write/sync error inside the inner block must
+    /// a write/sync error inside the inner block must
     /// remove the sibling tmp file, not just the rename-failure branch.
     /// Without the cleanup, a series of partial writes against a flaky
     /// disk leaves orphaned `.{name}.tmp.<pid>.<counter>.<nanos>` files.
@@ -619,7 +618,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
     }
 
-    /// SEC-25 / TASK-0898: a destination that the user previously
+    /// a destination that the user previously
     /// chmod'd to 0o600 must keep its mode after `atomic_write` replaces
     /// the file. Pre-fix, the temp file inherited the process umask
     /// (commonly yielding 0o644) and the rename silently widened the
@@ -639,7 +638,7 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"second");
     }
 
-    /// SEC-25 / TASK-0898: when the destination doesn't exist, default
+    /// When the destination doesn't exist, default
     /// the new file's mode to 0o600 rather than the process umask.
     #[cfg(unix)]
     #[test]
@@ -652,7 +651,7 @@ mod tests {
         assert_eq!(mode, 0o600, "expected 0o600 default for new file, got {mode:o}");
     }
 
-    /// SEC-25 / TASK-1388: if the destination is a symlink, the mode probe
+    /// if the destination is a symlink, the mode probe
     /// must come from the link entry itself (via `symlink_metadata`), not
     /// from the link target. Otherwise an attacker who can plant a symlink
     /// at the destination can broaden the new file's perms to the target's
@@ -694,7 +693,7 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"do not touch");
     }
 
-    /// SEC-25 / TASK-1086: `OpenOptions::mode()` is masked by the process
+    /// `OpenOptions::mode()` is masked by the process
     /// umask (`open(2)` applies `mode & ~umask`). A destination at 0o644
     /// with umask 0o077 lands at 0o600 on disk and the rename silently
     /// narrows the ACL. The fix re-applies the requested mode via
@@ -729,7 +728,7 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"second");
     }
 
-    /// SEC-25 / TASK-0837: two siblings whose names differ only in invalid
+    /// Two siblings whose names differ only in invalid
     /// UTF-8 bytes must produce distinct tmp basenames. Going through
     /// `to_string_lossy` collapses both to the same `?`/U+FFFD-substituted
     /// string, which lets concurrent `atomic_writes` race on the same tmp.
@@ -768,7 +767,7 @@ mod tests {
         assert!(leftovers.is_empty(), "leaked tmp: {leftovers:?}");
     }
 
-    /// ERR-1 / TASK-1464: when `sync_parent_dir`'s `File::open(parent)`
+    /// When `sync_parent_dir`'s `File::open(parent)`
     /// fails (e.g. the parent has no read+execute bits), the helper must
     /// surface a `tracing::warn!` breadcrumb rather than silently skipping
     /// the fsync. Pre-fix the open arm was an `if let Ok(dir) = ...`
@@ -808,7 +807,7 @@ mod tests {
         }
     }
 
-    /// ERR-1 / TASK-1040: `atomic_write` with a bare-filename path (no
+    /// `atomic_write` with a bare-filename path (no
     /// directory component) must still resolve a real parent directory for
     /// the post-rename fsync. Pre-fix, `Path::parent()` returned `Some("")`,
     /// the empty path fell through to `std::fs::File::open("")` which
@@ -842,7 +841,7 @@ mod tests {
         );
     }
 
-    /// READ-5 / TASK-0908: a leftover tmp file from a crash mid-write
+    /// a leftover tmp file from a crash mid-write
     /// must not double-prefix a dot. Inspecting the directory after a
     /// failed write confirms the basename starts with exactly one dot.
     #[test]

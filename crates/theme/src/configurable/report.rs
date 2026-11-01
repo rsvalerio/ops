@@ -137,7 +137,7 @@ impl ConfigurableTheme {
     /// Build the [`SlotLine`] for a report row (icon/color from the `[report]`
     /// block, trailing = the result string). Shared by the flat and boxed paths.
     ///
-    /// SEC-21: `label` and `result` are passed in already sanitised (see
+    /// `label` and `result` are passed in already sanitised (see
     /// [`sanitised_row_text`]) rather than borrowed from `row`, because
     /// `render_slot` both measures and truncates them — sanitising afterwards
     /// would let the width math and the emitted text disagree.

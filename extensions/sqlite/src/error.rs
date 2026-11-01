@@ -11,7 +11,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum DbError {
-    /// ERR-5 / TASK-1214: `PoisonError`'s Display embeds the panic payload from
+    /// `PoisonError`'s Display embeds the panic payload from
     /// arbitrary user-supplied callbacks, which can contain newlines, ANSI
     /// escapes, or other operator-controlled bytes. Rendering via `{0:?}`
     /// (Debug) escapes control characters (`\n`, `\u{1b}`, …) so the captured
@@ -62,7 +62,7 @@ pub enum DbError {
     #[error("path is not valid UTF-8 (cannot persist to data_sources): {0:?}")]
     NonUtf8Path(std::ffi::OsString),
 
-    /// READ-5 / TASK-1867: the ingest pipeline stages JSON next to the
+    /// The ingest pipeline stages JSON next to the
     /// database file, so it needs a real filesystem path. `:memory:` is a
     /// SQLite connection string, not a path — appending `.ingest` to it
     /// would produce the *relative* `:memory:.ingest`, which the pipeline
@@ -158,7 +158,7 @@ mod tests {
         assert!(err.to_string().contains("test panic"));
     }
 
-    /// ERR-5 / TASK-1214: a poisoned-mutex payload containing newlines and
+    /// a poisoned-mutex payload containing newlines and
     /// ANSI escapes (i.e. arbitrary user-supplied panic content) must not
     /// be forwarded verbatim into the Display body. Debug-formatting the
     /// captured string escapes the control bytes so the rendered error is
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(chain(db_err), format!("JSON serialization failed: {cause}"));
     }
 
-    /// ERR-9: a variant's message names its own layer and leaves the cause to
+    /// a variant's message names its own layer and leaves the cause to
     /// the source chain, so a chain-walking printer says each thing once.
     #[test]
     fn db_error_chain_names_each_cause_exactly_once() {
@@ -215,7 +215,7 @@ mod tests {
         }
     }
 
-    /// ERR-13: `io_context` names the path, keeps the kind, and keeps the
+    /// `io_context` names the path, keeps the kind, and keeps the
     /// original error reachable as the source.
     #[test]
     fn io_context_names_the_path_and_keeps_the_original_error_as_source() {

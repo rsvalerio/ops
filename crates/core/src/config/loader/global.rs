@@ -295,7 +295,7 @@ mod tests {
         reset_global_config_path_cache(GlobalConfigPathResetToken::new());
     }
 
-    /// PATTERN-1 / TASK-1090: when both `<dir>/ops/config.toml` and the
+    /// When both `<dir>/ops/config.toml` and the
     /// legacy bare-extension `<dir>/ops/config` exist, `config.toml` MUST
     /// win. A stray bare-extension file (e.g. an extracted backup) must not
     /// silently shadow the documented filename.
@@ -335,7 +335,7 @@ args = ["toml"]
         );
     }
 
-    /// PATTERN-1 / TASK-1090: the bare-extension legacy fallback still
+    /// The bare-extension legacy fallback still
     /// loads when `config.toml` is absent. Removing this would silently
     /// break operators relying on the legacy layout.
     #[test]

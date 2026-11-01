@@ -133,7 +133,7 @@ impl JsonColumnType {
 /// One column of a flat-array JSON load: the table column name, the JSON key
 /// it is populated from, and the type it is cast to.
 ///
-/// SEC-12: construction is a `const fn` that asserts both the column name
+/// Construction is a `const fn` that asserts both the column name
 /// (`[A-Za-z_][A-Za-z0-9_]*`, same rule as [`TableName`]) and the JSON path
 /// (`$.<identifier>` — single-level, because every collector stages flat
 /// one-record-per-row arrays; a nested path would signal a collector shape
@@ -291,7 +291,7 @@ impl JsonTableLoad {
     /// Build the idempotent DDL batch for this load: drop the table if it
     /// exists, then create it with the spec's typed columns.
     ///
-    /// SEC-12: the emitted statement is the gated [`CreateTableSql`]
+    /// The emitted statement is the gated [`CreateTableSql`]
     /// newtype; every identifier in it was validated at `const` construction
     /// time and is emitted double-quoted as defense in depth (the same
     /// posture `quoted_ident` establishes elsewhere).
@@ -407,7 +407,7 @@ pub fn load_json_string(
 ///
 /// SQLite's `sqlite_master` catalog lists tables and views in one place, so
 /// view-backed data sources (e.g. `crate_dependencies`) are detected along
-/// with base tables (READ-5).
+/// with base tables.
 pub fn table_exists(conn: &rusqlite::Connection, table_name: &str) -> Result<bool, anyhow::Error> {
     use anyhow::Context;
     let count: i64 = conn
@@ -448,7 +448,7 @@ pub fn table_has_data(db: &Sqlite, table_name: &str) -> Result<bool, anyhow::Err
     Ok(row_count > 0)
 }
 
-/// DUP-031: Generic helper to query rows from SQLite and return as a JSON array.
+/// Generic helper to query rows from SQLite and return as a JSON array.
 ///
 /// # Errors
 ///
@@ -571,7 +571,7 @@ mod tests {
         JsonColumn::integer("lines", "$.lines"),
     ];
 
-    /// SEC-12 (TASK-0522): the generated DDL wraps every identifier in
+    /// The generated DDL wraps every identifier in
     /// double quotes — defense in depth that survives a future widening of
     /// the validators.
     #[test]
@@ -596,7 +596,7 @@ mod tests {
         );
     }
 
-    /// SEC-12: the const constructors reject malformed parts at build time.
+    /// The const constructors reject malformed parts at build time.
     /// `TableName::from_static`'s own tests cover the table name; these pin
     /// the column gate via runtime calls to the same `const fn` body.
     #[test]
@@ -710,7 +710,7 @@ mod tests {
         drop(conn);
     }
 
-    /// SEC-12 / TASK-1864: pins that an unvalidated string cannot reach
+    /// Pins that an unvalidated string cannot reach
     /// `conn.execute` through this crate's public API.
     ///
     /// `SidecarIngestorConfig::load_with_sidecar` is the public entry point
@@ -729,7 +729,7 @@ mod tests {
     ///
     /// The DDL and insert types are also distinct, so the positional
     /// arguments of `load_with_sidecar` can no longer be swapped at a call
-    /// site (API-2).
+    /// site.
     #[test]
     fn unvalidated_sql_cannot_reach_conn_execute_through_the_public_api() {
         // Every const constructor below validates at compile time; calling
@@ -781,7 +781,7 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1870: an empty result set is an empty JSON **array**,
+    /// an empty result set is an empty JSON **array**,
     /// not `null`. Downstream `about` pages iterate the value directly, so
     /// the distinction is load-bearing.
     #[test]
@@ -798,7 +798,7 @@ mod tests {
         assert!(!value.is_null(), "empty result must not collapse to null");
     }
 
-    /// TEST-5 / TASK-1870: a failing row mapper surfaces as an error rather
+    /// a failing row mapper surfaces as an error rather
     /// than a silently short result.
     #[test]
     fn query_rows_to_json_propagates_a_row_mapper_error() {
@@ -818,7 +818,7 @@ mod tests {
         );
     }
 
-    /// SEC-12 / TASK-1864: the view builder quotes the view name and
+    /// The view builder quotes the view name and
     /// substitutes the const-validated source table for `<source>`, so the
     /// only free-form part of the statement is a `&'static str`. SQLite has
     /// no `CREATE OR REPLACE VIEW`, so the batch drops first.

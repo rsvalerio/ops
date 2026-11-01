@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(verify.commands.last().map(String::as_str), Some("extra"));
     }
 
-    /// TASK-2280: extending a stack default records it in the provenance, so
+    /// Extending a stack default records it in the provenance, so
     /// a plan can name the default the materialized entry came from; a
     /// config-defined target is not recorded (it was never a default).
     #[test]
@@ -412,7 +412,7 @@ mod tests {
         assert!(msg.contains("fmt"), "error must name the target: {msg}");
     }
 
-    /// TASK-2272 #2: the motivating hazard. A naive append to the rust
+    /// The motivating hazard. A naive append to the rust
     /// `clippy` default would land after the `--` separator and be read as a
     /// lint flag, not a cargo flag — the extension must splice in before it.
     #[test]
@@ -483,7 +483,7 @@ mod tests {
         );
     }
 
-    /// TASK-2272 #3: `args` on a composite is the exec/composite mismatch in
+    /// `args` on a composite is the exec/composite mismatch in
     /// its other form — same copy-paste mistake, same named error.
     #[test]
     fn composite_target_with_args_errors() {
@@ -508,7 +508,7 @@ mod tests {
         assert!(msg.contains("none of"), "error must say the entry sets nothing: {msg}");
     }
 
-    /// TASK-2274 AC #1: `[extend.<name>] help = "..."` replaces the target's
+    /// `[extend.<name>] help = "..."` replaces the target's
     /// help verbatim — no auto-suffix, because the override is the user's
     /// statement of what the command now runs.
     #[test]
@@ -535,7 +535,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274 AC #2: extending a composite's `commands` without a help
+    /// Extending a composite's `commands` without a help
     /// override extends the help to name the appended commands, so the
     /// default rust `verify` help can never silently understate the plan
     /// (`ops --help` and `ops verify --dry-run` agree on what runs).
@@ -560,7 +560,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274: a help-only entry overrides the text without appending
+    /// a help-only entry overrides the text without appending
     /// anything — the one way to fix a stack default's help short of
     /// restating the composite (which `[extend]` exists to avoid).
     #[test]
@@ -595,7 +595,7 @@ mod tests {
         );
     }
 
-    /// TASK-2274: `category` overrides for symmetry, on an exec target —
+    /// `category` overrides for symmetry, on an exec target —
     /// help/category apply to either kind.
     #[test]
     fn category_and_help_override_exec_target() {
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(clippy.category.as_deref(), Some("Code Quality"));
     }
 
-    /// TASK-2274: extending a composite that has *no* help leaves help
+    /// Extending a composite that has *no* help leaves help
     /// unset — the help fallback already renders the materialized `commands`
     /// list, so there is nothing to keep accurate.
     #[test]
@@ -680,7 +680,7 @@ mod tests {
         assert_eq!(tail, vec!["first", "second"]);
     }
 
-    /// TASK-2274 regression (found in review of PR #63): an explicit `help`
+    /// Regression (found in review of PR #63): an explicit `help`
     /// earlier layer must not mask the auto-suffix for commands a *later*
     /// layer appends without setting `help`. Before the merge-time suffix,
     /// the merged entry carried the earlier override, `apply_to_spec` saw

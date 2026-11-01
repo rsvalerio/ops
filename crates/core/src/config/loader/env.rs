@@ -17,7 +17,7 @@ use super::super::{merge::merge_config, Config, ConfigOverlay};
 /// all-default values, and `merge_config` unconditionally overwrites the local
 /// config's intentional settings.
 ///
-/// Fails fast on deserialization errors (SEC-11 / ERR-1): a mistyped
+/// Fails fast on deserialization errors: a mistyped
 /// `OPS__OUTOUT__THEME` in CI should surface as a loud error rather than a
 /// silent misconfiguration that drops every other OPS__ variable.
 ///
@@ -96,7 +96,7 @@ fn collect_ops_keys() -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// ERR-1 / TASK-1389: a non-UTF-8 `OPS__*` key in the process env is
+    /// a non-UTF-8 `OPS__*` key in the process env is
     /// invisible to the `config` crate's `Environment::with_prefix("OPS")`
     /// source. `scan_ops_env_keys` must surface the count so
     /// [`merge_env_vars`] can emit the diagnostic warn (rather than dropping
@@ -125,7 +125,7 @@ mod tests {
         assert!(non_utf8 >= 1, "non-UTF-8 OPS__ key must be counted");
     }
 
-    /// ERR-1 / TASK-1389: with no non-UTF-8 OPS__ keys present, the diagnostic
+    /// With no non-UTF-8 OPS__ keys present, the diagnostic
     /// counter must stay at zero so the warn does not fire spuriously.
     #[test]
     #[serial_test::serial]

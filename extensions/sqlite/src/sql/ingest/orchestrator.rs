@@ -497,7 +497,7 @@ mod tests {
         assert!(logs.contains("panicky_warn_table"), "expected table name in warn, got: {logs}");
     }
 
-    /// VER-4 / TASK-2598: clearing the per-table poison flag on recovery
+    /// Clearing the per-table poison flag on recovery
     /// means a poisoned-then-recovered table does not warn on the next
     /// ingest — the recovery warn fires once, not per ingest.
     #[test]
@@ -650,7 +650,7 @@ mod tests {
         r2.expect("ingest 2 succeeded");
 
         assert_eq!(r1["count"], 1, "thread 1 saw the row mid-query");
-        assert!(q1_was_done, "thread 2 must have been serialized behind thread 1's query_fn",);
+        assert!(q1_was_done, "thread 2 must have been serialized behind thread 1's query_fn");
     }
 
     /// Same-thread re-entry on the same table panics.

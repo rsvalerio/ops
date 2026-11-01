@@ -1,6 +1,6 @@
 //! Shared test utilities for ops unit tests.
 //!
-//! # Surface index (READ-3)
+//! # Surface index
 //!
 //! This module is compiled under `#[cfg(any(test, feature = "test-support"))]`
 //! and re-exported to downstream crates via the `test-support` feature. The
@@ -47,8 +47,8 @@
 //!   `#[serial]`.
 //! - [`is_root_euid`] — true on Unix when EUID is 0; tests that depend on
 //!   DAC-permission denial must `return` early when this is true (see
-//!   TEST-19 in the function rustdoc).
-//! - [`skip_precondition`] — TEST-26 / TASK-2126, TASK-2166: print the
+//!   the function rustdoc).
+//! - [`skip_precondition`] — print the
 //!   `skip:` line that makes a precondition-bailed test distinguishable in
 //!   runner output from one whose assertions executed.
 //! - [`git_fixture`] / [`git_fixture_os`] — run a hermetic `git -C dir …`
@@ -56,13 +56,13 @@
 //!   (surface a skip) versus [`GitFixtureError::CommandFailed`] (fail the
 //!   test; a present-but-refusing git is a broken fixture, not a missing
 //!   capability).
-//! - [`CwdGuard`] / [`CWD_MUTEX`] — DRY-1 / TASK-2034: the workspace's one
+//! - [`CwdGuard`] / [`CWD_MUTEX`] — the workspace's one
 //!   working-directory guard. It serialises on the mutex itself, so a caller
 //!   that forgets `#[serial]` still cannot race another CWD-dependent test.
 //!
 //! ## Tracing capture (public-under-feature)
 //!
-//! DUP-3 / TASK-2014: the workspace's single tracing-capture harness, so no
+//! The workspace's single tracing-capture harness, so no
 //! crate has to re-derive the global-dispatcher pin whose absence is a silent
 //! flake.
 //!
@@ -94,7 +94,7 @@
 /// Follows the caller-canonicalizes-once rule from
 /// `text::open_refusing_symlinks`'s architecture note: tests that hand a
 /// raw `tempfile::tempdir()` path to the workspace-config layer hit the
-/// SEC-33 symlink refusal on macOS, where `/var` is a symlink (Linux CI's
+/// symlink refusal on macOS, where `/var` is a symlink (Linux CI's
 /// `/tmp` is not, which is why these tests only fail locally). Production
 /// callers get the same guarantee for free from `current_dir()`.
 #[cfg(test)]
@@ -202,7 +202,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
 
 /// Builder for creating test configs.
 ///
-/// # DUP-002: Shared Pattern with `ConfigOverlayBuilder`
+/// # Shared pattern with `ConfigOverlayBuilder`
 ///
 /// Both `TestConfigBuilder` and `ConfigOverlayBuilder` provide similar fluent APIs
 /// (`exec()`, `composite()`, `theme()`). While a shared trait could reduce duplication,
@@ -233,7 +233,7 @@ impl TestConfigBuilder {
         self
     }
 
-    /// DUP-002: Create a `CommandSpec::Exec` variant directly.
+    /// Create a `CommandSpec::Exec` variant directly.
     ///
     /// This is useful when you need the `CommandSpec` variant for tests that
     /// require the wrapped type rather than the inner `ExecCommandSpec`.
@@ -310,7 +310,7 @@ impl Default for TestConfigBuilder {
     }
 }
 
-/// DUP-001: Builder for creating `ConfigOverlay` in tests.
+/// Builder for creating `ConfigOverlay` in tests.
 ///
 /// Reduces boilerplate in config tests by providing a fluent API
 /// for constructing overlays with only the fields needed.
@@ -431,7 +431,7 @@ pub fn test_config_with_commands<S: std::hash::BuildHasher>(
     builder.build()
 }
 
-/// DUP-011: Platform-specific output creation for tests.
+/// Platform-specific output creation for tests.
 ///
 /// Creates a `std::process::Output` with the given status code and output bytes.
 #[allow(dead_code)]
@@ -489,7 +489,7 @@ pub fn make_test_output(status_code: i32, stdout: &[u8], stderr: &[u8]) -> std::
 /// }
 /// ```
 ///
-/// # DRY-1 / TASK-2059
+/// # Single env-var guard
 ///
 /// This is the workspace's only env-var guard. `ops_cli::test_utils`,
 /// `ops_hook_common::test_helpers` and `ops_deps::test_support` each used to
@@ -550,8 +550,8 @@ impl EnvGuard {
     }
 
     /// [`Self::remove`] under the name the `EnvVarGuard` copies used, so
-    /// `unset`-spelled call sites keep reading the same way after DRY-1 /
-    /// TASK-2059 collapsed the four guards into this one.
+    /// `unset`-spelled call sites keep reading the same way after the four
+    /// guards were collapsed into this one.
     pub fn unset(key: impl AsRef<std::ffi::OsStr>) -> Self {
         Self::remove(key)
     }
@@ -611,7 +611,7 @@ impl Drop for GlobalConfigIsolation {
     }
 }
 
-/// TEST-19 (TASK-1033): true when the current effective UID is 0 on Unix.
+/// True when the current effective UID is 0 on Unix.
 ///
 /// Tests that rely on DAC permission denial (`chmod 0o000` + assert read
 /// fails) silently invert their assertion when run as root because the
@@ -642,7 +642,7 @@ pub fn is_root_euid() -> bool {
     false
 }
 
-/// TEST-26 / TASK-2126, TASK-2166: surface a test whose precondition cannot
+/// Surface a test whose precondition cannot
 /// be met, so a vacuous pass is distinguishable from an executed one.
 ///
 /// A bare `return` in a test reports "passed" while every assertion behind it
@@ -655,7 +655,7 @@ pub fn skip_precondition(what: &str, why: &str) {
     eprintln!("skip: {what}: {why}");
 }
 
-/// Why a git fixture command could not run (TEST-26 / TASK-2126, TASK-2166).
+/// Why a git fixture command could not run.
 ///
 /// The split is the whole point: `BinaryAbsent` is an environment legitimately
 /// lacking a capability (surface a [`skip_precondition`] and return), while
@@ -771,7 +771,7 @@ pub fn git_fixture_os(
 #[cfg(any(test, feature = "test-support"))]
 pub static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// DRY-1 / TASK-2034: the workspace's one working-directory guard — acquires
+/// The workspace's one working-directory guard — acquires
 /// [`CWD_MUTEX`], switches to a target directory, and restores the original
 /// CWD on drop, **including on the unwind path**.
 ///
@@ -841,7 +841,7 @@ impl Drop for CwdGuard {
     }
 }
 
-/// DUP-3 / TASK-2014, TASK-2025: the workspace's one tracing-capture harness.
+/// The workspace's one tracing-capture harness.
 ///
 /// Every crate that asserts on `tracing` output used to grow its own copy of
 /// the buffer / `MakeWriter` shim *and* of the global-dispatcher pin below,
@@ -983,7 +983,7 @@ mod tracing_capture {
     /// The capture subscriber [`capture_tracing`] installs, as a detached
     /// [`tracing::Dispatch`] plus the buffer it writes into.
     ///
-    /// DUP-3 / TASK-2069: for the test whose work does not run on the calling
+    /// For the test whose work does not run on the calling
     /// thread and so cannot use the scoped form — a `tokio::spawn`ed task
     /// attached with `WithSubscriber`, say. Such a test used to hand-build the
     /// `fmt()` subscriber and its own `MakeWriter` shim, which meant a second
@@ -1045,7 +1045,7 @@ impl Drop for EnvGuard {
 
 #[cfg(test)]
 mod builder_parity_tests {
-    //! DUP-2 regression: [`TestConfigBuilder`] and [`ConfigOverlayBuilder`]
+    //! Drift regression: [`TestConfigBuilder`] and [`ConfigOverlayBuilder`]
     //! grew drift over time (each acquired methods the other lacked). These
     //! tests fail to compile — not merely assert-fail — if the set of shared
     //! fluent methods diverges. Adding a new builder method on one side

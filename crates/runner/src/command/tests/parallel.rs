@@ -52,7 +52,7 @@ async fn run_plan_parallel_verify_event_content() {
     }
 }
 
-/// ASYNC-7 / TASK-0777: a parallel plan with a single command must produce
+/// a parallel plan with a single command must produce
 /// the same observable event stream as the sequential `run_plan` — the
 /// fast-path delegates instead of spinning up the parallel infrastructure,
 /// so the order `PlanStarted` → `StepStarted` → … → `StepFinished` → `RunFinished`
@@ -84,7 +84,7 @@ async fn run_plan_parallel_singleton_matches_sequential_event_order() {
     assert!(kinds.contains(&"StepStarted") && kinds.contains(&"StepFinished"), "got: {kinds:?}");
 }
 
-/// ERR-1 / TASK-0768: every step that emitted `StepStarted` must also see a
+/// Every step that emitted `StepStarted` must also see a
 /// terminal event in the stream. Under `fail_fast` the runner aborts in-flight
 /// siblings, and previously their `StepStarted` had no matching terminal —
 /// JSON consumers were left waiting forever for a step that never finished.
@@ -98,7 +98,7 @@ async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
     let mut events = Vec::new();
     let _ = runner
         .run_plan_parallel(&["fast_fail".into(), "slow_sibling".into()], true, &mut |e| {
-            events.push(e)
+            events.push(e);
         })
         .await;
 
@@ -123,7 +123,7 @@ async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
     }
 }
 
-/// PATTERN-1 / TASK-0997: a parallel plan that names the same leaf id
+/// a parallel plan that names the same leaf id
 /// twice (legal — `expand_to_leaves` only guards cycles) must still
 /// pair every `StepStarted` with a terminal event when fail-fast aborts
 /// both occurrences. The previous `HashSet`-based synthesizer collapsed
@@ -220,7 +220,7 @@ async fn run_parallel_composite() {
     assert_eq!(events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).count(), 2);
 }
 
-/// TASK-0328: `exec_standalone` delivers the terminal event with an awaited
+/// `exec_standalone` delivers the terminal event with an awaited
 /// `tx.send`, after every output line, so the display can never orphan a
 /// progress bar under a noisy command.
 #[cfg(unix)]
@@ -262,7 +262,7 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     );
 }
 
-/// TASK-0335 #2: aborting the parent of `exec_standalone` must not leave
+/// Aborting the parent of `exec_standalone` must not leave
 /// anything holding the outer sender in the runtime.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -299,7 +299,7 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
     );
 }
 
-/// TASK-2437: a failing step that prints far more lines than the event
+/// a failing step that prints far more lines than the event
 /// channel holds must deliver every one of them, in order, so the display's
 /// stderr tail is the real end of the output. The receiver stalls first so
 /// the producer is parked on a full channel, the case where lines used to be
@@ -349,7 +349,7 @@ async fn exec_standalone_delivers_every_output_line_of_a_noisy_failed_step() {
     );
 }
 
-/// TASK-2437 AC #2: lines abandoned because abort fired while the channel
+/// Lines abandoned because abort fired while the channel
 /// was full are counted, and the count is logged at `warn` (visible at the
 /// default log level) when the display cannot be told either.
 #[cfg(unix)]
@@ -401,7 +401,7 @@ async fn exec_standalone_reports_lines_dropped_under_abort() {
     );
 }
 
-/// ERR-1 / TASK-1174: when the outer receiver has been torn down (display
+/// When the outer receiver has been torn down (display
 /// shutdown race, `fail_fast` tear-down) before `exec_standalone` flushes its
 /// `StepOutputDropped` event, the count must not vanish silently. The send
 /// fails with `SendError`, and the function logs a structured `tracing::warn!`
@@ -450,7 +450,7 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
     );
 }
 
-/// CONC-9 / TASK-0459: when the outer mpsc receiver stalls (display pump
+/// When the outer mpsc receiver stalls (display pump
 /// hung) and the abort flag is tripped (a sibling `fail_fast`'d),
 /// `exec_standalone` must abandon its terminal-event send instead of
 /// blocking on a full outer channel. Previously the task would hang

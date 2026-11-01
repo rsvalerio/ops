@@ -1,7 +1,7 @@
 //! Command handlers: plain option structs (no clap), writer-injectable
 //! cores following the CLI crate's `_to` idom.
 //!
-//! Errors are `anyhow` with the file path attached (ERR-13); the CLI prints
+//! Errors are `anyhow` with the file path attached; the CLI prints
 //! them as `ops: error: …`.
 
 pub mod about;

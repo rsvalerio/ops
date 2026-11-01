@@ -1,6 +1,6 @@
 //! SQL utilities for tokei code statistics.
 //!
-//! # Security (SEC-001)
+//! # Security
 //!
 //! Identifier validation is handled by `ops_sqlite::sql` (shared
 //! defense-in-depth validation), and the staged JSON reaches the engine as

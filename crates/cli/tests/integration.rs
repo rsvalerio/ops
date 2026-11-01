@@ -13,7 +13,7 @@
 //! The helper functions (`with_ops_toml`, `temp_dir`, etc.) reduce boilerplate
 //! for the common pattern of creating a temp directory with a config file.
 //!
-//! DUP-010: These helpers could be extracted to a shared module, but are kept
+//! These helpers could be extracted to a shared module, but are kept
 //! inline because:
 //! 1. Integration tests are in `tests/` and don't share code with `src/`
 //! 2. The helpers are 3-10 lines each
@@ -657,7 +657,7 @@ timeout_secs = 5
 
 // -- About smoke tests (require stack-rust; run with --features stack-rust) --
 
-/// TEST-11 / TASK-1367: pin a stable about-card marker rather than the
+/// Pin a stable about-card marker rather than the
 /// near-tautological binary name "ops" (which also appears in help, errors,
 /// and version banners on any successful run). The `project` field label is
 /// part of the rendered about-card contract — a regression where the about
@@ -697,7 +697,7 @@ edition = "2021"
         .stdout(predicate::str::contains("demo"));
 }
 
-/// TEST-25 / TASK-1364: assert that `about --refresh` actually exercises the
+/// Assert that `about --refresh` actually exercises the
 /// live about-render path (`project_identity` provider + card render). The
 /// previous assertion-only-on-`.success()` shape would have passed a
 /// regression that silently ignored `--refresh` and emitted nothing; pin
@@ -740,7 +740,7 @@ edition = "2021"
         .stdout(predicate::str::contains("demo"));
 }
 
-/// TEST-31: `ops about loc` is documented in docs/commands.md, so it is covered
+/// `ops about loc` is documented in docs/commands.md, so it is covered
 /// as a spawned command — the subpage only works if arg parsing, the
 /// `rust-loc` provider, the `DuckDB` ingest and the renderer all line up,
 /// and none of the unit tests exercise that chain end to end.
@@ -878,7 +878,7 @@ fn cli_trailing_whitespace_rewrites_and_exits_non_zero() {
         .stdout(predicate::str::contains("0 changed"));
 }
 
-/// TASK-2301: a builtin that cannot preview refuses the global
+/// a builtin that cannot preview refuses the global
 /// `--dry-run` instead of silently running — the fixer must not rewrite
 /// the file and `init` must not write `.ops.toml`.
 #[test]
@@ -996,7 +996,7 @@ fn cli_sec_dry_run_prints_the_plan_without_requiring_trivy() {
         .stderr(predicate::str::contains("trivy not found on PATH"));
 }
 
-/// TASK-2264 AC #4/#5 at the binary level: `--no-default-skips` swaps the
+/// At the binary level, `--no-default-skips` swaps the
 /// default skip list for an explicit note that it is off.
 #[test]
 fn cli_sec_dry_run_no_default_skips_says_so() {

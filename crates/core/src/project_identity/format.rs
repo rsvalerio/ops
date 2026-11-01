@@ -243,7 +243,7 @@ pub(super) fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// DUP-3 / TASK-0983: shared language entries must agree across
+    /// Shared language entries must agree across
     /// `stack_emoji` and `language_emoji`. The Node/JavaScript case and
     /// the generic fallback are deliberately divergent and asserted
     /// explicitly below.
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(language_emoji("Brainfuck"), "\u{1f4c4}");
     }
 
-    /// READ-5 / TASK-1187 (ported from the language breakdown): the region
+    /// The region
     /// name column must align by display width, so a non-ASCII unknown
     /// region key lines up under an ASCII sibling at the same terminal
     /// column.

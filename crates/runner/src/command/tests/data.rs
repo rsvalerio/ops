@@ -74,10 +74,10 @@ fn query_data_failing_provider_errors() {
     assert!(result.unwrap_err().to_string().contains("provider error"));
 }
 
-/// ARCH-9 / TASK-0993: a provider that fans out to a peer via
+/// a provider that fans out to a peer via
 /// `ctx.get_or_provide(other, registry)` should compute the peer exactly
 /// once across two outer `query_data` calls on the same runner. Prior to
-/// TASK-0993, `query_data` constructed a fresh `Context` per call and
+/// `query_data` constructed a fresh `Context` per call and
 /// promoted only the *outer* key into `self.data_cache`; the inner
 /// provider's cached result lived only in the throw-away context, so a
 /// later `runner.query_data("inner")` recomputed it.
@@ -143,9 +143,9 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     );
 }
 
-/// ARCH-9 / TASK-1128: register P1 -> `query_data("x`") -> register P2 with a
+/// Register P1 -> `query_data("x`") -> register P2 with a
 /// different impl of "x" -> `query_data("x`") must return P2's value, not the
-/// cached value produced by P1. Prior to TASK-1128 the runner replaced the
+/// cached value produced by P1. Previously the runner replaced the
 /// `DataRegistry` but left `data_context.data_cache` populated, so the
 /// second call returned P1's stale `Arc<serde_json::Value>`.
 #[test]
@@ -171,7 +171,7 @@ fn re_registering_providers_invalidates_cache() {
     );
 }
 
-/// PERF-3 / TASK-0890: capture the cwd `Arc<PathBuf>` inside a provider
+/// Capture the cwd `Arc<PathBuf>` inside a provider
 /// and assert its `strong_count` climbs above 1 — proof that `query_data`
 /// hands out shared `Arc::clone`s instead of deep-cloning the inner path.
 #[test]

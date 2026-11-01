@@ -146,7 +146,7 @@ mod tests {
         assert!(!text.contains("[score"), "no query means no score suffix, got: {text}");
     }
 
-    /// TASK-2282: pins the `search --json` document shape.
+    /// Pins the `search --json` document shape.
     #[test]
     fn json_output_pins_the_document_shape() {
         let (_dir, store) = scratch_with_tasks();

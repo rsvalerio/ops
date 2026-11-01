@@ -1,4 +1,4 @@
-//! CONC-9 / TASK-0571: cooperative abort signal for parallel exec.
+//! Cooperative abort signal for parallel exec.
 //!
 //! Replaces the prior `Arc<AtomicBool>` + `yield_now` busy-poll loops in
 //! `exec_standalone`. Under `MAX_PARALLEL = 32` there were up to 64 such
@@ -127,7 +127,7 @@ mod tests {
         assert!(signal.is_set());
     }
 
-    /// CONC-9 regression: many waiters under `MAX_PARALLEL` must all wake
+    /// Regression: many waiters under `MAX_PARALLEL` must all wake
     /// from a single set, with no busy-polling.
     #[tokio::test]
     async fn many_waiters_all_wake_on_set() {

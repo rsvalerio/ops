@@ -141,7 +141,7 @@ const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
 
 /// Collect up to `n` tail line ranges, walking backwards
 /// from the end of `buf`. Returns the number of backwards line scans
-/// performed (asserted by the structural PERF-1 regression test).
+/// performed (asserted by the structural regression test).
 fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
     let mut tail_end = buf.len();
     let mut line_scans = 0usize;
@@ -435,7 +435,7 @@ mod tests {
 
     // -- Tests for format_error_tail --
 
-    /// PERF-3 / TASK-1440: repeated `detect_terminal_width` calls must not
+    /// Repeated `detect_terminal_width` calls must not
     /// re-invoke the underlying `terminal_size` ioctl. Probe counter
     /// advances by at most one across N calls (zero when another test in
     /// the process already primed the `OnceLock`, one when this is first).
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(result, "line1\nline2");
     }
 
-    /// PATTERN-1 / TASK-1825: `n = 33` is the first value that overflows the
+    /// `n = 33` is the first value that overflows the
     /// inline `TAIL_STACK_CAP` array. The overflow branch used to evict the
     /// *newest* stack entry into the front of the spill, so the rendered tail
     /// opened with the two newest lines.
@@ -480,7 +480,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    /// PATTERN-1 / TASK-1825: the same property well past the cap, where the
+    /// The same property well past the cap, where the
     /// old branch migrated one further line per push.
     #[test]
     fn format_error_tail_preserves_buffer_order_well_past_cap() {
@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    /// PATTERN-1 / TASK-1825 (AC#3): the oversized path appends to the spill
+    /// The oversized path appends to the spill
     /// instead of front-inserting, so the array is left untouched once full
     /// and each push is O(1). Asserting the split — exactly
     /// `TAIL_STACK_CAP` inline entries and the remainder in the spill —
@@ -524,12 +524,12 @@ mod tests {
         assert!(result.contains("line3"));
     }
 
-    /// PERF-1 (TASK-0733): a multi-MiB stderr buffer must not be fully
+    /// a multi-MiB stderr buffer must not be fully
     /// decoded just to surface the last 5 lines. Pre-fix this allocated the
     /// full buffer via `String::from_utf8_lossy(stderr).into_owned()` —
     /// noticeable on failed builds and easy to regress under refactor.
     ///
-    /// TEST-15 / TASK-1029: the original test asserted a wall-clock budget
+    /// The original test asserted a wall-clock budget
     /// of 50 ms which flaked on loaded CI hosts. The contract is now
     /// expressed structurally: the number of backwards line scans must be
     /// exactly `n`, independent of the input buffer size, and the decoded

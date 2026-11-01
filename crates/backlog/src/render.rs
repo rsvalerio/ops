@@ -39,7 +39,7 @@ fn priority_capitalized(priority: &str) -> String {
         .map_or_else(String::new, |first| first.to_uppercase().collect::<String>() + chars.as_str())
 }
 
-/// TIME-5 / TASK-2103: an RFC 3339 timestamp is emitted only when the raw
+/// an RFC 3339 timestamp is emitted only when the raw
 /// frontmatter value actually parses as one — both the `HH:MM` and the
 /// `HH:MM:SS` form, via [`crate::cmd::cleanup::parse_frontmatter_date`].
 /// A value that does not parse yields `None` (rendered as JSON `null`): the
@@ -478,7 +478,7 @@ fn order_for_listing<'a>(
 }
 
 /// Render `task list --plain`: one `Status:` header per status (config
-/// order), rows `  [HIGH] TASK-1656 - title (ac: 5/5)` sorted by priority
+/// order), rows ` [HIGH] TASK-<id> - title (ac: 5/5)` sorted by priority
 /// rank then id.
 ///
 /// # Errors
@@ -754,7 +754,7 @@ pub fn sort_hits(hits: &mut [SearchHit<'_>]) {
 }
 
 /// Render `search --plain`: `Tasks:` header, rows
-/// `  TASK-1766 - title (Done) [LOW] [score 0.671]`; the score suffix only
+/// ` TASK-<id> - title (Done) [LOW] [score 0.671]`; the score suffix only
 /// when a query was given.
 ///
 /// # Errors
@@ -995,7 +995,7 @@ priority: low
         assert_eq!(json_date("2026-04-10 07:15:00").as_deref(), Some("2026-04-10T07:15:00Z"));
     }
 
-    /// TIME-5 / TASK-2103: an unparseable frontmatter date must not be
+    /// an unparseable frontmatter date must not be
     /// reshaped into a pseudo-timestamp — pre-fix, `"back then"` rendered as
     /// `"backTthenZ"` in the JSON envelopes' `createdAt`/`updatedAt`.
     #[test]

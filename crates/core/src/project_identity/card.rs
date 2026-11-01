@@ -306,7 +306,7 @@ fn render_field(
 mod tests {
     use super::*;
 
-    /// PERF-3 / TASK-1220: a multi-byte key must not shift the value column
+    /// a multi-byte key must not shift the value column
     /// by one cell per non-ASCII char. The value should start at the same
     /// display column as it would for an ASCII-only key of equal width.
     #[test]
@@ -332,7 +332,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1844 AC#3: a width-2 glyph row (`license` → 📜) and a
+    /// a width-2 glyph row (`license` → 📜) and a
     /// width-1 glyph row (`stack` → ⬢ for Node, the fallback ▸ for an
     /// unmapped key) must start their value column at the same terminal
     /// column. The pre-existing test above cannot see this: both of its rows
@@ -372,7 +372,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1844 AC#4: `continuation_indent` is built from the
+    /// `continuation_indent` is built from the
     /// fixed `EMOJI_COLS` slot, so a width-1-emoji row's continuation lines
     /// used to land one column right of that row's own first value line. The
     /// Node stack row is exactly this shape — `compose_stack_value` appends
@@ -402,7 +402,7 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1391: the non-empty-clone helper must treat
+    /// The non-empty-clone helper must treat
     /// whitespace-only `Option<String>` as `None` so a future tightening of
     /// the empty-field semantics lands in one place.
     #[test]
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(non_empty_clone(Some(&"foo".to_string())), Some("foo".to_string()));
     }
 
-    /// PERF-3 / TASK-1417: filtered card rendering must skip computing
+    /// Filtered card rendering must skip computing
     /// field values for ids not in `visible_fields`. The `match`-by-id
     /// dispatch in [`shown_field_specs`] structurally enforces this; this
     /// test pins the observable side: rendering for `["project"]` yields
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(ids, vec!["project"], "only project should be rendered");
     }
 
-    /// SEC-21 / TASK-1427: attacker-controlled identity fields containing
+    /// Attacker-controlled identity fields containing
     /// ESC / control bytes must not reach stdout verbatim. The card render
     /// path routes every value line through `ui::sanitise_line`.
     #[test]

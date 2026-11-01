@@ -170,7 +170,7 @@ pub fn conflicting_claim(
 }
 
 /// Render one task markdown file (frontmatter only, no body sections) into
-/// `w`. `subtask_of` is the parent's zero-padded id (`"TASK-1671"`) plus the
+/// `w`. `subtask_of` is the parent's zero-padded id plus the
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
 /// The bytes come from the shared `ops_backlog` task-document
@@ -243,7 +243,7 @@ pub struct TaskContent<'a> {
     pub description: &'a str,
 }
 
-/// Zero-padded task id string (`TASK-0042`) for a main-task number.
+/// Zero-padded task id string for a main-task number.
 pub fn main_task_id(number: u32) -> String {
     ops_backlog::store::format_task_id(TASK_PREFIX, number, ID_WIDTH)
 }
@@ -254,7 +254,7 @@ pub fn main_task_file_name(number: u32, title: &str) -> String {
 }
 
 /// Id for the subtask at 1-based `index` under main-task `number`:
-/// `TASK-0042.03` — the shared main-task id plus the dotted position, so
+/// the shared main-task id plus the dotted position, so
 /// the prefix and padding come from `format_task_id` with the pinned
 /// `TASK_PREFIX`/`ID_WIDTH` above, not from an inline format spec.
 pub fn subtask_id(number: u32, index: usize) -> String {

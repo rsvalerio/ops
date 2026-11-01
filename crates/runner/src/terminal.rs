@@ -14,14 +14,14 @@ use std::io::IsTerminal;
 ///
 /// On non-TTY stderr or if termios operations fail, the guard is a no-op.
 ///
-/// # Which termination paths run this guard's `Drop` (CONC-14 / TASK-1932)
+/// # Which termination paths run this guard's `Drop`
 ///
 /// | Path | `Drop` runs? |
 /// |---|---|
 /// | Normal return / early `return` / `?` | yes |
 /// | Panic (unwinding) | yes |
 /// | `SIGINT` (Ctrl-C) or `SIGTERM` during a run | **only via the CLI's shutdown path** |
-/// | A *second* `SIGINT`/`SIGTERM` after that path was entered | no (CONC-14 / TASK-2023) |
+/// | A *second* `SIGINT`/`SIGTERM` after that path was entered | no |
 /// | `panic = "abort"`, `SIGKILL`, `std::process::exit` | no |
 ///
 /// A signal does not run destructors. `ops` therefore does not rely on
@@ -32,19 +32,19 @@ use std::io::IsTerminal;
 /// that bypasses unwinding entirely (`SIGKILL`, an abort) is outside what
 /// any RAII guard can cover — the shell's own `reset` is the remedy there.
 ///
-/// CONC-14 / TASK-2023 deliberately adds one more row to that last group.
+/// One more row is deliberately added to that last group.
 /// Once the shutdown path has been entered, `run_until_signal` restores the
 /// default disposition for both signals so a second Ctrl-C can still escape
 /// a wedged teardown. That second signal kills the process without
 /// unwinding, so this guard's `Drop` does not run and `ECHO` stays cleared —
 /// accepted as the price of keeping the escape hatch users had before
-/// TASK-1932, with `reset` as the remedy exactly as for `SIGKILL`.
+/// With `reset` as the remedy exactly as for `SIGKILL`.
 ///
-/// TEST-5: Platform-specific terminal control via libc termios. Tested manually;
+/// Platform-specific terminal control via libc termios. Tested manually;
 /// unit tests would require a PTY or mock which exceeds the complexity budget
 /// for ~60 lines of platform-specific code.
 ///
-/// # Miri coverage (UNSAFE-10 / TASK-2094)
+/// # Miri coverage
 ///
 /// CI runs the guard-construction path under Miri: under the test harness
 /// stderr is a pipe, so [`EchoGuard::disable_echo`] takes the non-TTY early
@@ -53,9 +53,9 @@ use std::io::IsTerminal;
 /// all, for two independent reasons: Miri provides no shims for foreign
 /// termios calls, and it cannot put a real TTY on stderr, which the path
 /// requires before it reaches the unsafe. The substitute evidence required
-/// by UNSAFE-10 is the per-block `// SAFETY:` prose in [`Self::disable_echo`]
+/// is the per-block `// SAFETY:` prose in [`Self::disable_echo`]
 /// — the `assume_init` is conditional on the `ret == 0` check POSIX defines
-/// for `tcgetattr` — plus the manual PTY testing named under TEST-5.
+/// for `tcgetattr` — plus the manual PTY testing the policy requires.
 pub struct EchoGuard {
     #[cfg(unix)]
     original: Option<libc::termios>,

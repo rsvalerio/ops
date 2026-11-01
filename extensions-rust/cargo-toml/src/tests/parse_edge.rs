@@ -45,7 +45,7 @@ version = "0.1.0"
     assert!(result.is_err(), "missing name should fail to parse");
 }
 
-/// ERR-6 / TASK-1793: an omitted `version` key is *absent*, not `""`.
+/// an omitted `version` key is *absent*, not `""`.
 ///
 /// This test previously pinned the empty-string sentinel
 /// (`package_version() == Some("")`), which is truthy in every
@@ -66,7 +66,7 @@ name = "test"
     assert_eq!(pkg.version, crate::InheritableField::Absent);
 }
 
-/// ERR-6 / TASK-1793: the companion — a declared-but-empty version is a
+/// The companion — a declared-but-empty version is a
 /// value, and must stay distinguishable from the absent case above.
 #[test]
 fn parse_with_empty_version_is_not_absent() {
@@ -87,7 +87,7 @@ version = ""
     );
 }
 
-/// ERR-6 / TASK-1793: the same distinction holds for every other
+/// The same distinction holds for every other
 /// `#[serde(default)]` `InheritableString` field on `[package]`.
 #[test]
 fn parse_absent_inheritable_string_fields_are_all_absent() {
@@ -230,7 +230,7 @@ serde = { version = "1.0", default_features = false }
     assert!(!serde.uses_default_features());
 }
 
-/// ERR-1 regression (TASK-0554): real-world Cargo manifests use the
+/// Regression: real-world Cargo manifests use the
 /// kebab-case `default-features` key. Without a serde alias, the field
 /// silently defaults back to `true`, masking the user's intent.
 #[test]

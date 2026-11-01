@@ -9,7 +9,7 @@ ops_extension::test_datasource_extension!(
     data_provider: "cargo_toml"
 );
 
-/// TEST-11 / TASK-1800: drive the *registered* provider and assert it parsed
+/// Drive the *registered* provider and assert it parsed
 /// the manifest at the configured root.
 ///
 /// The previous body asserted only `provider.name() == "cargo_toml"`, which
@@ -20,7 +20,7 @@ ops_extension::test_datasource_extension!(
 /// branch left the test green. That wiring is how `about` and
 /// `create-review-tasks` pin the provider to a root they resolved
 /// themselves, and losing it silently sends both back to auto-discovery from
-/// the working directory (the TASK-0501 "empty units/coverage" failure).
+/// the working directory (the "empty units/coverage" failure).
 #[test]
 fn extension_with_root_propagates_to_provider() {
     let root_dir = tempfile::tempdir().expect("create root temp dir");
@@ -63,7 +63,7 @@ version = "9.9.9"
     assert_ne!(manifest.package_name(), Some("wrong-crate"));
 }
 
-/// TEST-11 / TASK-1800: the companion — with no configured root, the same
+/// The companion — with no configured root, the same
 /// registration path *does* auto-discover from the working directory. Without
 /// this, the assertion above could pass for a provider that ignored the
 /// context entirely.

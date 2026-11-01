@@ -250,7 +250,7 @@ impl CargoTomlProvider {
     /// # Errors
     ///
     /// [`DataProviderError`] if the workspace root cannot be found, `Cargo.toml`
-    /// cannot be read (including exceeding the SEC-33 byte cap), or the manifest
+    /// cannot be read (including exceeding the byte cap), or the manifest
     /// fails to parse or resolve its workspace inheritance.
     pub fn provide_typed(&self, ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
         let root = self.resolve_root(ctx.working_directory())?;

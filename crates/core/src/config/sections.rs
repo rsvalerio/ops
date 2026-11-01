@@ -160,7 +160,7 @@ pub struct BacklogSection {
     /// terminal status cleanup moves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub statuses: Option<Vec<String>>,
-    /// Zero-padding width of the numeric id part (`TASK-0001`).
+    /// Zero-padding width of the numeric id part.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zero_padded_ids: Option<usize>,
     /// Task id prefix.

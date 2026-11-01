@@ -1,4 +1,4 @@
-//! End-to-end tests for `ops lock` (TASK-2281): the lock is shared by every
+//! End-to-end tests for `ops lock`: the lock is shared by every
 //! worktree of a repository, and it is released when the holder is
 //! signalled or its command fails.
 
@@ -155,7 +155,7 @@ fn signal(child: &std::process::Child, signo: libc::c_int) {
     }
 }
 
-/// TASK-2643: a SIGTERM sent the moment the holder's record appears —
+/// a SIGTERM sent the moment the holder's record appears —
 /// before `ops` has started the command — still exits `128 + SIGTERM` and
 /// leaves the lock free, not stale. The record file is polled directly
 /// (spawning `ops lock status` is too slow to land in that window), and the
@@ -183,7 +183,7 @@ fn sigterm_right_after_the_lock_is_taken_still_releases_it() {
     }
 }
 
-/// TASK-2643: a signal while waiting for a held lock ends the wait with
+/// a signal while waiting for a held lock ends the wait with
 /// `128 + signo`; the command never runs and the holder keeps the lock.
 #[test]
 fn a_signal_while_waiting_ends_the_wait_without_running_the_command() {

@@ -2,7 +2,7 @@
 //!
 //! Every call is `git -C <dir> <args…>` through [`std::process::Command`] —
 //! never a shell — so task paths, branch names and commit messages reach git
-//! as single argv entries and cannot be reinterpreted (SEC-13). Callers pass
+//! as single argv entries and cannot be reinterpreted. Callers pass
 //! `--` before any path list so a path starting with `-` is never read as an
 //! option.
 

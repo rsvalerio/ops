@@ -31,7 +31,7 @@
 //! # Concurrency
 //!
 //! One `Mutex<HashMap>`, held for the probe or the insert and never across the
-//! ancestor walk, mirroring the CONC-7 contract spelled out in
+//! ancestor walk, mirroring the concurrency contract spelled out in
 //! [`crate::manifest_cache`]. The same migration note applies: a daemon host
 //! running providers in parallel against many distinct roots must move both
 //! caches to a sharded map before this single mutex becomes the bottleneck.

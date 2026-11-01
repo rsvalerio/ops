@@ -200,7 +200,7 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 ///
 /// The body is orchestration only — resolve the root, probe
 /// the cache, load, insert. The cache probe and insert each own their lock
-/// scope in [`crate::manifest_cache`], so the CONC-7 "never hold the lock
+/// scope in [`crate::manifest_cache`], so the "never hold the lock
 /// across IO or parsing" contract is checkable without reading this function.
 ///
 /// # Errors

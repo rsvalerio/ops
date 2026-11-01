@@ -797,7 +797,7 @@ mod provider_tests {
     }
 
     /// A `query_project_coverage` failure warns and
-    /// falls back to the default `ProjectCoverage` (ERR-2 convention shared
+    /// falls back to the default `ProjectCoverage` (the convention shared
     /// with `deps_provider`). The seeded `coverage_files` table types
     /// `lines_count` as VARCHAR so the SUM aggregation fails while
     /// `table_exists` still passes.

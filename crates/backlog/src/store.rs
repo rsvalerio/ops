@@ -433,7 +433,7 @@ pub fn walk_task_files<B>(
     Ok(None)
 }
 
-/// Zero-padded task id string (`TASK-0042`) for a main-task number under the
+/// Zero-padded task id string for a main-task number under the
 /// configured prefix and padding.
 #[must_use = "formatting without using the string is dead work"]
 pub fn format_task_id(prefix: &str, number: u32, pad: usize) -> String {
@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(store.next_task_number().expect("allocate"), 8);
     }
 
-    /// PERF-3 / TASK-2131: `walk_task_files` must stop the walk at the first
+    /// `walk_task_files` must stop the walk at the first
     /// match. The target sits in `tasks` and the non-matches in `completed`
     /// (a later [`TASK_DIRS`] directory), so if the walk continued past the
     /// match the closure would be invoked for the `completed` entries too —
@@ -544,7 +544,7 @@ mod tests {
         assert_eq!(visited, 1, "walk must stop at the match, not enumerate the rest of the tree");
     }
 
-    /// PERF-3 / TASK-2131: no match means `Ok(None)`, with every entry in
+    /// no match means `Ok(None)`, with every entry in
     /// every existing directory visited — the full-walk contract when nothing
     /// matches.
     #[test]

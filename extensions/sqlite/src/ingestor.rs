@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// Result of a load operation (record count, etc.).
 ///
-/// API-9 / TASK-0879: fields are intentionally `pub` so downstream
+/// Fields are intentionally `pub` so downstream
 /// extensions parsing this struct (test assertions, ingestor wrappers,
 /// future `--ingest-stats` output) can read them directly without paying
 /// for accessor boilerplate. Construction stays funneled through
@@ -41,7 +41,7 @@ impl LoadResult {
     }
 }
 
-/// Configuration for a sidecar-based ingestor pipeline (DUP-001).
+/// Configuration for a sidecar-based ingestor pipeline.
 ///
 /// Captures the static parameters shared by ingestors that use workspace sidecar
 /// files (e.g., tokei, coverage). The methods handle the common collect/load/checksum
@@ -447,7 +447,7 @@ mod tests {
     use super::*;
     use crate::{connection::Sqlite, error::DbError};
 
-    /// ERR-1 / TASK-1242: the cleanup breadcrumb must surface *both* the
+    /// The cleanup breadcrumb must surface *both* the
     /// original JSON staging path and the post-rename effective path.
     /// Pinned via the shared formatter so a future refactor that drops
     /// one of the two fields trips this test instead of silently
@@ -491,7 +491,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2054: every test stages through a verified anchor, the
+    /// Every test stages through a verified anchor, the
     /// same way `provide_via_ingestor` does in production.
     fn anchor(tmp: &tempfile::TempDir) -> IngestDir {
         IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open ingest dir")
@@ -538,7 +538,7 @@ mod tests {
         assert!(dir.entry_path("data.json").exists());
     }
 
-    /// SEC-25 / TASK-0911: a successful `collect_sidecar` must leave no
+    /// a successful `collect_sidecar` must leave no
     /// `.tmp.*` leftover from the `atomic_write` sibling-temp pattern. Pin
     /// the JSON path on the same crash-safe write helper that the
     /// workspace sidecar already uses.
@@ -564,7 +564,7 @@ mod tests {
         assert!(leftovers.is_empty(), "atomic_write left a tmp sibling: {leftovers:?}");
     }
 
-    /// ERR-1 (TASK-0466): if JSON removal fails for a real I/O reason
+    /// if JSON removal fails for a real I/O reason
     /// (write-protected parent dir), the sidecar must remain on disk so the
     /// next run can recompute the checksum from leftover JSON.
     #[cfg(unix)]
@@ -610,7 +610,7 @@ mod tests {
         assert!(sidecar.exists(), "sidecar must remain when JSON removal fails: {sidecar:?}");
     }
 
-    /// ARCH-2 / TASK-1008: simulate a `kill -9` between the upsert and
+    /// Simulate a `kill -9` between the upsert and
     /// the post-load cleanup. The crashed run leaves a `*.json.done`
     /// file (rename-then-unlink ordering — the rename succeeded, the
     /// unlink didn't). The next user-driven invocation re-runs
@@ -734,7 +734,7 @@ mod tests {
             }
         }
 
-        /// CONC-2 / TASK-0364: two ingestors writing the same `count_table`
+        /// Two ingestors writing the same `count_table`
         /// concurrently must each observe their *own* row count, not the
         /// other's. The fix holds the connection lock across
         /// `load_tables_with` and `count_records_with` so a concurrent
@@ -798,7 +798,7 @@ mod tests {
             assert_eq!(res_b.record_count, 5, "ingB must observe its own 5 rows");
         }
 
-        /// SEC-12 / TASK-0856: an invalid `count_table` can no longer reach
+        /// an invalid `count_table` can no longer reach
         /// runtime — `TableName::from_static` asserts at compile time. The
         /// previous runtime-error test (which built `count_table: "bad;
         /// DROP TABLE users; --"`) is now structurally impossible: the
