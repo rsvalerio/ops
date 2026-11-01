@@ -1,13 +1,15 @@
 ---
 id: TASK-2653
 title: 'Unknown after = [...] names go unreported on commands that expand no plan'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-01 00:45'
+updated_date: '2026-11-01 10:31'
 labels:
   - code-review-rust
   - config
 dependencies: []
+parent_task_id: 'TASK-2656'
 modified_files:
   - crates/runner/src/command/resolve.rs
 priority: low

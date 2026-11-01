@@ -1,13 +1,15 @@
 ---
 id: TASK-2648
 title: 'ops foundation fails on the ops repo itself: rustfmt.toml missing'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-01 00:09'
+updated_date: '2026-11-01 11:04'
 labels:
   - code-review-rust
   - config
 dependencies: []
+parent_task_id: 'TASK-2657'
 modified_files:
   - rustfmt.toml
   - .ops.toml
@@ -31,3 +33,9 @@ ordinal: 1000
 <!-- AC:BEGIN -->
 - [ ] #1 ops foundation exits 0 on this repo, by adopting rustfmt.toml or a recorded waiver
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision (2026-11-01, user): adopt rustfmt.toml from the template rather than a waiver. Expect a reformat of the tree.
+<!-- SECTION:NOTES:END -->

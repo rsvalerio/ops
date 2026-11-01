@@ -1,13 +1,15 @@
 ---
 id: TASK-2649
 title: 'Commands: a spelling for re-invoking the running ops from .ops.toml (wrap around a group)'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-01 00:30'
+updated_date: '2026-11-01 10:31'
 labels:
   - code-review-rust
   - config
 dependencies: []
+parent_task_id: 'TASK-2656'
 modified_files:
   - crates/core/src/config/commands.rs
   - docs/configuration.md
