@@ -338,9 +338,12 @@ fn ops_own_mise_toml_matches_the_template() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mise.toml");
     let text = std::fs::read_to_string(&path).expect("ops's mise.toml");
     let actual = Value::Table(toml::from_str(&text).expect("ops's mise.toml parses"));
+    let mut expected = mise_template();
     let mut drift = Vec::new();
+    // The ops pin is a floor, so this repo may run a newer release than the template names.
+    check_ops_pin(&mut expected, &actual, &mut drift);
     compare::compare(
-        &mise_template(),
+        &expected,
         Some(&actual),
         "mise.toml",
         Rule::Exact,
