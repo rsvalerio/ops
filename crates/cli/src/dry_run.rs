@@ -139,6 +139,7 @@ mod tests {
             (&["semver"], false),
             (&["feature-matrix"], false),
             (&["doc-ids"], false),
+            (&["check-workspaces"], false),
             (&["lint-actions"], false),
             (&["build"], false),
         ]
