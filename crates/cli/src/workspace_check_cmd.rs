@@ -219,15 +219,26 @@ fn lints_of(lints: Option<&toml::Value>) -> BTreeMap<String, String> {
 }
 
 /// A lint value as the policy it sets: a bare string is a level at cargo's
-/// default priority, a table is its `level` and `priority`. Anything else a
-/// lint table may one day hold is compared structurally.
+/// default priority, a table is its `level` and `priority`. Any further
+/// field a lint takes — `check-cfg` on `rust.unexpected_cfgs`, say — is
+/// carried into the comparison, so two policies agreeing on the level but
+/// differing there are still drift. Anything else a lint table may one day
+/// hold is compared structurally.
 fn policy(value: &toml::Value) -> String {
     match value {
         toml::Value::String(level) => format!("{level} (priority 0)"),
         toml::Value::Table(t) => {
             let level = t.get("level").and_then(toml::Value::as_str).unwrap_or_default();
             let priority = t.get("priority").and_then(toml::Value::as_integer).unwrap_or(0);
-            format!("{level} (priority {priority})")
+            let mut extra: Vec<String> = t
+                .iter()
+                .filter(|(key, _)| key.as_str() != "level" && key.as_str() != "priority")
+                .map(|(key, value)| format!("{key}={}", normalise(value)))
+                .collect();
+            extra.sort();
+            let extra =
+                if extra.is_empty() { String::new() } else { format!(" {}", extra.join(" ")) };
+            format!("{level} (priority {priority}){extra}")
         }
         other => normalise(other),
     }
@@ -788,12 +799,49 @@ mod tests {
     #[test]
     fn a_symlinked_manifest_is_skipped_unread() {
         let dir = tempfile::tempdir().unwrap();
-        // A `Cargo.toml` symlinked out of the repo: reading it would follow
-        // the link (and here, fail on a directory); the walk skips it.
+        // A nested workspace is configured, so the manifest walk runs and
+        // reaches the `decoy/Cargo.toml` symlinked out of the repo: reading
+        // it would follow the link (and here, fail on a directory); the
+        // walk skips it and the check still completes.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n[workspace.lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("Cargo.lock"), "version = 4\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[workspace]\n\n[lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("fuzz/Cargo.lock"), "version = 4\n").unwrap();
         std::fs::create_dir_all(dir.path().join("decoy")).unwrap();
         std::os::unix::fs::symlink("/", dir.path().join("decoy/Cargo.toml")).unwrap();
-        let (code, out) = run(dir.path(), &section(&["."], &[]));
+        let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
         assert_eq!(code, ExitCode::SUCCESS, "{out}");
+    }
+
+    #[test]
+    fn lint_policies_differing_in_an_extra_field_are_drift() {
+        let dir = tempfile::tempdir().unwrap();
+        // `check-cfg` differs under one level: drift, not the same policy.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n[workspace.lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = [\"ops_dev\"] }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("Cargo.lock"), "version = 4\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[workspace]\n\n[lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = [\"other\"] }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("fuzz/Cargo.lock"), "version = 4\n").unwrap();
+        let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
+        assert_eq!(code, ExitCode::FAILURE, "{out}");
+        assert!(out.contains("rust.unexpected_cfgs"), "{out}");
     }
 
     #[test]
