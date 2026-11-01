@@ -1,13 +1,15 @@
 ---
 id: TASK-2647
 title: 'ops''s own tree fails ops doc-ids: 989 ids left in doc comments'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-01 00:09'
+updated_date: '2026-11-01 10:31'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2657'
 modified_files:
   - .ops.toml
 priority: low

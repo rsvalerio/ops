@@ -1,14 +1,16 @@
 ---
 id: TASK-2650
 title: 'ops config check is blind to field values and to behaviour changes no field marks'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-01 00:41'
+updated_date: '2026-11-01 10:31'
 labels:
   - code-review-rust
   - feature
   - config
 dependencies: []
+parent_task_id: 'TASK-2655'
 modified_files:
   - crates/core/src/config/history.rs
   - docs/configuration.md

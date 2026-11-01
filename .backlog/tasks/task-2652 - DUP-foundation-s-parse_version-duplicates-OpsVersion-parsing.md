@@ -1,13 +1,15 @@
 ---
 id: TASK-2652
 title: 'DUP: foundation''s parse_version duplicates OpsVersion parsing'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-01 00:41'
+updated_date: '2026-11-01 10:31'
 labels:
   - code-review-rust
   - DUP
 dependencies: []
+parent_task_id: 'TASK-2655'
 modified_files:
   - extensions-rust/foundation/src/lib.rs
 priority: low
