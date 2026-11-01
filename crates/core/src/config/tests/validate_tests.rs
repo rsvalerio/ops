@@ -961,3 +961,127 @@ fn load_config_with_left_pad(left_pad: &str) -> String {
         .expect_err("an out-of-range left_pad must be a clean Err, not a panic or an abort");
     format!("{err:#}")
 }
+
+fn exec_after(names: &[&str]) -> CommandSpec {
+    let mut spec = exec_spec("echo", &[]);
+    spec.after = names.iter().map(ToString::to_string).collect();
+    CommandSpec::Exec(spec)
+}
+
+fn config_of(commands: Vec<(&str, CommandSpec)>) -> Config {
+    let mut config = Config::empty();
+    for (name, spec) in commands {
+        config.commands.insert(name.to_string(), spec);
+    }
+    config
+}
+
+/// TASK-2637 AC #4: a cycle fails the load naming the commands on it.
+#[test]
+fn validate_rejects_after_cycles_naming_the_commands() {
+    let config = config_of(vec![
+        ("free", exec_after(&["a"])),
+        ("a", exec_after(&["b"])),
+        ("b", exec_after(&["c"])),
+        ("c", exec_after(&["a"])),
+    ]);
+    let msg = config.validate().expect_err("cycle").to_string();
+    assert!(msg.contains("a after b after c after a"), "{msg}");
+    assert!(
+        !msg.contains("free"),
+        "a step leading into the cycle is not on it: {msg}"
+    );
+}
+
+#[test]
+fn validate_rejects_self_after() {
+    let config = config_of(vec![("a", exec_after(&["a"]))]);
+    let msg = config.validate().expect_err("cycle").to_string();
+    assert!(msg.contains("a after a"), "{msg}");
+}
+
+/// A cycle written through an alias is still a cycle.
+#[test]
+fn validate_rejects_after_cycle_through_an_alias() {
+    let mut b = exec_spec("echo", &[]);
+    b.aliases = vec!["bee".to_string()];
+    b.after = vec!["a".to_string()];
+    let config = config_of(vec![
+        ("a", exec_after(&["bee"])),
+        ("b", CommandSpec::Exec(b)),
+    ]);
+    assert!(config.validate().is_err());
+}
+
+/// Names outside the config may be stack or extension commands, and a
+/// diamond is an ordering, not a cycle.
+#[test]
+fn validate_accepts_after_diamonds_and_external_names() {
+    let config = config_of(vec![
+        ("a", exec_after(&["b", "c"])),
+        ("b", exec_after(&["d"])),
+        ("c", exec_after(&["d"])),
+        ("d", exec_after(&["from-a-stack"])),
+    ]);
+    config.validate().expect("no cycle here");
+}
+
+/// A long chain must not overflow the stack: the walk is iterative.
+#[test]
+fn validate_handles_a_long_after_chain() {
+    let names: Vec<String> = (0..50_000).map(|i| format!("c{i}")).collect();
+    let mut config = Config::empty();
+    for pair in names.windows(2) {
+        config
+            .commands
+            .insert(pair[0].clone(), exec_after(&[pair[1].as_str()]));
+    }
+    config.validate().expect("a chain is not a cycle");
+}
+
+#[test]
+fn validate_rejects_bad_wrap() {
+    let mut spec = exec_spec("echo", &[]);
+    spec.wrap = vec![String::new()];
+    let config = config_of(vec![("x", CommandSpec::Exec(spec))]);
+    let msg = config.validate().expect_err("empty head").to_string();
+    assert!(msg.contains("wrap[0]"), "{msg}");
+
+    let mut spec = exec_spec("echo", &[]);
+    spec.wrap = vec!["./svc.sh".to_string(), "a\nb".to_string()];
+    let config = config_of(vec![("x", CommandSpec::Exec(spec))]);
+    let msg = config.validate().expect_err("newline").to_string();
+    assert!(msg.contains("wrap[1]"), "{msg}");
+
+    let mut spec = exec_spec("echo", &[]);
+    spec.wrap = vec!["./svc.sh".to_string(), "${matrix.db}".to_string()];
+    let config = config_of(vec![("x", CommandSpec::Exec(spec))]);
+    let msg = config.validate().expect_err("matrix").to_string();
+    assert!(msg.contains("wrap[1]"), "{msg}");
+}
+
+/// A wrapper renders in front, and spawn errors must name what spawned.
+#[test]
+fn wrap_renders_before_the_wrapped_command() {
+    let mut spec = exec_spec("cargo", &["nextest", "run"]);
+    spec.wrap = vec!["./svc.sh".to_string(), "--a b".to_string()];
+    assert_eq!(spec.display_cmd(), "./svc.sh '--a b' cargo nextest run");
+    assert_eq!(spec.spawn_program(), "./svc.sh");
+    let argv: Vec<&String> = spec.argv().collect();
+    assert_eq!(argv, ["./svc.sh", "--a b", "cargo", "nextest", "run"]);
+
+    let mut no_args = exec_spec("true", &[]);
+    assert_eq!(no_args.display_cmd(), "true");
+    no_args.wrap = vec!["w".to_string()];
+    assert_eq!(no_args.display_cmd(), "w true");
+}
+
+/// Group-level `after` and `wrap` have no meaning, so they do not parse.
+#[test]
+fn composites_reject_after_and_wrap() {
+    for field in ["after = [\"a\"]", "wrap = [\"w\"]"] {
+        let doc = format!("[commands.g]\ncommands = [\"a\"]\n{field}\n");
+        let err = toml::from_str::<Config>(&doc).expect_err("composite field");
+        assert!(err.to_string().contains("unknown field"), "{err}");
+    }
+}

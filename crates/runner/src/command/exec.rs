@@ -590,7 +590,7 @@ async fn capture(
             // Surface as a StepFailed so non-UTF-8 env vars and similar
             // configuration errors are user-visible instead of materialising
             // a literal `${VAR}` into argv / cwd.
-            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
+            let msg = log_and_redact_spawn_error(spec.spawn_program(), &e, "captured");
             return (Err(msg), Duration::ZERO);
         }
     };
@@ -604,7 +604,7 @@ async fn capture(
         // log_and_redact_spawn_error keeps the full error at debug
         // level and returns a shorter "failed to spawn `<program>`:
         // <kind>" for the user.
-        log_and_redact_spawn_error(&spec.program, &e, "captured")
+        log_and_redact_spawn_error(spec.spawn_program(), &e, "captured")
     });
     (captured, duration)
 }
@@ -702,7 +702,7 @@ pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecE
             return StepResult::failure(
                 id,
                 std::time::Duration::ZERO,
-                log_and_redact_spawn_error(&spec.program, &e, "raw"),
+                log_and_redact_spawn_error(spec.spawn_program(), &e, "raw"),
             );
         }
     };
@@ -732,7 +732,7 @@ pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecE
             StepResult::failure(
                 id,
                 duration,
-                log_and_redact_spawn_error(&spec.program, &e, "raw"),
+                log_and_redact_spawn_error(spec.spawn_program(), &e, "raw"),
             )
         }
     }

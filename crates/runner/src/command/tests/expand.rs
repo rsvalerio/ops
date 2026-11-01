@@ -862,3 +862,157 @@ mod depth_limit_tests {
         );
     }
 }
+
+mod after {
+    use super::*;
+
+    fn exec_after(names: &[&str]) -> CommandSpec {
+        let mut spec = echo_cmd("x");
+        spec.after = names.iter().map(ToString::to_string).collect();
+        CommandSpec::Exec(spec)
+    }
+
+    fn exclusive_exec() -> CommandSpec {
+        let mut spec = echo_cmd("x");
+        spec.exclusive = true;
+        CommandSpec::Exec(spec)
+    }
+
+    fn plan_of(steps: Vec<(&str, CommandSpec)>, names: &[&str]) -> CommandRunner {
+        let mut commands: HashMap<String, CommandSpec> = steps
+            .into_iter()
+            .map(|(name, spec)| (name.to_string(), spec))
+            .collect();
+        commands.insert(
+            "plan".to_string(),
+            CommandSpec::Composite(parallel_cmd(names)),
+        );
+        test_runner(commands)
+    }
+
+    fn leaves(runner: &CommandRunner) -> Vec<String> {
+        runner
+            .expand_to_leaves("plan")
+            .expect("plan expands")
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    /// A dependent moves behind its dependency and nothing else moves, so
+    /// `--raw` and `--dry-run` walk a valid order.
+    #[test]
+    fn leaves_are_ordered_by_after_and_otherwise_keep_list_order() {
+        let runner = plan_of(
+            vec![
+                ("a", exec_after(&["c"])),
+                ("b", CommandSpec::Exec(echo_cmd("b"))),
+                ("c", CommandSpec::Exec(echo_cmd("c"))),
+                ("d", CommandSpec::Exec(echo_cmd("d"))),
+            ],
+            &["a", "b", "c", "d"],
+        );
+        assert_eq!(leaves(&runner), ["b", "c", "a", "d"]);
+    }
+
+    /// Reordering stays inside a stage: the exclusive barrier keeps its
+    /// position, so the stage split still describes the list.
+    #[test]
+    fn reordering_never_crosses_an_exclusive_step() {
+        let runner = plan_of(
+            vec![
+                ("fmt", exclusive_exec()),
+                ("a", exec_after(&["b"])),
+                ("b", CommandSpec::Exec(echo_cmd("b"))),
+            ],
+            &["fmt", "a", "b"],
+        );
+        assert_eq!(leaves(&runner), ["fmt", "b", "a"]);
+    }
+
+    /// A dependency behind an exclusive step could never finish first.
+    #[test]
+    fn dependency_in_a_later_stage_is_an_error_naming_both() {
+        let runner = plan_of(
+            vec![
+                ("a", exec_after(&["b"])),
+                ("fmt", exclusive_exec()),
+                ("b", CommandSpec::Exec(echo_cmd("b"))),
+            ],
+            &["a", "fmt", "b"],
+        );
+        let err = runner.expand_to_plan("plan").unwrap_err();
+        assert_eq!(
+            err,
+            ExpandError::AfterLaterStage {
+                step: "a".to_string(),
+                after: "b".to_string(),
+            }
+        );
+    }
+
+    /// AC #4: an unknown name fails every expansion, even of a plan that
+    /// does not contain the offender, as a load error would.
+    #[test]
+    fn unknown_after_is_an_error_naming_both_commands() {
+        let runner = plan_of(
+            vec![
+                ("a", exec_after(&["biuld"])),
+                ("b", CommandSpec::Exec(echo_cmd("b"))),
+            ],
+            &["b"],
+        );
+        let err = runner.expand_to_plan("plan").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("`a`") && msg.contains("`biuld`"), "{msg}");
+        assert!(matches!(err, ExpandError::UnknownAfter { .. }));
+    }
+
+    /// A group is not a step, so the constraint would silently never hold.
+    #[test]
+    fn after_naming_a_composite_is_an_error() {
+        let runner = plan_of(
+            vec![
+                ("a", exec_after(&["group"])),
+                ("group", CommandSpec::Composite(composite_cmd(&["a"]))),
+            ],
+            &["a"],
+        );
+        assert!(matches!(
+            runner.expand_to_plan("plan"),
+            Err(ExpandError::AfterComposite { .. })
+        ));
+    }
+
+    /// The loader rejects cycles among config commands; a runner built
+    /// around it still refuses to schedule one, rather than hanging.
+    #[test]
+    fn cycle_reaching_the_runner_is_an_error() {
+        let runner = plan_of(
+            vec![("a", exec_after(&["b"])), ("b", exec_after(&["a"]))],
+            &["a", "b"],
+        );
+        let err = runner.expand_to_plan("plan").unwrap_err();
+        assert_eq!(
+            err,
+            ExpandError::AfterCycle {
+                steps: vec!["a".to_string(), "b".to_string()],
+            }
+        );
+    }
+
+    /// A sequential group keeps its list order: `after` has no effect there.
+    #[test]
+    fn sequential_group_keeps_list_order() {
+        let mut commands = HashMap::new();
+        commands.insert("a".to_string(), exec_after(&["b"]));
+        commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
+        commands.insert(
+            "seq".to_string(),
+            CommandSpec::Composite(composite_cmd(&["a", "b"])),
+        );
+        let runner = test_runner(commands);
+        let got = runner.expand_to_leaves("seq").expect("expands");
+        assert_eq!(got, vec![CommandId::from("a"), CommandId::from("b")]);
+    }
+}

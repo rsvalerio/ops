@@ -135,6 +135,23 @@ pub enum ExpandError {
         /// The value `conflicting` declared for `flag`.
         conflicting_value: bool,
     },
+    /// A step's `after` names no command in any store.
+    #[error("command `{step}`: `after` names unknown command `{after}`")]
+    UnknownAfter { step: String, after: String },
+    /// A step's `after` names a composite. A composite is never a step of
+    /// the plan, so the constraint could not hold.
+    #[error("command `{step}`: `after` names composite `{after}`; name its steps instead")]
+    AfterComposite { step: String, after: String },
+    /// `after` chains in one plan form a cycle. The loader rejects cycles
+    /// among config commands, so this only fires for specs built elsewhere.
+    #[error("`after` cycle among commands: {}", .steps.join(", "))]
+    AfterCycle { steps: Vec<String> },
+    /// A step's `after` names a step an `exclusive` barrier schedules later.
+    #[error(
+        "command `{step}`: `after` names `{after}`, but `{after}` runs in a later stage; \
+         an exclusive step sits between them, so list `{after}` before that step"
+    )]
+    AfterLaterStage { step: String, after: String },
     /// A `[commands.<name>] clone` declaration reached the runner without
     /// being materialized. The loader resolves clones at config load time
     /// (`config::clone::apply`), so this only happens through a `Config`

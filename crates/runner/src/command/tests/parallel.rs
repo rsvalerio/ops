@@ -911,3 +911,216 @@ mod parallel_failure_tests {
         );
     }
 }
+
+/// `after` orders steps inside one parallel plan without splitting stages.
+#[cfg(unix)]
+mod after_tests {
+    use super::parallel_timing_tests::{rendezvous_cmd, shell_escape};
+    use super::*;
+
+    fn sh(script: &str) -> ExecCommandSpec {
+        exec_spec("sh", &["-c", script])
+    }
+
+    fn after(mut spec: ExecCommandSpec, names: &[&str]) -> ExecCommandSpec {
+        spec.after = names.iter().map(ToString::to_string).collect();
+        spec
+    }
+
+    fn runner_for(
+        steps: Vec<(&str, ExecCommandSpec)>,
+        names: &[&str],
+        fail_fast: bool,
+    ) -> CommandRunner {
+        let mut commands: HashMap<String, CommandSpec> = steps
+            .into_iter()
+            .map(|(name, spec)| (name.to_string(), CommandSpec::Exec(spec)))
+            .collect();
+        let mut group = parallel_cmd(names);
+        group.fail_fast = fail_fast;
+        commands.insert("plan".to_string(), CommandSpec::Composite(group));
+        test_runner(commands)
+    }
+
+    /// The real path: expansion orders the leaves, the batch honours them.
+    // Same `!Send` reasoning as `run_plan_parallel`.
+    #[allow(clippy::future_not_send)]
+    async fn run(runner: &CommandRunner, fail_fast: bool) -> (Vec<StepResult>, Vec<RunnerEvent>) {
+        let leaves = runner.expand_to_leaves("plan").expect("plan expands");
+        let mut events = Vec::new();
+        let results = runner
+            .run_plan_parallel(&leaves, fail_fast, &mut |e| events.push(e))
+            .await;
+        (results, events)
+    }
+
+    fn skipped(events: &[RunnerEvent], name: &str) -> bool {
+        events
+            .iter()
+            .any(|e| matches!(e, RunnerEvent::StepSkipped { id, .. } if id.as_str() == name))
+    }
+
+    /// AC #1: the dependent starts only once its dependency finished, even
+    /// when listed first, with a sibling free to run meanwhile.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn step_starts_after_its_dependency_completes() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = shell_escape(&dir.path().join("built"));
+        let runner = runner_for(
+            vec![
+                ("next", after(sh(&format!("[ -e {marker} ]")), &["build"])),
+                ("build", sh(&format!("sleep 0.3; touch {marker}"))),
+                ("lint", true_cmd()),
+            ],
+            &["next", "build", "lint"],
+            true,
+        );
+        let (results, _) = run(&runner, true).await;
+        assert_eq!(results.len(), 3);
+        assert!(
+            results.iter().all(|r| r.success),
+            "next must see build's output: {results:?}"
+        );
+    }
+
+    /// `after` blocks only the step that declares it: unrelated steps still
+    /// overlap the dependency, which an exclusive barrier would forbid.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn after_does_not_serialize_unrelated_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        let runner = runner_for(
+            vec![
+                ("rdv_a", rendezvous_cmd(&a, &b)),
+                ("rdv_b", rendezvous_cmd(&b, &a)),
+                ("tail", after(true_cmd(), &["rdv_a"])),
+            ],
+            &["rdv_a", "rdv_b", "tail"],
+            true,
+        );
+        let (results, _) = run(&runner, true).await;
+        assert!(results.iter().all(|r| r.success), "{results:?}");
+    }
+
+    /// An alias in `after` constrains the step it resolves to.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn after_resolves_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = shell_escape(&dir.path().join("built"));
+        let mut build = sh(&format!("sleep 0.3; touch {marker}"));
+        build.aliases = vec!["b".to_string()];
+        let runner = runner_for(
+            vec![
+                ("next", after(sh(&format!("[ -e {marker} ]")), &["b"])),
+                ("build", build),
+            ],
+            &["next", "build"],
+            true,
+        );
+        let (results, _) = run(&runner, true).await;
+        assert!(results.iter().all(|r| r.success), "{results:?}");
+    }
+
+    /// AC #2: under `fail_fast` a failed dependency skips its dependents,
+    /// through a chain too, and neither one ever spawns.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fail_fast_failed_dependency_skips_dependents() {
+        let dir = tempfile::tempdir().unwrap();
+        let ran = shell_escape(&dir.path().join("ran"));
+        let touch = format!("touch {ran}");
+        let runner = runner_for(
+            vec![
+                ("build", false_cmd()),
+                ("next", after(sh(&touch), &["build"])),
+                ("report", after(sh(&touch), &["next"])),
+            ],
+            &["build", "next", "report"],
+            true,
+        );
+        let (results, events) = run(&runner, true).await;
+        assert!(results.iter().all(|r| !r.success), "{results:?}");
+        assert!(skipped(&events, "next"), "{events:?}");
+        assert!(skipped(&events, "report"), "{events:?}");
+        assert!(!dir.path().join("ran").exists(), "a dependent ran");
+    }
+
+    /// Without `fail_fast` every step runs: the dependent still waits, then
+    /// runs although the dependency failed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn without_fail_fast_dependent_runs_after_failed_dependency() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = shell_escape(&dir.path().join("failed"));
+        let runner = runner_for(
+            vec![
+                ("next", after(sh(&format!("[ -e {marker} ]")), &["build"])),
+                ("build", sh(&format!("sleep 0.2; touch {marker}; false"))),
+            ],
+            &["next", "build"],
+            false,
+        );
+        let (results, _) = run(&runner, false).await;
+        let next = results.iter().find(|r| r.id.as_str() == "next").unwrap();
+        assert!(next.success, "next must wait, then run: {results:?}");
+    }
+
+    /// A dependency outside the plan is no constraint.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dependency_outside_the_plan_is_unconstrained() {
+        let runner = runner_for(
+            vec![
+                ("build", false_cmd()),
+                ("next", after(true_cmd(), &["build"])),
+                ("lint", true_cmd()),
+            ],
+            &["next", "lint"],
+            true,
+        );
+        let (results, _) = run(&runner, true).await;
+        assert!(results.iter().all(|r| r.success), "{results:?}");
+    }
+
+    /// `after` composes with exclusive stages: a dependency in an earlier
+    /// stage has already finished, and ordering works inside each stage.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn after_composes_with_exclusive_stages() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = shell_escape(&dir.path().join("built"));
+        let mut fmt = true_cmd();
+        fmt.exclusive = true;
+        let runner = runner_for(
+            vec![
+                ("fmt", fmt),
+                (
+                    "next",
+                    after(sh(&format!("[ -e {marker} ]")), &["build", "fmt"]),
+                ),
+                ("build", sh(&format!("sleep 0.2; touch {marker}"))),
+            ],
+            &["fmt", "next", "build"],
+            true,
+        );
+        let (results, _) = run(&runner, true).await;
+        assert!(results.iter().all(|r| r.success), "{results:?}");
+    }
+
+    /// A matrix is one step: its dependent waits for every cell.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn matrix_dependency_waits_for_every_cell() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = shell_escape(dir.path());
+        let mut matrix = sh(&format!("sleep 0.2; touch {path}/${{matrix.n}}"));
+        let axes =
+            toml::from_str::<ops_core::config::Strategy>("matrix = { n = [\"one\", \"two\"] }\n")
+                .unwrap();
+        matrix.strategy = Some(axes);
+        let check = sh(&format!("[ -e {path}/one ] && [ -e {path}/two ]"));
+        let runner = runner_for(
+            vec![("cells", matrix), ("check", after(check, &["cells"]))],
+            &["check", "cells"],
+            true,
+        );
+        let (results, _) = run(&runner, true).await;
+        assert!(results.iter().all(|r| r.success), "{results:?}");
+    }
+}

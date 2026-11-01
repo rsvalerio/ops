@@ -475,6 +475,36 @@ mod run_command_dry_run_tests {
         assert!(output.contains("program: cargo"), "got: {output}");
     }
 
+    /// TASK-2641 AC #2: the preview keeps the wrapper apart from the wrapped
+    /// command, and shows the step's `after`.
+    #[test]
+    fn dry_run_shows_wrapper_and_after_separately() {
+        let mut spec = ops_core::config::ExecCommandSpec::new("cargo", ["nextest", "run"]);
+        spec.wrap = vec!["./svc.sh".into(), "--pg".into(), "--".into()];
+        spec.after = vec!["build".into()];
+        let config = TestConfigBuilder::new()
+            .command("next", ops_core::config::CommandSpec::Exec(spec))
+            .command(
+                "build",
+                ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec::new(
+                    "cargo",
+                    ["build"],
+                )),
+            )
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        run_command_dry_run_to(&runner, "next", &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("wrap:    ./svc.sh --pg --\n"),
+            "got: {output}"
+        );
+        assert!(output.contains("program: cargo\n"), "got: {output}");
+        assert!(output.contains("args:    nextest run\n"), "got: {output}");
+        assert!(output.contains("after:   build\n"), "got: {output}");
+    }
+
     /// A matrix step lists every cell with its fully
     /// expanded args, under its schedule.
     #[test]

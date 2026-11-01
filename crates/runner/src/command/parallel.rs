@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::Id as TaskId;
 use tracing::instrument;
 
@@ -136,6 +136,18 @@ pub fn stage_lengths(exclusive: impl IntoIterator<Item = bool>) -> Vec<usize> {
         lengths.push(run);
     }
     lengths
+}
+
+/// Wait for every dependency to finish; true when all of them succeeded.
+async fn wait_for_deps(deps: Vec<watch::Receiver<bool>>) -> bool {
+    let mut all_ok = true;
+    for mut dep in deps {
+        // Ok on the final value, Err on a sender dropped without one: either
+        // way the dependency is over, and its value says how it went.
+        let _ = dep.changed().await;
+        all_ok &= *dep.borrow();
+    }
+    all_ok
 }
 
 /// The warn-message text emitted when `OPS_MAX_PARALLEL`
@@ -288,8 +300,18 @@ impl CommandRunner {
     ///
     /// Concurrency is capped at `MAX_PARALLEL` via a semaphore to prevent
     /// resource exhaustion with large parallel groups.
+    ///
+    /// `deps[i]` lists the positions in `steps` that step `i` must wait for
+    /// (see [`Self::batch_deps`]); a missing entry means none. Each task waits
+    /// before taking a permit, so a waiting step cannot starve the steps it
+    /// waits on. Under `fail_fast` a step whose dependency failed never runs:
+    /// it returns cancelled and the orphan sweep reports it skipped. That
+    /// decision reads the dependency's own result because it cannot wait for
+    /// the event loop's `abort_all`, which the wake-up here would race.
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
+        deps: &[Vec<usize>],
+        fail_fast: bool,
         env: &super::exec::ExecEnv,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
@@ -326,7 +348,20 @@ impl CommandRunner {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel));
         let mut join_set = tokio::task::JoinSet::new();
         let mut id_map: HashMap<TaskId, CommandId> = HashMap::new();
-        for (id, spec) in steps {
+        // One "finished" signal per step, holding whether it succeeded. The
+        // sender lives in the step's task, so a panic or abort still wakes
+        // the dependents, and they see `false`.
+        let (done_txs, done_rxs): (Vec<_>, Vec<_>) =
+            steps.iter().map(|_| watch::channel(false)).unzip();
+        let gates = (0..steps.len()).map(|at| -> Vec<watch::Receiver<bool>> {
+            deps.get(at)
+                .into_iter()
+                .flatten()
+                .filter_map(|&dep| done_rxs.get(dep).cloned())
+                .collect()
+        });
+        let gates: Vec<_> = gates.collect();
+        for (((id, spec), done), gate) in steps.into_iter().zip(done_txs).zip(gates) {
             // TASK-2277: a matrix step is one task that runs its own cells.
             let matrix = MatrixRun::prepare(id.as_str(), &spec);
             // Wrap once per task; subsequent forwards
@@ -343,6 +378,10 @@ impl CommandRunner {
             let task_id = id.clone();
             let cmd_id = id.clone();
             let handle = join_set.spawn(async move {
+                if !wait_for_deps(gate).await && fail_fast {
+                    return StepResult::cancelled(task_id);
+                }
+                let result = async {
                 // The semaphore is scoped to the parent spawn frame, so it
                 // can never be closed while a child holds an Arc to it —
                 // but rather than encode that invariant via `expect`
@@ -380,6 +419,10 @@ impl CommandRunner {
                         StepResult::failure(id, Duration::ZERO, message)
                     }
                 }
+                }
+                .await;
+                done.send_replace(result.success);
+                result
             });
             // Remember which tokio task carries which
             // CommandId so `collect_join_results` can preserve the id even
@@ -389,6 +432,30 @@ impl CommandRunner {
         }
         drop(tx);
         (rx, abort, join_set, id_map)
+    }
+
+    /// For each step of a batch, the earlier positions its `after` names.
+    ///
+    /// Only backward edges count, so no batch can deadlock whatever it is
+    /// handed. `expand_to_plan` lists every dependency first and rejects
+    /// cycles, so on the plan path this drops nothing. A dependency outside
+    /// the batch ran in an earlier stage, or is not in the plan at all.
+    fn batch_deps(&self, steps: &[(CommandId, ExecCommandSpec)]) -> Vec<Vec<usize>> {
+        steps
+            .iter()
+            .enumerate()
+            .map(|(at, (_, spec))| {
+                if spec.after.is_empty() {
+                    return Vec::new();
+                }
+                let after = self.after_ids(spec);
+                let earlier = steps.iter().take(at).enumerate();
+                earlier
+                    .filter(|(_, (id, _))| after.contains(&id.as_str()))
+                    .map(|(dep, _)| dep)
+                    .collect()
+            })
+            .collect()
     }
 
     /// Run a flat list of exec command IDs in parallel; events sent via channel. When `fail_fast` is true, abort flag is set on first failure.
@@ -509,7 +576,9 @@ impl CommandRunner {
             .filter(|row| !step_ids.contains(row))
             .cloned()
             .collect();
-        let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(steps, &self.exec_env());
+        let deps = self.batch_deps(&steps);
+        let (rx, abort, mut join_set, id_map) =
+            Self::spawn_parallel_tasks(steps, &deps, fail_fast, &self.exec_env());
         // When fail_fast sees the first failure, set the abort flag
         // **and** actively `abort_all()` the JoinSet so siblings stop
         // rendering output — without the active abort the loop keeps

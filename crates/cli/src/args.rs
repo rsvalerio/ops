@@ -369,10 +369,11 @@ pub enum CoreSubcommand {
     ///
     /// Resolves each command exactly as `ops <cmd>...` would and prints the
     /// plan: every composite's `parallel` / `fail_fast`, the stages a
-    /// parallel group splits into at its `exclusive` steps, and each step's
-    /// program, args, env, cwd and origin (stack default, config, `clone`,
-    /// `[extend]`, extension or builtin). Never executes a step — not even
-    /// for `run-before-commit` / `run-before-push`.
+    /// parallel group splits into at its `exclusive` steps, the `after`
+    /// edges between its steps, and each step's `wrap`, program, args, env,
+    /// cwd and origin (stack default, config, `clone`, `[extend]`, extension
+    /// or builtin). Never executes a step — not even for `run-before-commit`
+    /// / `run-before-push`.
     Explain(ExplainArgs),
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {

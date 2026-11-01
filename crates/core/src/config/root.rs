@@ -152,6 +152,8 @@ impl Config {
     ///
     /// - every exec spec ([`crate::config::ExecCommandSpec::validate`]);
     /// - every theme ([`ThemeConfig::validate`]);
+    /// - `after` cycles among the config's own commands
+    ///   ([`Config::validate_after`]);
     /// - alias hygiene against the config's own command names
     ///   ([`Config::validate_aliases`]).
     ///
@@ -167,7 +169,8 @@ impl Config {
     /// # Errors
     ///
     /// If any exec spec fails [`crate::config::ExecCommandSpec::validate`], any theme fails
-    /// [`ThemeConfig::validate`], or alias hygiene fails. Composite reference /
+    /// [`ThemeConfig::validate`], an `after` chain cycles, or alias hygiene
+    /// fails. Composite reference /
     /// cycle / depth checks are not performed — see
     /// [`Config::validate_commands`].
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -195,6 +198,7 @@ impl Config {
         for (name, theme) in &self.themes {
             theme.validate(name)?;
         }
+        self.validate_after()?;
         let own_names: std::collections::HashSet<&str> =
             self.commands.keys().map(String::as_str).collect();
         self.validate_aliases(&own_names)
@@ -243,6 +247,68 @@ impl Config {
         }
 
         self.validate_aliases(&known)
+    }
+
+    /// Reject `after` cycles, which no schedule can satisfy, naming the
+    /// commands on the cycle. Walks the config's exec commands with an
+    /// explicit stack, so a long chain cannot overflow the real one.
+    ///
+    /// Names the config does not define are skipped: they may be stack,
+    /// extension or builtin commands, which the runner checks before a plan
+    /// starts. Those stores carry no `after` of their own, so no cycle can
+    /// pass through them.
+    fn validate_after(&self) -> anyhow::Result<()> {
+        let canonical = |name: &'_ str| -> Option<&str> {
+            self.commands
+                .get_key_value(name)
+                .map(|(key, _)| key.as_str())
+                .or_else(|| self.resolve_alias(name))
+        };
+        let edges: std::collections::HashMap<&str, Vec<&str>> = self
+            .commands
+            .iter()
+            .filter_map(|(name, spec)| match spec {
+                CommandSpec::Exec(e) if !e.after.is_empty() => Some((
+                    name.as_str(),
+                    e.after.iter().filter_map(|a| canonical(a)).collect(),
+                )),
+                _ => None,
+            })
+            .collect();
+        let deps = |name: &str| edges.get(name).map_or(&[][..], Vec::as_slice).iter();
+
+        let mut finished: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut on_path: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for name in self.commands.keys().map(String::as_str) {
+            if !edges.contains_key(name) || finished.contains(name) {
+                continue;
+            }
+            on_path.insert(name);
+            let mut path = vec![(name, deps(name))];
+            while let Some((node, pending)) = path.last_mut() {
+                let node = *node;
+                let Some(&next) = pending.next() else {
+                    on_path.remove(node);
+                    finished.insert(node);
+                    path.pop();
+                    continue;
+                };
+                if finished.contains(next) {
+                    continue;
+                }
+                if !on_path.insert(next) {
+                    let cycle: Vec<&str> = path
+                        .iter()
+                        .map(|(step, _)| *step)
+                        .skip_while(|step| *step != next)
+                        .chain(std::iter::once(next))
+                        .collect();
+                    anyhow::bail!("command '{next}': `after` cycle: {}", cycle.join(" after "));
+                }
+                path.push((next, deps(next)));
+            }
+        }
+        Ok(())
     }
 
     /// Alias hygiene.
