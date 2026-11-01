@@ -64,6 +64,10 @@ to let a push or commit through without running the configured hook commands.
 |---------|--------------|
 | `ops deps` (`--check`: CI-safe, cargo-deny + machete only, no cargo-edit) | Rust |
 | `ops msrv` | Rust — fails unless `clippy.toml`'s `msrv` equals `Cargo.toml`'s `rust-version` (`[workspace.package]`, else `[package]`), then runs `rustup run <rust-version> cargo check --workspace --all-features --all-targets`; `--install` installs that toolchain first (minimal profile), and `--dry-run` checks the agreement and prints the commands |
+| `ops foundation` | Rust — the drift check `ops init --rust --check`, as a built-in composites can list with no `[commands.foundation]` entry; always the ops of the outer process, never whatever `ops` is on `PATH` — see [foundation.md](foundation.md). Tool: none. Needs an ops built with `stack-rust` |
+| `ops semver` | Rust — `cargo semver-checks --workspace`, against each crate's latest crates.io release. Tool: `cargo-semver-checks` (`cargo install cargo-semver-checks`); when missing, fails with that hint. `--dry-run` prints the command |
+| `ops feature-matrix` | Rust — `cargo hack check --workspace --each-feature`: each feature alone, no default features, and the default build. Tool: `cargo-hack` (`cargo install cargo-hack`); when missing, fails with that hint. `--dry-run` prints the command |
+| `ops doc-ids` | Rust — fails on `TASK-nnnn` or code-review rule ids (`SEC-13`) in `///` and `//!` lines of every non-ignored `*.rs` file under the current directory, nested workspaces included. Tool: none |
 | `ops plans` | Terraform (plan summary tables) |
 | `ops about coverage` / `dependencies` | Rust |
 | `ops about loc` | Rust |

@@ -324,6 +324,30 @@ pub enum CoreSubcommand {
         #[arg(long)]
         install: bool,
     },
+    /// Check the Rust foundation for drift (`ops init --rust --check`).
+    ///
+    /// Compares the project with the templates in the running ops and exits
+    /// non-zero on drift. Composites can list it with no `[commands.foundation]`
+    /// entry, and it always runs the ops of the outer process.
+    Foundation,
+    /// Check public API compatibility with cargo-semver-checks.
+    ///
+    /// Runs `cargo semver-checks --workspace` against each crate's latest
+    /// crates.io release. Needs `cargo install cargo-semver-checks`. The
+    /// global `--dry-run` prints the command.
+    Semver,
+    /// Check each feature on its own with cargo-hack.
+    ///
+    /// Runs `cargo hack check --workspace --each-feature`. Needs `cargo
+    /// install cargo-hack`. The global `--dry-run` prints the command.
+    #[command(name = "feature-matrix")]
+    FeatureMatrix,
+    /// Fail on task or review-rule ids in Rust doc comments.
+    ///
+    /// Scans `///` and `//!` lines of every non-ignored `*.rs` file under the
+    /// current directory, nested workspaces included. Needs no external tool.
+    #[command(name = "doc-ids")]
+    DocIds,
     /// Lint GitHub workflows: full-SHA action pins, no `secrets: inherit`.
     ///
     /// Every `uses:` under `.github/workflows/` and in composite action
@@ -957,6 +981,10 @@ const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         ("plans", Stack::Terraform),
         ("clippy-findings", Stack::Rust),
         ("msrv", Stack::Rust),
+        ("foundation", Stack::Rust),
+        ("semver", Stack::Rust),
+        ("feature-matrix", Stack::Rust),
+        ("doc-ids", Stack::Rust),
     ]
 }
 

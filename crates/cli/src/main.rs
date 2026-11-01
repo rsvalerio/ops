@@ -49,7 +49,9 @@ extern crate ops_tokei;
 mod about_cmd;
 mod args;
 mod backlog_cmd;
+mod cargo_check_cmd;
 mod clippy_findings_cmd;
+mod doc_ids_cmd;
 mod dry_run;
 mod extension_cmd;
 mod help;
@@ -331,33 +333,16 @@ fn dispatch(
         Some(CoreSubcommand::CheckYaml { tracked }) => {
             return run_check_yaml(tracked);
         }
-        Some(CoreSubcommand::Sec {
-            skip,
-            force,
-            no_default_skips,
-            no_dev_deps,
-            repo,
-        }) => {
-            let cwd = cwd()?;
-            let overrides = sec_cmd::SecOverrides {
-                skip: skip.iter().map(|s| s.to_scan()).collect(),
-                force: force.iter().map(|s| s.to_scan()).collect(),
-                no_default_skips,
-                no_dev_deps,
-                repo,
-            };
-            return sec_cmd::run_sec(&cwd, cli.dry_run, &overrides);
-        }
-        Some(CoreSubcommand::ClippyFindings(args)) => {
-            return run_clippy_findings(args, cli.dry_run);
-        }
-        Some(CoreSubcommand::Msrv { install }) => {
-            return msrv_cmd::run_msrv(&cwd()?, install, cli.dry_run);
-        }
-        Some(CoreSubcommand::LintActions { mut allow }) => {
-            allow.extend(early_config.lint_actions.allow.iter().cloned());
-            return lint_actions_cmd::run_lint_actions(&cwd()?, &allow);
-        }
+        Some(
+            sub @ (CoreSubcommand::Sec { .. }
+            | CoreSubcommand::ClippyFindings(_)
+            | CoreSubcommand::Msrv { .. }
+            | CoreSubcommand::Foundation
+            | CoreSubcommand::Semver
+            | CoreSubcommand::FeatureMatrix
+            | CoreSubcommand::DocIds
+            | CoreSubcommand::LintActions { .. }),
+        ) => return run_check(sub, early_config, cli.dry_run),
         Some(CoreSubcommand::Explain(args)) => {
             return run_cmd::run_explain(std::sync::Arc::clone(early_config), &args);
         }
@@ -399,6 +384,61 @@ fn run_init(args: &args::InitArgs, config: &ops_core::config::Config) -> anyhow:
         ops_core::config::InitSections::from_flags(args.output, args.themes, args.commands);
     init_cmd::run_init(args.force, &sections)?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// The built-in checks: each reads the tree and reports through its exit code.
+fn run_check(
+    sub: CoreSubcommand,
+    config: &ops_core::config::Config,
+    dry_run: bool,
+) -> anyhow::Result<ExitCode> {
+    match sub {
+        CoreSubcommand::Sec {
+            skip,
+            force,
+            no_default_skips,
+            no_dev_deps,
+            repo,
+        } => {
+            let overrides = sec_cmd::SecOverrides {
+                skip: skip.iter().map(|s| s.to_scan()).collect(),
+                force: force.iter().map(|s| s.to_scan()).collect(),
+                no_default_skips,
+                no_dev_deps,
+                repo,
+            };
+            sec_cmd::run_sec(&cwd()?, dry_run, &overrides)
+        }
+        CoreSubcommand::ClippyFindings(args) => run_clippy_findings(args, dry_run),
+        CoreSubcommand::Msrv { install } => msrv_cmd::run_msrv(&cwd()?, install, dry_run),
+        CoreSubcommand::Foundation => run_foundation(config),
+        CoreSubcommand::Semver => {
+            cargo_check_cmd::run_cargo_check(&cargo_check_cmd::SEMVER, &cwd()?, dry_run)
+        }
+        CoreSubcommand::FeatureMatrix => {
+            cargo_check_cmd::run_cargo_check(&cargo_check_cmd::FEATURE_MATRIX, &cwd()?, dry_run)
+        }
+        CoreSubcommand::DocIds => doc_ids_cmd::run_doc_ids(&cwd()?, &mut std::io::stdout().lock()),
+        CoreSubcommand::LintActions { mut allow } => {
+            allow.extend(config.lint_actions.allow.iter().cloned());
+            lint_actions_cmd::run_lint_actions(&cwd()?, &allow)
+        }
+        other => anyhow::bail!("not a built-in check: {other:?}"),
+    }
+}
+
+/// `ops foundation`: `ops init --rust --check` under a name composites can list.
+#[cfg(feature = "stack-rust")]
+fn run_foundation(config: &ops_core::config::Config) -> anyhow::Result<ExitCode> {
+    init_rust_cmd::run_init_rust(false, true, config)
+}
+
+/// The templates are compiled in with `stack-rust`. The subcommand stays so a
+/// composite naming the builtin gets this error rather than an unknown command
+/// that would re-invoke itself.
+#[cfg(not(feature = "stack-rust"))]
+fn run_foundation(_config: &ops_core::config::Config) -> anyhow::Result<ExitCode> {
+    anyhow::bail!("`ops foundation` needs an ops built with the stack-rust feature")
 }
 
 fn run_clippy_findings(args: args::ClippyFindingsArgs, dry_run: bool) -> anyhow::Result<ExitCode> {

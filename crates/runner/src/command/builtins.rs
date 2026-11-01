@@ -25,13 +25,15 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// `trailing-whitespace` / `tw`) and their `--check` twins
 /// (`end-of-file-fixer-check`, `trailing-whitespace-check`, which every
 /// stack's `verify` names), the config checkers (`check-json`,
-/// `check-yaml`), `sec`, `lint-actions` and `msrv`. Add new entries here whenever a clap-level
+/// `check-yaml`), `sec`, `lint-actions`, `msrv` and the Rust checks
+/// (`foundation`, `semver`, `feature-matrix`, `doc-ids`). Add new entries here whenever a clap-level
 /// subcommand should also be referenceable from composite `commands = [...]`.
 ///
 /// The fixers rewrite files, so they keep `ops_subcommand`'s exclusive
-/// default; their twins and the checkers (`lint-actions` included) only read and are marked
-/// [`read_only`]. `msrv` compiles into `target/`, so it keeps the exclusive
-/// default like any build step. `sec` also
+/// default; their twins and the checkers (`lint-actions`, `foundation` and
+/// `doc-ids` included) only read and are marked [`read_only`]. `msrv`,
+/// `semver` and `feature-matrix` compile into `target/`, so they keep the
+/// exclusive default like any build step. `sec` also
 /// never writes the worktree, but it stays exclusive (TASK-2263): Trivy
 /// reads the *whole* tree, build outputs included, and aborts the scan when
 /// a file vanishes mid-walk — which is exactly what a concurrent build or
@@ -75,6 +77,18 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         CommandId::from("msrv"),
         CommandSpec::Exec(builtin_exec("msrv", &[])),
     );
+    for reader in ["foundation", "doc-ids"] {
+        map.insert(
+            CommandId::from(reader),
+            CommandSpec::Exec(read_only(builtin_exec(reader, &[]))),
+        );
+    }
+    for compiling in ["semver", "feature-matrix"] {
+        map.insert(
+            CommandId::from(compiling),
+            CommandSpec::Exec(builtin_exec(compiling, &[])),
+        );
+    }
     map
 }
 
@@ -188,6 +202,10 @@ mod tests {
             ("sec", true),
             ("lint-actions", false),
             ("msrv", true),
+            ("foundation", false),
+            ("doc-ids", false),
+            ("semver", true),
+            ("feature-matrix", true),
         ] {
             let Some(CommandSpec::Exec(exec)) = map.get(name) else {
                 panic!("{name} must be an exec builtin");

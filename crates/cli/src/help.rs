@@ -116,6 +116,10 @@ pub fn builtin_category(name: &str) -> &'static str {
         | "sec"
         | "clippy-findings"
         | "msrv"
+        | "foundation"
+        | "semver"
+        | "feature-matrix"
+        | "doc-ids"
         | "lint-actions" => "Code Quality",
         "init" | "theme" | "extension" | "run-before-commit" | "run-before-push" => "Setup",
         _ => "Commands",

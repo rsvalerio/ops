@@ -65,6 +65,10 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         | CoreSubcommand::Sec { .. }
         | CoreSubcommand::ClippyFindings(_)
         | CoreSubcommand::Msrv { .. }
+        | CoreSubcommand::Foundation
+        | CoreSubcommand::Semver
+        | CoreSubcommand::FeatureMatrix
+        | CoreSubcommand::DocIds
         | CoreSubcommand::LintActions { .. }
         | CoreSubcommand::External(_) => None,
     }
@@ -129,6 +133,10 @@ mod tests {
             (&["sec"], false),
             (&["clippy-findings"], false),
             (&["msrv"], false),
+            (&["foundation"], false),
+            (&["semver"], false),
+            (&["feature-matrix"], false),
+            (&["doc-ids"], false),
             (&["lint-actions"], false),
             (&["build"], false),
         ]

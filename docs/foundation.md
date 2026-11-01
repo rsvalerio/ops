@@ -37,6 +37,12 @@ is the repo's own value and not part of the baseline.
 Compares the project with the templates in the running ops and exits 1 on drift. It
 writes nothing, so it is safe in CI and under `--dry-run`.
 
+`ops foundation` is the same check as a built-in command, so a composite can name it
+with no definition of its own, through `[extend.qa] commands = ["foundation"]` for
+instance. It re-invokes the running ops, so the version a repo pins decides the
+templates, not whatever `ops` is on `PATH`. A `[commands.foundation]` entry left over from
+before the built-in is reported as shadowed; delete it.
+
 The comparison is semantic, not textual. Each template is a baseline:
 
 - Every key the template sets must be present with the same value. Comments and
