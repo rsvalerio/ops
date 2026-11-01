@@ -1,9 +1,10 @@
 ---
 id: TASK-2658
 title: 'Cargo workspaces phase 2: nested lock agreement and lints sync checks'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-01 17:39'
+updated_date: '2026-11-01 19:56'
 labels:
   - config
   - rust
@@ -29,6 +30,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A nested workspace lock disagreement with the root for a shared crate is reported
-- [ ] #2 A nested [lints] table that differs from [workspace.lints] is reported
+- [x] #1 A nested workspace lock disagreement with the root for a shared crate is reported
+- [x] #2 A nested [lints] table that differs from [workspace.lints] is reported
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented as ops check-workspaces (read-only, needs no tool): per extra [cargo] workspaces entry, lock agreement (shared-crate name/version/source triples one-directional, no nested-only dependency edge, no missing required edge for repo-local crates, with dbsec's double-read snapshot guard) and bidirectional [lints] vs [workspace.lints] equality compared as policies. Deliberate differences recorded under [cargo] lint_exemptions as workspace -> group.lint -> reason (HISTORY 0.92.0); an exemption licenses omitting only, never setting or keeping a dropped lint. Validated on dbsec: with the one exemption its own script carries (rust.unsafe_code), the built-in agrees with fuzz-lock-check.sh and lint-sync-check.sh on the same tree — both pass; without it, both report the same single finding.
+<!-- SECTION:NOTES:END -->
