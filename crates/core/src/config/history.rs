@@ -95,6 +95,10 @@ impl FromStr for OpsVersion {
 /// `clone`), `[themes.<name>]` under `theme`, `[extend.<name>]` under
 /// `extend`, and a `strategy` table under `strategy`.
 const HISTORY: &[(OpsVersion, &[&str])] = &[
+    (
+        OpsVersion::new(0, 91, 0),
+        &["exec.after", "exec.wrap", "clone.after", "clone.wrap"],
+    ),
     (OpsVersion::new(0, 88, 0), &["cargo.workspaces"]),
     (OpsVersion::new(0, 86, 0), &["clone.args"]),
     (
@@ -500,6 +504,20 @@ mod tests {
         assert!(has(&fields, "commands.a.args", "0.1.0"), "{fields:?}");
         assert!(
             has(&fields, "commands.b.args (beside clone)", "0.86.0"),
+            "{fields:?}"
+        );
+    }
+
+    #[test]
+    fn after_and_wrap_need_the_release_after_0_90() {
+        let fields = used(
+            "[commands.a]\nprogram = \"x\"\nafter = [\"b\"]\nwrap = [\"w\"]\n\
+             [commands.c]\nclone = \"a\"\nwrap = []\n",
+        );
+        assert!(has(&fields, "commands.a.after", "0.91.0"), "{fields:?}");
+        assert!(has(&fields, "commands.a.wrap", "0.91.0"), "{fields:?}");
+        assert!(
+            has(&fields, "commands.c.wrap (beside clone)", "0.91.0"),
             "{fields:?}"
         );
     }
