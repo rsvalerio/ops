@@ -81,7 +81,14 @@ impl LockPkg {
 }
 
 /// Read `path` until two consecutive reads agree, then return the text.
+/// A symlink at `path` is refused unread — nothing in this check follows
+/// one out of the workspace, the same rule the config loader enforces.
 fn snapshot(path: &Path) -> anyhow::Result<String> {
+    let is_symlink = std::fs::symlink_metadata(path)
+        .with_context(|| format!("reading {}", path.display()))?
+        .file_type()
+        .is_symlink();
+    anyhow::ensure!(!is_symlink, "{}: is a symlink; refusing to follow it", path.display());
     for _ in 0..SNAPSHOT_ATTEMPTS {
         let a =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -827,6 +834,31 @@ mod tests {
         std::os::unix::fs::symlink("/", dir.path().join("decoy/Cargo.toml")).unwrap();
         let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
         assert_eq!(code, ExitCode::SUCCESS, "{out}");
+    }
+
+    #[test]
+    fn a_symlinked_lockfile_is_refused_unread() {
+        let dir = tempfile::tempdir().unwrap();
+        // The nested lockfile is a symlink out of the repo: the check errors
+        // rather than follow it, whether or not its target exists.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n[workspace.lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("Cargo.lock"), "version = 4\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[workspace]\n\n[lints.rust]\nunsafe_code = \"forbid\"\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("/outside/Cargo.lock", dir.path().join("fuzz/Cargo.lock"))
+            .unwrap();
+        let mut out = Vec::new();
+        let err = run_workspace_check(dir.path(), &section(&[".", "fuzz"], &[]), &mut out)
+            .expect_err("a symlinked lockfile must be refused");
+        assert!(err.to_string().contains("is a symlink"), "{err:#}");
     }
 
     #[test]
