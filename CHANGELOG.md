@@ -2,6 +2,24 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.92.0](https://github.com/rsvalerio/ops/compare/30cdb92f1480c2e8dcc9ea576f98f6f836623758..v0.92.0) - 2026-11-02
+#### 🚀 Features
+- (**cli**) add ops check-workspaces for nested lock and lints drift - ([d7c2d04](https://github.com/rsvalerio/ops/commit/d7c2d04551abba2345a246f1f4f19384e139cc16)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) add [cargo] lint_exemptions for nested-workspace lint policy - ([6b39154](https://github.com/rsvalerio/ops/commit/6b391545ab818b2ad159ebbab809c72b18808f20)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cli**) refuse a symlinked lockfile or manifest before reading - ([c19a612](https://github.com/rsvalerio/ops/commit/c19a61286b1ee36c3afef76b0af42a1fd744f697)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) compare check-cfg lists as sets, not by order - ([692a55c](https://github.com/rsvalerio/ops/commit/692a55c925fc69372c31a70a8d82dd65735bc30c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) carry extra lint fields into the policy comparison, exercise the symlink guard - ([2604508](https://github.com/rsvalerio/ops/commit/260450874b31cabe30097056caf67af78867ae73)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) address review: builtin registration, dep renames, symlinks, lint policies - ([a9c9f8f](https://github.com/rsvalerio/ops/commit/a9c9f8f4455abfe025ccee5e6fcaf28dd17bd03a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cli**) classify check-workspaces under --dry-run - ([0efb7dc](https://github.com/rsvalerio/ops/commit/0efb7dca8f8e950347a5735d5ce2bef7f2e47811)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2658, check-workspaces shipped - ([c265dd0](https://github.com/rsvalerio/ops/commit/c265dd0e375854a1928de24ead72a9342b7df4d2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close TASK-2654, ops semver exercised for real - ([8295394](https://github.com/rsvalerio/ops/commit/82953944cd6227efdaac8f0ce631159dd3a1aa77)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close TASK-2636, file phase 2 as TASK-2658 - ([30cdb92](https://github.com/rsvalerio/ops/commit/30cdb92f1480c2e8dcc9ea576f98f6f836623758)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.91.0](https://github.com/rsvalerio/ops/compare/9f0c13d01c2206a37716d64cf0984c8a7d535dd3..v0.91.0) - 2026-11-01
 #### 🚀 Features
 - (**config**) track config values and all mise pin locations - ([8ac5f02](https://github.com/rsvalerio/ops/commit/8ac5f021b1d2a66b912dac58587018af03e063e4)) - [@rsvalerio](https://github.com/rsvalerio)
