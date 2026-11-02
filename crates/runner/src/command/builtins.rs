@@ -25,7 +25,8 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// (`end-of-file-fixer-check`, `trailing-whitespace-check`, which every
 /// stack's `verify` names), the config checkers (`check-json`,
 /// `check-yaml`), `sec`, `lint-actions`, `msrv` and the Rust checks
-/// (`foundation`, `semver`, `feature-matrix`, `doc-ids`). Add new entries here whenever a clap-level
+/// (`foundation`, `semver`, `feature-matrix`, `doc-ids`,
+/// `check-workspaces`). Add new entries here whenever a clap-level
 /// subcommand should also be referenceable from composite `commands = [...]`.
 ///
 /// The fixers rewrite files, so they keep `ops_subcommand`'s exclusive
@@ -67,7 +68,7 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         CommandSpec::Exec(read_only(builtin_exec("lint-actions", &[]))),
     );
     map.insert(CommandId::from("msrv"), CommandSpec::Exec(builtin_exec("msrv", &[])));
-    for reader in ["foundation", "doc-ids"] {
+    for reader in ["foundation", "doc-ids", "check-workspaces"] {
         map.insert(
             CommandId::from(reader),
             CommandSpec::Exec(read_only(builtin_exec(reader, &[]))),
@@ -181,6 +182,7 @@ mod tests {
             ("msrv", true),
             ("foundation", false),
             ("doc-ids", false),
+            ("check-workspaces", false),
             ("semver", true),
             ("feature-matrix", true),
         ] {

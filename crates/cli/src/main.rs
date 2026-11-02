@@ -74,6 +74,7 @@ mod sec_cmd;
 mod subcommands;
 mod theme_cmd;
 mod tty;
+mod workspace_check_cmd;
 
 #[cfg(test)]
 mod test_utils;
@@ -334,6 +335,7 @@ fn dispatch(
             | CoreSubcommand::Semver
             | CoreSubcommand::FeatureMatrix
             | CoreSubcommand::DocIds
+            | CoreSubcommand::CheckWorkspaces
             | CoreSubcommand::LintActions { .. }),
         ) => return run_check(sub, early_config, cli.dry_run),
         Some(CoreSubcommand::Explain(args)) => {
@@ -406,6 +408,11 @@ fn run_check(
             cargo_check_cmd::run_cargo_check(&cargo_check_cmd::FEATURE_MATRIX, &cwd()?, dry_run)
         }
         CoreSubcommand::DocIds => doc_ids_cmd::run_doc_ids(&cwd()?, &mut std::io::stdout().lock()),
+        CoreSubcommand::CheckWorkspaces => workspace_check_cmd::run_workspace_check(
+            &cwd()?,
+            &config.cargo,
+            &mut std::io::stdout().lock(),
+        ),
         CoreSubcommand::LintActions { mut allow } => {
             allow.extend(config.lint_actions.allow.iter().cloned());
             lint_actions_cmd::run_lint_actions(&cwd()?, &allow)

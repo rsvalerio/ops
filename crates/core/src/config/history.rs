@@ -112,6 +112,7 @@ impl FromStr for OpsVersion {
 /// `clone`), `[themes.<name>]` under `theme`, `[extend.<name>]` under
 /// `extend`, and a `strategy` table under `strategy`.
 const HISTORY: &[(OpsVersion, &[&str])] = &[
+    (OpsVersion::new(0, 92, 0), &["cargo.lint_exemptions"]),
     (OpsVersion::new(0, 91, 0), &["exec.after", "exec.wrap", "clone.after", "clone.wrap"]),
     (OpsVersion::new(0, 88, 0), &["cargo.workspaces"]),
     (OpsVersion::new(0, 86, 0), &["clone.args"]),
