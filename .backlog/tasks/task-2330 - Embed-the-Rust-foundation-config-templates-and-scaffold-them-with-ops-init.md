@@ -1,10 +1,10 @@
 ---
 id: TASK-2330
 title: 'Embed the Rust foundation config templates and scaffold them with ops init'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-28 13:52'
-updated_date: '2026-09-28 14:51'
+updated_date: '2026-11-02 19:03'
 labels:
   - ci
   - ops-alignment
@@ -46,4 +46,7 @@ Implemented on feat/rust-foundation-templates (owner decisions 2026-09-28: `ops 
 - ops itself adopted the no-op clippy/deny keys and nextest leak-timeout. The only remaining drift is rustfmt.toml (adopting it reformats about 2600 hunks).
 
 Follow-ups: after release, add `[foundation.waivers] "rustfmt.toml"` to ops's .ops.toml. It cannot land before then, because older ops binaries reject the unknown `[foundation]` section (deny_unknown_fields). Then point forge config/ and the ai skills at ops (forge TASK-0025/0028).
+
+Follow-up resolved without the waiver: the ~2600-hunk rustfmt reformat landed in v0.91.0 ('settle sibling-wave code under the doc-ids gate and rustfmt Max'), so the repo's rustfmt.toml is byte-identical to the template and `ops init --rust --check` reports 0 drift, 0 waived. Adding the recorded `[foundation.waivers] "rustfmt.toml"` now would be flagged as an unused waiver, so it was never added. Post-v0.92.0 chore done instead: mise.toml ops pin bumped 0.90.1 -> 0.92.0 (the pin tracks the newest release; floor 0.77.0 unchanged). Remaining external follow-up lives in forge TASK-0025/0028: point forge config/ and the ai skills at ops.
+
 <!-- SECTION:NOTES:END -->
