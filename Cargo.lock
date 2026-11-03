@@ -320,13 +320,13 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "0.15.25"
+version = "0.15.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b85f248a4de22d204ceabc6299d89d2c70fbd7f09fea53c06c852369652d8139"
+checksum = "38e9fbc53afcec54441422f1c596cd054655b32e70e1cbac956651b7b175a404"
 dependencies = [
  "async-trait",
  "convert_case 0.6.0",
- "json5",
+ "json5 1.3.7",
  "pathdiff",
  "ron",
  "rust-ini",
@@ -1146,6 +1146,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "json5"
+version = "1.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0348cde6df2b507ba3c3753beba226baba8567af588d6568cdb9877f02c75b60"
+dependencies = [
+ "serde",
+ "ucd-trie",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1525,7 +1535,7 @@ name = "ops-config-checkers"
 version = "0.92.0"
 dependencies = [
  "anyhow",
- "json5",
+ "json5 0.4.1",
  "linkme",
  "ops-core",
  "ops-extension",
@@ -2788,7 +2798,7 @@ dependencies = [
  "etcetera",
  "grep-searcher",
  "ignore",
- "json5",
+ "json5 0.4.1",
  "log",
  "num-format",
  "once_cell",
