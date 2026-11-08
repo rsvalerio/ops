@@ -54,9 +54,14 @@ use ops_core::config::CargoSection;
 /// loud failure.
 const SNAPSHOT_ATTEMPTS: usize = 3;
 
-/// Directories whose contents are never a manifest worth mapping: build
-/// output, the checkout's own state, and dot-directories.
-const SKIP_DIRS: &[&str] = &["target", ".git", "node_modules"];
+/// Directories whose contents are never a manifest worth mapping: the
+/// workspace-wide skip policy from `ops_core::stack::scan_skip_dirs`
+/// (`.git` plus every stack's build/dependency output), so this walk can
+/// never descend into a dir `ops sec` would skip — a vendored copy would
+/// otherwise surface as an ambiguous package-name claim.
+fn skip_dirs() -> Vec<&'static str> {
+    ops_core::stack::scan_skip_dirs()
+}
 
 /// One `[[package]]` record of a lockfile.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -282,7 +287,11 @@ fn normalise(value: &toml::Value) -> String {
 /// manifest (a fixture, a vendored copy) is ambiguous, and the caller skips
 /// it rather than trusting one arbitrary copy.
 fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, Vec<PathBuf>>> {
-    fn walk(dir: &Path, out: &mut BTreeMap<String, Vec<PathBuf>>) -> anyhow::Result<()> {
+    fn walk(
+        dir: &Path,
+        skip: &[&'static str],
+        out: &mut BTreeMap<String, Vec<PathBuf>>,
+    ) -> anyhow::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let file_type = entry.file_type()?;
@@ -292,10 +301,10 @@ fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, Vec<PathBuf>>> {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if file_type.is_dir() {
-                if name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref()) {
+                if name.starts_with('.') || skip.contains(&name.as_ref()) {
                     continue;
                 }
-                walk(&entry.path(), out)?;
+                walk(&entry.path(), skip, out)?;
             } else if name == "Cargo.toml" {
                 let text = std::fs::read_to_string(entry.path())?;
                 if let Ok(manifest) = text.parse::<toml::Table>() {
@@ -308,15 +317,20 @@ fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, Vec<PathBuf>>> {
         Ok(())
     }
     let mut out = BTreeMap::new();
-    walk(root, &mut out).with_context(|| format!("walking {}", root.display()))?;
+    walk(root, &skip_dirs(), &mut out).with_context(|| format!("walking {}", root.display()))?;
     Ok(out)
 }
 
-/// What every [`check_lock`] pass walks with: the root lockfile's packages,
-/// the repo's manifests by package name, and the root
-/// `[workspace.dependencies]` for resolving an inherited rename.
+/// What every [`check_lock`] pass walks with: the root lockfile's packages
+/// pre-indexed three ways (identity set, by identity, and by name), the
+/// repo's manifests by package name, and the root
+/// `[workspace.dependencies]` for resolving an inherited rename. The
+/// indexes are built once for the whole run — every nested workspace
+/// consults the same root graph.
 struct LockCtx<'a> {
-    root_pkgs: &'a [LockPkg],
+    root_triples: BTreeSet<(&'a str, &'a str, &'a str)>,
+    root_by_triple: BTreeMap<(&'a str, &'a str, &'a str), &'a LockPkg>,
+    root_versions: BTreeMap<&'a str, Vec<&'a str>>,
     manifests: &'a BTreeMap<String, Vec<PathBuf>>,
     workspace_deps: Option<&'a toml::Table>,
 }
@@ -332,17 +346,9 @@ fn check_lock(
     let nested_path = root.join(entry).join("Cargo.lock");
     let nested_pkgs = parse_lock(&snapshot(&nested_path)?)?;
 
-    let root_triples: BTreeSet<(&str, &str, &str)> =
-        ctx.root_pkgs.iter().map(LockPkg::triple).collect();
-    let root_by_triple: BTreeMap<(&str, &str, &str), &LockPkg> =
-        ctx.root_pkgs.iter().map(|p| (p.triple(), p)).collect();
-    let root_versions: BTreeMap<&str, Vec<&str>> = {
-        let mut map: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for pkg in ctx.root_pkgs {
-            map.entry(pkg.name.as_str()).or_default().push(&pkg.version);
-        }
-        map
-    };
+    let root_triples = &ctx.root_triples;
+    let root_by_triple = &ctx.root_by_triple;
+    let root_versions = &ctx.root_versions;
 
     // Rule 1 — versions. One-directional on purpose: a crate the root graph
     // does not hold at all is allowed, a shared crate at another version or
@@ -426,20 +432,19 @@ fn check_lock(
 /// tables as a copy of the root `[workspace.lints]`, in both directions,
 /// modulo `exemptions` (`<group>.<lint>` keys).
 fn check_lints(
+    root_lints: &BTreeMap<String, String>,
     root: &Path,
     entry: &str,
     exemptions: &BTreeMap<String, String>,
     out: &mut Vec<String>,
 ) -> anyhow::Result<()> {
-    let root_manifest: toml::Table = snapshot(&root.join("Cargo.toml"))?.parse()?;
     let nested_manifest: toml::Table = snapshot(&root.join(entry).join("Cargo.toml"))?.parse()?;
-    let root_lints = lints_of(root_manifest.get("workspace").and_then(|w| w.get("lints")));
     let nested_lints = lints_of(nested_manifest.get("lints"));
 
     // Root → nested: missing, or set to a different value. An exempt key must
     // be absent — the exemption licenses omitting the lint, not diverging
     // from it.
-    for (key, value) in &root_lints {
+    for (key, value) in root_lints {
         let nested_value = nested_lints.get(key);
         if let Some(reason) = exemptions.get(key) {
             if let Some(nested) = nested_value {
@@ -499,8 +504,27 @@ pub fn run_workspace_check(
         .get("workspace")
         .and_then(|w| w.get("dependencies"))
         .and_then(toml::Value::as_table);
+    let root_lints = lints_of(root_manifest.get("workspace").and_then(|w| w.get("lints")));
     let manifests = manifests_in(root)?;
-    let ctx = LockCtx { root_pkgs: &root_pkgs, manifests: &manifests, workspace_deps };
+    // Root-graph indexes shared by every nested workspace's check.
+    let root_triples: BTreeSet<(&str, &str, &str)> =
+        root_pkgs.iter().map(LockPkg::triple).collect();
+    let root_by_triple: BTreeMap<(&str, &str, &str), &LockPkg> =
+        root_pkgs.iter().map(|p| (p.triple(), p)).collect();
+    let root_versions: BTreeMap<&str, Vec<&str>> = {
+        let mut map: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for pkg in &root_pkgs {
+            map.entry(pkg.name.as_str()).or_default().push(&pkg.version);
+        }
+        map
+    };
+    let ctx = LockCtx {
+        root_triples,
+        root_by_triple,
+        root_versions,
+        manifests: &manifests,
+        workspace_deps,
+    };
     for &entry in &entries {
         check_lock(root, entry, &ctx, &mut findings)?;
         let exemptions: BTreeMap<String, String> = cargo
@@ -509,7 +533,7 @@ pub fn run_workspace_check(
             .and_then(|map| map.get(entry))
             .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
-        check_lints(root, entry, &exemptions, &mut findings)?;
+        check_lints(&root_lints, root, entry, &exemptions, &mut findings)?;
     }
     if findings.is_empty() {
         for entry in entries {
@@ -909,9 +933,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Two manifests claim `app`. Trusting either would consult a
         // manifest the lockfiles may not describe, so the crate is skipped:
-        // the unambiguous missing edge (`left-out`) is not reported.
+        // the unambiguous missing edge (`left-out`) is not reported. The
+        // second copy sits in `fixtures/` — a dir the shared skip policy
+        // does not skip — so both manifests are mapped and the name is
+        // genuinely ambiguous.
         std::fs::create_dir_all(dir.path().join("crates/app")).unwrap();
-        std::fs::create_dir_all(dir.path().join("vendor/app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("fixtures/app")).unwrap();
         std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
         std::fs::write(
             dir.path().join("Cargo.toml"),
@@ -924,7 +951,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("vendor/app/Cargo.toml"),
+            dir.path().join("fixtures/app/Cargo.toml"),
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
