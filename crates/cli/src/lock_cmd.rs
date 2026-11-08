@@ -47,6 +47,33 @@ use anyhow::Context as _;
 /// How often a lock wait with a timeout re-polls.
 const POLL: Duration = Duration::from_millis(100);
 
+/// One `git rev-parse` answering both repository anchors `ops lock` needs:
+/// the common dir (where `<common>/ops/locks` lives) and the working-tree
+/// toplevel (holder provenance) — one process instead of two. Spawned via
+/// [`ops_backlog::cmd::git::run`], which owns the hook-env scrub
+/// (`GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE`) so an enclosing git
+/// hook cannot redirect either anchor to another repository.
+///
+/// # Errors
+///
+/// `cwd` is not inside a git repository.
+fn git_anchors(cwd: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let raw = ops_backlog::cmd::git::run(cwd, ["rev-parse", "--git-common-dir", "--show-toplevel"])
+        .map_err(|e| anyhow::anyhow!("ops lock needs a git repository: {e}"))?;
+    let mut lines = raw.trim_end_matches(['\n', '\r']).split('\n');
+    let common = PathBuf::from(lines.next().unwrap_or_default());
+    let toplevel = PathBuf::from(lines.next().unwrap_or_default());
+    let common = if common.is_absolute() { common } else { cwd.join(common) };
+    Ok((common, toplevel))
+}
+
+/// `<git-common-dir>/ops/locks`, created on demand.
+fn locks_under(common: &Path) -> anyhow::Result<PathBuf> {
+    let dir = common.join("ops").join("locks");
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    Ok(dir)
+}
+
 /// The lock directory for the repository containing `cwd`:
 /// `<git-common-dir>/ops/locks`, created on demand.
 ///
@@ -55,26 +82,8 @@ const POLL: Duration = Duration::from_millis(100);
 /// `cwd` is not inside a git repository, or the directory cannot be
 /// created.
 pub fn locks_dir(cwd: &Path) -> anyhow::Result<PathBuf> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .args(["rev-parse", "--git-common-dir"])
-        .output()
-        .context("running git rev-parse --git-common-dir")?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "ops lock needs a git repository: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let raw = String::from_utf8_lossy(&output.stdout);
-    let common = PathBuf::from(raw.trim_end_matches(['\n', '\r']));
-    let common = if common.is_absolute() { common } else { cwd.join(common) };
-    let dir = common.join("ops").join("locks");
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    Ok(dir)
+    let (common, _) = git_anchors(cwd)?;
+    locks_under(&common)
 }
 
 /// A lock name becomes a file name, so it is restricted to a safe alphabet:
@@ -544,8 +553,9 @@ pub fn run_locked(
     let Some((program, args)) = command.split_first() else {
         anyhow::bail!("no command given: ops lock <name> -- <command…>");
     };
-    let dir = locks_dir(cwd)?;
-    let worktree = git_toplevel(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    let (common, toplevel) = git_anchors(cwd)?;
+    let dir = locks_under(&common)?;
+    let worktree = if toplevel.as_os_str().is_empty() { cwd.to_path_buf() } else { toplevel };
     let holder = Holder::current(&worktree, command);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -557,33 +567,17 @@ pub fn run_locked(
         let acquired = acquire(&dir, name, &holder, wait).await?;
         let guard = match acquired {
             Acquired::Held(guard) => guard,
-            Acquired::Signalled(signo) => return Ok(signal_code(signo)),
+            Acquired::Signalled(signo) => return Ok(crate::shell_exit_code_for_signal(signo)),
         };
         if let Some(signo) = signals.pending().await {
             drop(guard);
-            return Ok(signal_code(signo));
+            return Ok(crate::shell_exit_code_for_signal(signo));
         }
         let code = run_child(program, args, &mut signals).await?;
         drop(guard);
         anyhow::Ok(code)
     })?;
     Ok(ExitCode::from(code))
-}
-
-fn git_toplevel(cwd: &Path) -> Option<PathBuf> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    output.status.success().then(|| {
-        PathBuf::from(
-            String::from_utf8_lossy(&output.stdout).trim_end_matches(['\n', '\r']).to_string(),
-        )
-    })
 }
 
 /// Run the child to completion, forwarding caught signals to it, and map
@@ -653,12 +647,7 @@ fn exit_code(status: std::process::ExitStatus, received: Option<i32>) -> u8 {
     if let Some(code) = status.code() {
         return u8::try_from(code).unwrap_or(1);
     }
-    by_signal.map_or(1, signal_code)
-}
-
-/// The shell's exit code for a death by `signo`: `128 + signo`.
-fn signal_code(signo: i32) -> u8 {
-    u8::try_from(signo).ok().and_then(|signo| signo.checked_add(128)).unwrap_or(1)
+    by_signal.map_or(1, crate::shell_exit_code_for_signal)
 }
 
 #[cfg(test)]
