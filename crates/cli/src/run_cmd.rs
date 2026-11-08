@@ -22,7 +22,7 @@ use ops_runner::display::{DisplayOptions, ProgressDisplay};
 use ops_runner::terminal::EchoGuard;
 
 use crate::registry::{as_ext_refs, builtin_extensions, register_extension_commands};
-use crate::{ExitCodeOverride, SIGINT_EXIT};
+use crate::{shell_exit_code_for_signal, ExitCodeOverride};
 
 use dry_run::run_command_dry_run;
 use plan::{build_display_map, log_step_results, plans_for_names, NamePlan};
@@ -259,6 +259,41 @@ fn run_commands(
     Ok(summarize(&results))
 }
 
+/// Visit every command spec reachable from `name` through composite
+/// children, cycle-safe: `name` itself first, then each composite's
+/// children (depth-first, order unspecified). `visit` returns `Break` to
+/// stop the walk early. One walker serves every tree scan — the raw-mode
+/// check below and the scheduling-flag scan the dry-run tests pin — so the
+/// traversal shape (visited set, child push) exists once.
+fn walk_command_tree(
+    runner: &ops_runner::command::CommandRunner,
+    name: &str,
+    mut visit: impl FnMut(&ops_core::config::CommandSpec) -> std::ops::ControlFlow<()>,
+) {
+    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut stack: Vec<&str> = vec![name];
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let Some(spec) = runner.resolve(current) else { continue };
+        let children = match spec {
+            ops_core::config::CommandSpec::Composite(c) => Some(&c.commands),
+            _ => None,
+        };
+        if visit(spec).is_break() {
+            return;
+        }
+        if let Some(children) = children {
+            for child in children {
+                if !visited.contains(child.as_str()) {
+                    stack.push(child.as_str());
+                }
+            }
+        }
+    }
+}
+
 /// Whether `name`, or any command reachable through its composite tree,
 /// sets `raw = true` — the config-side twin of the `--raw` flag (see
 /// [`ops_core::config::ExecCommandSpec::raw`]).
@@ -268,27 +303,16 @@ fn run_commands(
 /// named command's own spec does. Cycle-safe through the visited set, though
 /// the planner rejects cycles before a run ever starts.
 fn command_tree_is_raw(runner: &ops_runner::command::CommandRunner, name: &str) -> bool {
-    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut stack: Vec<&str> = vec![name];
-    while let Some(current) = stack.pop() {
-        if !visited.insert(current) {
-            continue;
-        }
-        let Some(spec) = runner.resolve(current) else {
-            continue;
-        };
+    let mut raw = false;
+    walk_command_tree(runner, name, |spec| {
         if spec.raw() {
-            return true;
+            raw = true;
+            std::ops::ControlFlow::Break(())
+        } else {
+            std::ops::ControlFlow::Continue(())
         }
-        if let ops_core::config::CommandSpec::Composite(c) = spec {
-            for child in &c.commands {
-                if !visited.contains(child.as_str()) {
-                    stack.push(child.as_str());
-                }
-            }
-        }
-    }
-    false
+    });
+    raw
 }
 
 /// Run each named command as its own plan, one after another.
@@ -628,7 +652,7 @@ fn restore_default_shutdown_dispositions() {
 
 /// POSIX signal numbers, spelled out as literals: they are the values the
 /// exit code is derived from, and writing them here keeps the mapping
-/// readable next to [`exit_code_for_signal`].
+/// readable next to [`crate::shell_exit_code_for_signal`].
 ///
 /// Both are read only from the `#[cfg(unix)]` arm of [`run_until_signal`],
 /// so they are compiled for Unix only — otherwise a non-Unix build carries
@@ -638,18 +662,13 @@ const SIGINT_SIGNO: i32 = 2;
 #[cfg(unix)]
 const SIGTERM_SIGNO: i32 = 15;
 
-/// Map a shutdown signal to the shell convention of `128 + signo`
-/// (130 for SIGINT, 143 for SIGTERM).
-fn exit_code_for_signal(signo: i32) -> u8 {
-    u8::try_from(signo).ok().and_then(|s: u8| s.checked_add(128)).unwrap_or(SIGINT_EXIT)
-}
-
 /// Turn an interrupted run into the error `main` renders, carrying the
-/// `128 + signo` exit code through the existing [`ExitCodeOverride`]
-/// channel rather than collapsing to a generic failure.
+/// `128 + signo` exit code (130 for SIGINT, 143 for SIGTERM) through the
+/// existing [`ExitCodeOverride`] channel rather than collapsing to a
+/// generic failure.
 fn interrupted_error(signo: i32) -> anyhow::Error {
     anyhow::anyhow!("run interrupted by signal {signo}; in-flight commands were cancelled")
-        .context(ExitCodeOverride(exit_code_for_signal(signo)))
+        .context(ExitCodeOverride(shell_exit_code_for_signal(signo)))
 }
 
 fn run_commands_with_display(
@@ -793,30 +812,16 @@ pub fn composite_tree_flags(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
 ) -> (bool, bool) {
-    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut stack: Vec<&str> = vec![name];
-    let mut has_parallel = false;
-    let mut fail_fast_disabled = false;
-    while let Some(current) = stack.pop() {
-        if !visited.insert(current) {
-            continue;
-        }
-        if let Some(ops_core::config::CommandSpec::Composite(c)) = runner.resolve(current) {
-            if c.parallel {
-                has_parallel = true;
-            }
-            if !c.fail_fast {
-                fail_fast_disabled = true;
-            }
+    let (mut has_parallel, mut fail_fast_disabled) = (false, false);
+    walk_command_tree(runner, name, |spec| {
+        if let ops_core::config::CommandSpec::Composite(c) = spec {
+            has_parallel |= c.parallel;
+            fail_fast_disabled |= !c.fail_fast;
             if has_parallel && fail_fast_disabled {
-                break;
-            }
-            for child in &c.commands {
-                if !visited.contains(child.as_str()) {
-                    stack.push(child.as_str());
-                }
+                return std::ops::ControlFlow::Break(());
             }
         }
-    }
+        std::ops::ControlFlow::Continue(())
+    });
     (has_parallel, fail_fast_disabled)
 }
