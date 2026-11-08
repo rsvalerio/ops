@@ -49,6 +49,22 @@ pub enum OutputFormat {
     Json,
 }
 
+impl OutputFormat {
+    /// The format the CLI's flag pair selects: `--json` picks
+    /// [`OutputFormat::Json`]; no flag — and `--plain`, which renders
+    /// identically to the default — picks [`OutputFormat::Plain`]. Owning
+    /// the mapping here keeps the `--plain`≡default equivalence contract
+    /// out of per-action CLI handlers.
+    #[must_use]
+    pub const fn from_json_flag(json: bool) -> Self {
+        if json {
+            Self::Json
+        } else {
+            Self::Plain
+        }
+    }
+}
+
 /// Ask `<prompt> [y/N] ` and read one answer line. `y`/`yes`
 /// (case-insensitive) proceeds; empty input — including EOF on a closed
 /// stdin — and anything else cancels. No is the default, matching the
