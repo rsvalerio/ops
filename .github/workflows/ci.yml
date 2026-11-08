@@ -70,6 +70,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           rustflags: ""
+          # v2 defaults build-warnings to deny, failing the build on cargo's
+          # own manifest/patch warnings; empty keeps the v1 posture.
+          build-warnings: ""
       - name: cargo check -p ops-backlog --all-targets
         run: cargo check -p ops-backlog --all-targets
       - name: cargo test -p ops-backlog concurrent keyed create (non-Unix allocation lock)
@@ -120,6 +123,9 @@ jobs:
           toolchain: nightly
           components: miri
           rustflags: ""
+          # v2 defaults build-warnings to deny, failing the build on cargo's
+          # own manifest/patch warnings; empty keeps the v1 posture.
+          build-warnings: ""
       - name: cargo miri test -p ops-core (atomic write / build_tmp_basename)
         run: cargo +nightly miri test -p ops-core config::edit::tests::atomic_write -- --skip atomic_write_mode_unaffected_by_umask
       - name: cargo miri test -p ops-runner (EchoGuard non-TTY construction)
