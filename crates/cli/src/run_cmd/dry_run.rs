@@ -4,19 +4,8 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use ops_core::config::CommandSpec;
-use ops_core::ui::sanitise_line;
+use ops_core::ui::sanitise_to_string;
 use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value};
-
-/// Route an audit-channel value through `sanitise_line`
-/// so ANSI clear-screen / cursor-move / NUL bytes embedded in a
-/// `.ops.toml` value (or its `${VAR}` expansion) cannot repaint the
-/// operator's terminal during `ops --dry-run`. Mirrors the stderr policy
-/// from `ops_core::ui::emit_to`.
-pub(super) fn audit_safe(value: &str) -> String {
-    let mut buf = String::with_capacity(value.len());
-    sanitise_line(value, &mut buf);
-    buf
-}
 
 /// Preview commands without executing.
 ///
@@ -43,15 +32,15 @@ pub fn run_command_dry_run_to(
 
     // The command name and resolved leaf ids both
     // originate from `.ops.toml` keys (TOML quoted keys permit arbitrary
-    // Unicode, including ESC/NUL/CR), so route them through `audit_safe`
+    // Unicode, including ESC/NUL/CR), so route them through `sanitise_to_string`
     // before writing to the operator's audit channel. Without this an
     // attacker-controlled `.ops.toml` key like `"build[2J"` could repaint
     // the terminal during `ops --dry-run`.
-    writeln!(w, "Command: {}", audit_safe(name))?;
+    writeln!(w, "Command: {}", sanitise_to_string(name))?;
     writeln!(w, "Resolved to {} step(s):", leaf_ids.len())?;
 
     for (i, id) in leaf_ids.iter().enumerate() {
-        writeln!(w, "\n  [{}] {}", i.saturating_add(1), audit_safe(id))?;
+        writeln!(w, "\n  [{}] {}", i.saturating_add(1), sanitise_to_string(id))?;
         match runner.resolve(id) {
             Some(CommandSpec::Exec(e)) if e.strategy.is_some() => {
                 print_matrix_spec(w, id, e, runner.variables())?;
@@ -94,7 +83,7 @@ fn print_matrix_spec(
         )?;
     }
     for cell in &cells {
-        writeln!(w, "\n    - {}", audit_safe(&cell.id))?;
+        writeln!(w, "\n    - {}", sanitise_to_string(&cell.id))?;
         print_exec_spec(w, &cell.spec, vars)?;
     }
     Ok(())
@@ -111,11 +100,11 @@ pub fn print_exec_spec(
     // surfaces in the dry-run preview instead of being silently logged while
     // the literal `${VAR}` flows to display.
     if let Some(wrap) = e.expanded_wrap_display(vars)? {
-        writeln!(w, "      wrap:    {}", audit_safe(&wrap))?;
+        writeln!(w, "      wrap:    {}", sanitise_to_string(&wrap))?;
     }
-    writeln!(w, "      program: {}", audit_safe(&vars.try_expand(&e.program)?))?;
+    writeln!(w, "      program: {}", sanitise_to_string(&vars.try_expand(&e.program)?))?;
     if let Some(args) = e.expanded_args_display(vars)? {
-        writeln!(w, "      args:    {}", audit_safe(&args))?;
+        writeln!(w, "      args:    {}", sanitise_to_string(&args))?;
     }
     if !e.env.is_empty() {
         writeln!(w, "      env:")?;
@@ -140,8 +129,8 @@ pub fn print_exec_spec(
             // Defense in depth: name sensitive env vars with one of the
             // standard prefixes (TOKEN, SECRET, PASSWORD, KEY, AUTH, …) so
             // key-based redaction kicks in even if the value heuristic misses.
-            let display_val = audit_safe(&env_display_value(k, v, vars)?);
-            writeln!(w, "        {}={}", audit_safe(k), display_val)?;
+            let display_val = sanitise_to_string(&env_display_value(k, v, vars)?);
+            writeln!(w, "        {}={}", sanitise_to_string(k), display_val)?;
         }
     }
     if let Some(cwd) = &e.cwd {
@@ -153,12 +142,12 @@ pub fn print_exec_spec(
         let lossy = cwd.to_string_lossy();
         let expanded = vars.try_expand(&lossy)?;
         if cwd.to_str().is_some() {
-            writeln!(w, "      cwd:     {}", audit_safe(&expanded))?;
+            writeln!(w, "      cwd:     {}", sanitise_to_string(&expanded))?;
         } else {
             writeln!(
                 w,
                 "      cwd:     {} (non-UTF-8 path; lossy preview)",
-                audit_safe(&expanded)
+                sanitise_to_string(&expanded)
             )?;
         }
     }
@@ -166,7 +155,7 @@ pub fn print_exec_spec(
         writeln!(w, "      timeout: {timeout}s")?;
     }
     if !e.after.is_empty() {
-        writeln!(w, "      after:   {}", audit_safe(&e.after.join(", ")))?;
+        writeln!(w, "      after:   {}", sanitise_to_string(&e.after.join(", ")))?;
     }
     Ok(())
 }

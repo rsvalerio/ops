@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 use indexmap::IndexMap;
 use ops_core::config::Config;
+use ops_core::ui::sanitise_to_string;
 use ops_rust_foundation::{Outcome, Report};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -29,7 +30,7 @@ pub fn run_init_rust(force: bool, check: bool, config: &Config) -> anyhow::Resul
 
 fn run_scaffold_to(root: &Path, force: bool, w: &mut dyn Write) -> anyhow::Result<()> {
     for written in ops_rust_foundation::scaffold(root, force)? {
-        let target = safe(&written.target);
+        let target = sanitise_to_string(&written.target);
         match written.outcome {
             Outcome::Created => writeln!(w, "created  {target}")?,
             Outcome::Replaced => writeln!(w, "replaced {target}")?,
@@ -57,27 +58,29 @@ fn run_check_to(
     Ok(if report.drift.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
-/// Locations, messages and reasons come from the repo's own files, so they
-/// go through the shared display policy: a quoted TOML key cannot smuggle
-/// ANSI or newlines onto the operator's terminal.
-fn safe(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    ops_core::ui::sanitise_line(text, &mut out);
-    out
-}
-
 fn render_report(report: &Report, w: &mut dyn Write) -> anyhow::Result<()> {
     for d in &report.drift {
-        writeln!(w, "drift   {}: {}", safe(&d.location), safe(&d.message))?;
+        writeln!(
+            w,
+            "drift   {}: {}",
+            sanitise_to_string(&d.location),
+            sanitise_to_string(&d.message)
+        )?;
     }
     for (d, reason) in &report.waived {
-        writeln!(w, "waived  {}: {} ({})", safe(&d.location), safe(&d.message), safe(reason))?;
+        writeln!(
+            w,
+            "waived  {}: {} ({})",
+            sanitise_to_string(&d.location),
+            sanitise_to_string(&d.message),
+            sanitise_to_string(reason)
+        )?;
     }
     for key in &report.unused_waivers {
         writeln!(
             w,
             "unused  waiver {}: matches no drift, remove it from [foundation.waivers]",
-            safe(key)
+            sanitise_to_string(key)
         )?;
     }
     let waived = report.waived.len();

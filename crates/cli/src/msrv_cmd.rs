@@ -148,7 +148,7 @@ fn os(args: &[&str]) -> Vec<OsString> {
 fn render(program: &OsString, args: &[OsString]) -> String {
     let words: Vec<String> =
         std::iter::once(program).chain(args).map(|a| a.to_string_lossy().into_owned()).collect();
-    shlex::try_join(words.iter().map(String::as_str)).unwrap_or_else(|_| words.join(" "))
+    ops_core::subprocess::shell_join(&words)
 }
 
 #[cfg(test)]

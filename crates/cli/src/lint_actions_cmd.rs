@@ -25,6 +25,8 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 
+use ops_core::ui::sanitise_to_string;
+
 const WORKFLOWS_DIR: &str = ".github/workflows";
 
 /// Directories whose immediate subdirectories may each hold a composite
@@ -64,10 +66,16 @@ pub fn run_lint_actions(root: &Path, allow: &[String]) -> anyhow::Result<ExitCod
     for path in &files {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let rel = path.strip_prefix(root).unwrap_or(path).display().to_string();
+        let rel = ops_core::bounded_read::relative_to(path, root).display().to_string();
         for f in lint(&text, allow) {
             count = count.saturating_add(1);
-            writeln!(out, "{}:{}: {}", safe(&rel), f.line, safe(&f.message))?;
+            writeln!(
+                out,
+                "{}:{}: {}",
+                sanitise_to_string(&rel),
+                f.line,
+                sanitise_to_string(&f.message)
+            )?;
         }
     }
     if count == 0 {
@@ -230,12 +238,6 @@ fn is_secrets_inherit(line: &str) -> bool {
 
 fn is_hex(s: &str, len: usize) -> bool {
     s.len() == len && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
-fn safe(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    ops_core::ui::sanitise_line(text, &mut out);
-    out
 }
 
 #[cfg(test)]
