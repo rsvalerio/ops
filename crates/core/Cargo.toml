@@ -24,6 +24,7 @@ comfy-table = { workspace = true }
 unicode-width = { workspace = true }
 terminal_size = { workspace = true }
 shellexpand = { workspace = true }
+shlex = { workspace = true }
 wait-timeout = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
 

@@ -208,6 +208,16 @@ pub fn run_with_timeout(
     run_with_timeout_inner(cmd, timeout, label, output_byte_cap())
 }
 
+/// Render command words as one shell-quoted display line.
+///
+/// e.g. for dry-run output. `shlex::try_join` refuses words that are not
+/// valid UTF-8 (quoting cannot be correct for undecodable bytes); the
+/// space-joined fallback keeps the line printable rather than dropping it.
+#[must_use]
+pub fn shell_join(words: &[String]) -> String {
+    shlex::try_join(words.iter().map(String::as_str)).unwrap_or_else(|_| words.join(" "))
+}
+
 fn run_with_timeout_inner(
     cmd: &mut Command,
     timeout: Duration,

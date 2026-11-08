@@ -89,6 +89,15 @@ pub fn sanitise_line(line: &str, out: &mut String) {
     }
 }
 
+/// Owned form of [`sanitise_line`]: escape a line and return it as a fresh
+/// `String`, applying the same display-safety policy documented above.
+#[must_use]
+pub fn sanitise_to_string(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    sanitise_line(line, &mut out);
+    out
+}
+
 fn emit(level: &str, message: &str) {
     emit_to(level, message, &mut std::io::stderr().lock());
 }
