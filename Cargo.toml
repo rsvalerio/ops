@@ -65,7 +65,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 sha2 = "0.11"
 hex = "0.4"
-signal-hook = "0.3"
+signal-hook = "0.4"
 tokei = "14.0"
 toml = "1"
 toml_edit = "0.25"
