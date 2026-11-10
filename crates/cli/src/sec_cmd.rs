@@ -761,17 +761,26 @@ fn run_sec_to(
     } else {
         root
     };
-    // Stay scoped to the scan root, but say what that leaves out.
-    let outside: Vec<PathBuf> = match toplevel.as_deref() {
-        Some(top) if top != scan_root => outside_iac_markers(top, scan_root),
-        _ => Vec::new(),
-    };
-
     // One walk feeds everything: the scan plan and the generated-build-dir
     // inventory the Trivy invocations skip per-path.
     let walk = detect(scan_root);
     let plan = build_plan_from(walk.found, skip, force);
     let selected: Vec<Scan> = plan.iter().filter(|e| e.selected).map(|e| e.scan).collect();
+
+    // Out-of-scope IaC files matter only to the misconfig scan — enumerate
+    // them when it is selected, or in the dry-run preview where the plan
+    // display is the point. With `--skip misconfig` a subproject scan no
+    // longer walks the rest of the repository to list files nothing will
+    // look at.
+    let outside: Vec<PathBuf> = if dry_run || selected.contains(&Scan::Misconfig) {
+        match toplevel.as_deref() {
+            Some(top) if top != scan_root => outside_iac_markers(top, scan_root),
+            _ => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+
     let opts = TrivyOpts {
         skip_patterns: if *no_default_skips {
             Vec::new()
@@ -788,7 +797,7 @@ fn run_sec_to(
         // the preview honest when it would have failed live.
         write_plan(w, &plan).context("failed to write scan plan")?;
         writeln!(w, "  scan root: {}", scan_root.display()).context("failed to write scan root")?;
-        write_skip_dirs(w, *no_default_skips, &walk.generated)
+        write_skip_dirs(w, *no_default_skips, &opts.skip_patterns)
             .context("failed to write skip-dir plan")?;
         write_ignore_file(w, &opts, scan_root, toplevel.as_deref())
             .context("failed to write ignore-file plan")?;
@@ -845,7 +854,7 @@ fn run_sec_to(
 fn write_skip_dirs(
     w: &mut dyn std::io::Write,
     no_default_skips: bool,
-    generated: &[PathBuf],
+    patterns: &[String],
 ) -> std::io::Result<()> {
     if no_default_skips {
         writeln!(
@@ -854,7 +863,6 @@ fn write_skip_dirs(
         )?;
         return Ok(());
     }
-    let patterns = trivy_skip_patterns(generated);
     writeln!(w, "  skipping dirs: {}", patterns.join(", "))
 }
 

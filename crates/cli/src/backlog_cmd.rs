@@ -434,9 +434,7 @@ fn run_with_store(
                 query,
                 modified_file,
                 exclude_status,
-                // `--plain` and the default render identically, so only
-                // `--json` selects the format.
-                format: if json { cmd::OutputFormat::Json } else { cmd::OutputFormat::Plain },
+                format: cmd::OutputFormat::from_json_flag(json),
             };
             cmd::run_search(store, &opts, &mut std::io::stdout())
         }
@@ -647,17 +645,13 @@ fn run_task_action(
                 labels,
                 parent,
                 dependents,
-                // `--plain` and the default render identically, so only
-                // `--json` selects the format.
-                format: if json { cmd::OutputFormat::Json } else { cmd::OutputFormat::Plain },
+                format: cmd::OutputFormat::from_json_flag(json),
             };
             cmd::run_list(store, cfg, &opts, &mut std::io::stdout())
         }
         BacklogTaskAction::View { task_id, plain: _, json } => {
-            let opts = cmd::ViewOptions {
-                task_id,
-                format: if json { cmd::OutputFormat::Json } else { cmd::OutputFormat::Plain },
-            };
+            let opts =
+                cmd::ViewOptions { task_id, format: cmd::OutputFormat::from_json_flag(json) };
             cmd::run_view(store, &opts, cwd, &mut std::io::stdout())
         }
     }

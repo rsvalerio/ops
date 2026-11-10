@@ -485,22 +485,15 @@ fn clippy_args(opts: &SurveyOptions, lint_flags: &[String]) -> Vec<String> {
 /// The workspace root's offset under the git toplevel, or empty when there
 /// is no repository (or the workspace is not inside it).
 fn repo_prefix(ws_root: &Path) -> PathBuf {
-    let toplevel = ops_core::subprocess::run_with_timeout(
-        Command::new("git").args(["rev-parse", "--show-toplevel"]).current_dir(ws_root),
-        METADATA_TIMEOUT,
-        "git rev-parse",
-    )
-    .ok()
-    .filter(|out| out.status.success())
-    .map(|out| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim_end()));
-    let (Some(toplevel), Ok(root)) = (toplevel, ws_root.canonicalize()) else {
+    // The shared `ops_backlog::cmd::git::toplevel` owns the spawn and the
+    // hook-env scrub (GIT_DIR & co) so a stray env var cannot redirect the
+    // toplevel, and returns the canonicalized root.
+    let (Some(toplevel), Ok(root)) =
+        (ops_backlog::cmd::git::toplevel(ws_root).ok(), ws_root.canonicalize())
+    else {
         return PathBuf::new();
     };
-    toplevel
-        .canonicalize()
-        .ok()
-        .and_then(|top| root.strip_prefix(top).ok().and_then(normalize))
-        .unwrap_or_default()
+    root.strip_prefix(toplevel).ok().and_then(normalize).unwrap_or_default()
 }
 
 fn load_workspace(cwd: &Path) -> Result<Workspace> {
@@ -541,11 +534,7 @@ pub fn run_clippy_findings(
     let args = clippy_args(opts, lint_flags);
     let cargo = ops_core::subprocess::resolve_cargo_bin();
     if dry_run {
-        println!(
-            "{} {}",
-            cargo.to_string_lossy(),
-            shlex::try_join(args.iter().map(String::as_str)).unwrap_or_else(|_| args.join(" "))
-        );
+        println!("{} {}", cargo.to_string_lossy(), ops_core::subprocess::shell_join(&args));
         return Ok(ExitCode::SUCCESS);
     }
 

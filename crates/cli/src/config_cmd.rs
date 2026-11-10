@@ -11,6 +11,7 @@ use std::process::ExitCode;
 
 use crate::args::ConfigAction;
 use ops_core::config::{fields_used, minimum_version, mise_ops_pin, OpsVersion};
+use ops_core::ui::sanitise_to_string;
 
 /// Run an `ops config` action.
 ///
@@ -51,7 +52,7 @@ fn run_check_to(
     if let Some((version, source)) = target {
         for used in fields.iter().filter(|used| used.since > version) {
             rejected = rejected.saturating_add(1);
-            let (file, field) = (safe(&used.file), safe(&used.field));
+            let (file, field) = (sanitise_to_string(&used.file), sanitise_to_string(&used.field));
             writeln!(w, "{file}: {field} needs ops {}", used.since)?;
         }
         match rejected {
@@ -61,13 +62,6 @@ fn run_check_to(
     }
     writeln!(w, "Minimum ops version for this config: {minimum}")?;
     Ok(if rejected == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE })
-}
-
-/// Field names and fragment file names come from the repo's own files.
-fn safe(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    ops_core::ui::sanitise_line(text, &mut out);
-    out
 }
 
 #[cfg(test)]

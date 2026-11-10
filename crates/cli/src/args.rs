@@ -625,7 +625,7 @@ pub enum BacklogWaveAction {
     },
     /// List one wave's member tasks.
     Members {
-        /// Wave task id (e.g. TASK-<number>).
+        /// Wave task id (e.g. TASK-\<number>).
         wave_id: String,
         /// Plain text output.
         #[arg(long)]
@@ -688,7 +688,7 @@ pub enum BacklogWaveAction {
     /// Claim a wave: create its branch and worktree, then flip it to In
     /// Progress. Refused, with nothing changed, when the branch exists.
     Claim {
-        /// Wave task id (e.g. TASK-<number>).
+        /// Wave task id (e.g. TASK-\<number>).
         wave_id: String,
         /// Branch to create (default `code-review/<wave-id>`).
         #[arg(long)]
@@ -703,7 +703,7 @@ pub enum BacklogWaveAction {
     /// Park a wave whose merge did not land: keep its branch and worktree,
     /// set its status and record why.
     Park {
-        /// Wave task id (e.g. TASK-<number>).
+        /// Wave task id (e.g. TASK-\<number>).
         wave_id: String,
         /// Why the wave was parked.
         #[arg(long)]
@@ -781,7 +781,7 @@ pub struct BacklogCreateArgs {
 /// variant does not inflate every `CoreSubcommand`.
 #[derive(clap::Args, Debug, Clone)]
 pub struct BacklogEditArgs {
-    /// Task id (e.g. TASK-<number>).
+    /// Task id (e.g. TASK-\<number>).
     pub task_id: String,
     /// New status.
     #[arg(short, long)]
@@ -877,7 +877,7 @@ pub enum BacklogTaskAction {
     },
     /// Show one task.
     View {
-        /// Task id (e.g. TASK-<number>).
+        /// Task id (e.g. TASK-\<number>).
         task_id: String,
         /// Plain text output (first line is `File: <path>`).
         #[arg(long, conflicts_with = "json")]
@@ -1043,15 +1043,31 @@ pub fn builtin_subcommand_names() -> &'static HashSet<String> {
     NAMES.get_or_init(|| builtin_tokens().keys().cloned().collect())
 }
 
+/// The pristine built clap command tree, once per process.
+///
+/// `Cli::command()` walks the full derive metadata and rebuilds the tree on
+/// every call — and a typical invocation used to build it three times (the
+/// value-taking-globals probe on the help path, `run()`'s parse tree, and
+/// [`builtin_tokens`]), each in its own `OnceLock`. One cache serves all
+/// consumers; `build()` materialises the implicit `help` subcommand so every
+/// consumer sees the same shape. Callers that mutate (hide commands, parse)
+/// clone first — `clap::Command::clone` is the cheap copy clap itself uses.
+pub fn command_tree() -> &'static clap::Command {
+    static TREE: OnceLock<clap::Command> = OnceLock::new();
+    TREE.get_or_init(|| {
+        let mut cmd = Cli::command();
+        cmd.build();
+        cmd
+    })
+}
+
 /// Every builtin token (see [`builtin_subcommand_names`]) mapped to the
 /// name of the subcommand that owns it: `tw` → `trailing-whitespace`.
 fn builtin_tokens() -> &'static HashMap<String, String> {
     static TOKENS: OnceLock<HashMap<String, String>> = OnceLock::new();
     TOKENS.get_or_init(|| {
-        let mut cmd = Cli::command();
-        // `build` materialises the implicit `help` subcommand.
-        cmd.build();
-        cmd.get_subcommands()
+        command_tree()
+            .get_subcommands()
             .flat_map(|c| {
                 std::iter::once(c.get_name())
                     .chain(c.get_all_aliases())

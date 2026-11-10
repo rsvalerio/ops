@@ -2,7 +2,8 @@
 
 use std::io::Write;
 
-use crate::args::CommandFactory as _;
+use indexmap::IndexMap;
+
 use crate::hook_shared;
 
 /// Returns true when the effective args request top-level help (no subcommand).
@@ -62,10 +63,12 @@ pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
 /// `ops --log-file out.txt --help` in exactly the way `--tap` once did.
 ///
 /// Computed once — `is_toplevel_help` runs before clap parses, on every
-/// invocation, and building the clap `Command` is not free.
+/// invocation — from the process-wide cached tree (see
+/// `crate::args::command_tree`), so this probe never triggers its own
+/// derive walk.
 fn value_taking_globals() -> &'static [Box<str>] {
     static CACHE: std::sync::OnceLock<Vec<Box<str>>> = std::sync::OnceLock::new();
-    CACHE.get_or_init(|| collect_value_taking_globals(&crate::args::Cli::command()))
+    CACHE.get_or_init(|| collect_value_taking_globals(crate::args::command_tree()))
 }
 
 /// Whether `arg` consumes a value. `get_num_args` is only populated once clap
@@ -163,8 +166,11 @@ pub fn collect_command_entries(
         entries.push(CmdEntry { name, aliases, about, category });
     }
 
-    // Dynamic commands (config + stack defaults).
-    let stack_commands = stack.map(|s| s.default_commands()).unwrap_or_default();
+    // Dynamic commands (config + stack defaults). The borrowing
+    // `default_commands_ref` avoids deep-cloning the stack's cached map —
+    // the read here is iteration only.
+    let empty: IndexMap<String, ops_core::config::CommandSpec> = IndexMap::new();
+    let stack_commands = stack.map_or(&empty, |s| s.default_commands_ref());
     let sources: Vec<(&str, &ops_core::config::CommandSpec)> = config
         .commands
         .iter()
@@ -423,7 +429,7 @@ mod tests {
     /// that takes a value, and no bool global.
     #[test]
     fn value_taking_globals_match_the_clap_declarations() {
-        let cmd = crate::args::Cli::command();
+        let cmd = crate::args::command_tree();
         let derived: std::collections::BTreeSet<&str> =
             value_taking_globals().iter().map(AsRef::as_ref).collect();
 

@@ -698,7 +698,7 @@ mod run_command_dry_run_tests {
     /// The command name and resolved leaf id printed
     /// by `run_command_dry_run_to` come from `.ops.toml` keys (which TOML
     /// allows to be arbitrary Unicode). They must be routed through
-    /// `audit_safe` like program/args/env/cwd so an adversarial config
+    /// `sanitise_to_string` like program/args/env/cwd so an adversarial config
     /// key like `"evil\x1b[2J"` cannot repaint the operator's terminal.
     #[test]
     fn dry_run_escapes_ansi_in_command_name_and_id() {
@@ -1785,9 +1785,10 @@ mod dry_run_override_warnings_tests {
 // -- signal shutdown path --
 
 mod signal_shutdown_tests {
-    use crate::run_cmd::{exit_code_for_signal, run_until_signal, PlanOutcome};
+    use crate::run_cmd::{run_until_signal, PlanOutcome};
     #[cfg(unix)]
     use crate::run_cmd::{SIGINT_SIGNO, SIGTERM_SIGNO};
+    use crate::shell_exit_code_for_signal;
 
     /// The shell convention: 128 + signo. 130 for SIGINT (matching the
     /// existing `SIGINT_EXIT` constant), 143 for SIGTERM.
@@ -1797,9 +1798,9 @@ mod signal_shutdown_tests {
     #[cfg(unix)]
     #[test]
     fn signal_exit_codes_follow_the_128_plus_signo_convention() {
-        assert_eq!(exit_code_for_signal(SIGINT_SIGNO), crate::SIGINT_EXIT);
-        assert_eq!(exit_code_for_signal(SIGINT_SIGNO), 130);
-        assert_eq!(exit_code_for_signal(SIGTERM_SIGNO), 143);
+        assert_eq!(shell_exit_code_for_signal(SIGINT_SIGNO), crate::SIGINT_EXIT);
+        assert_eq!(shell_exit_code_for_signal(SIGINT_SIGNO), 130);
+        assert_eq!(shell_exit_code_for_signal(SIGTERM_SIGNO), 143);
     }
 
     /// A plan that finishes on its own is not disturbed by the race.
@@ -1888,7 +1889,7 @@ mod signal_shutdown_tests {
         match outcome {
             PlanOutcome::Interrupted(signo) => {
                 assert_eq!(signo, SIGTERM_SIGNO);
-                assert_eq!(exit_code_for_signal(signo), 143);
+                assert_eq!(shell_exit_code_for_signal(signo), 143);
             }
             PlanOutcome::Completed(()) => panic!("the plan future can only end via the signal"),
         }

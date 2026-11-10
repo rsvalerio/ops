@@ -5,6 +5,7 @@ use std::io::{ErrorKind, Write};
 use std::path::Path;
 
 use ops_core::config::atomic_write;
+use ops_core::ui::sanitise_to_string;
 
 /// Run `ops init`: write the starter `.ops.toml` for the chosen `sections`.
 pub fn run_init(force: bool, sections: &ops_core::config::InitSections) -> anyhow::Result<()> {
@@ -91,7 +92,7 @@ fn run_init_to(
         writeln!(w, "Created .ops.toml with output settings. Use `ops init --commands --themes` to include more sections.")?;
     }
     if !workspaces.is_empty() {
-        let dirs: Vec<String> = workspaces.iter().map(|(dir, _)| audit_dir(dir)).collect();
+        let dirs: Vec<String> = workspaces.iter().map(|(dir, _)| sanitise_to_string(dir)).collect();
         writeln!(
             w,
             "Detected {} cargo workspaces (., {}); the Rust built-ins run over each, see [cargo] workspaces.",
@@ -148,17 +149,9 @@ fn append_cargo_workspaces(content: &mut String, workspaces: &[(String, String)]
         // Writing to a String cannot fail.
         // The reason can name a directory; a newline in it would end the
         // comment and leave bare text inside the array.
-        let _ = writeln!(content, "    {quoted}, # {}", audit_dir(reason));
+        let _ = writeln!(content, "    {quoted}, # {}", sanitise_to_string(reason));
     }
     content.push_str("]\n");
-}
-
-/// A detected directory as printed to the terminal: control characters in a
-/// hostile directory name cannot reach it.
-fn audit_dir(dir: &str) -> String {
-    let mut out = String::with_capacity(dir.len());
-    ops_core::ui::sanitise_line(dir, &mut out);
-    out
 }
 
 /// Collapse the prior `path.exists()` + `fs::write` pair into atomic

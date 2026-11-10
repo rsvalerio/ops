@@ -456,8 +456,8 @@ fn is_pruned_dir(entry: &DirEntry) -> bool {
 /// Collect per-file statistics under `working_dir` as a JSON array.
 ///
 /// Files that are oversized, unreadable, past the scan's file cap, or below
-/// its depth cap are skipped and reported through a warning; see [`ScanLimits`] and
-/// [`TokeiScan`] for the exact accounting.
+/// its depth cap are skipped and reported through a warning; see the private
+/// `ScanLimits` and `TokeiScan` types for the exact accounting.
 ///
 /// # Errors
 ///

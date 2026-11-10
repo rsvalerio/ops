@@ -18,10 +18,11 @@ use std::io::Write;
 
 use ops_core::config::{CommandSpec, Config, ExecCommandSpec};
 use ops_core::expand::Variables;
+use ops_core::ui::sanitise_to_string;
 use ops_runner::command::{stage_lengths, CommandPlan, CommandRunner, CommandSource};
 use serde_json::{json, Map, Value};
 
-use super::dry_run::{audit_safe, env_display_value};
+use super::dry_run::env_display_value;
 use super::plan::NamePlan;
 use super::tools::{exec_tools, Tool};
 
@@ -29,7 +30,9 @@ use super::tools::{exec_tools, Tool};
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Answers the installed version of one tool, for `installedVersion`.
-pub type VersionProbe<'a> = &'a dyn Fn(&Tool) -> Option<String>;
+/// `Sync` so the probes for a whole plan can run concurrently — each is an
+/// independent subprocess and they dominate the flag's latency.
+pub type VersionProbe<'a> = &'a (dyn Fn(&Tool) -> Option<String> + Sync);
 
 /// Render the plans as the versioned JSON document.
 ///
@@ -98,6 +101,26 @@ pub fn plan_document(
         }));
     }
 
+    // Probe every tool concurrently — each probe is an independent
+    // subprocess (`--version`), and a typical plan lists 4–8 of them; run
+    // in parallel they cost the slowest one instead of the sum. Order is
+    // preserved: entry i reads versions[i]. A probe thread that panics
+    // reads as "no version" — the probes themselves return `Option`, so a
+    // panic would be a bug in the probe plumbing, not a missing tool.
+    let versions: Vec<Option<String>> = probe.map_or_else(Vec::new, |probe| {
+        std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(tools.len());
+            for (tool, _) in &tools {
+                handles.push(scope.spawn(move || probe(tool)));
+            }
+            let mut versions = Vec::with_capacity(handles.len());
+            for handle in handles {
+                versions.push(handle.join().ok().flatten());
+            }
+            versions
+        })
+    });
+
     Ok(json!({
         "schemaVersion": SCHEMA_VERSION,
         "kind": "command-plan",
@@ -106,15 +129,18 @@ pub fn plan_document(
         "steps": steps,
         "tools": tools
             .into_iter()
-            .map(|(tool, required_by)| {
+            .enumerate()
+            .map(|(i, (tool, required_by))| {
                 let mut entry = json!({
                     "name": tool.name,
                     "optional": tool.optional,
                     "install": tool.install,
                     "requiredBy": required_by,
                 });
-                if let (Some(probe), Some(fields)) = (probe, entry.as_object_mut()) {
-                    fields.insert("installedVersion".into(), json!(probe(&tool)));
+                if let (Some(version), Some(fields)) =
+                    (versions.get(i).cloned().flatten(), entry.as_object_mut())
+                {
+                    fields.insert("installedVersion".into(), json!(version));
                 }
                 entry
             })
@@ -403,7 +429,7 @@ pub fn write_text(
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
     for plan in plans {
-        writeln!(w, "{}", audit_safe(&plan.name))?;
+        writeln!(w, "{}", sanitise_to_string(&plan.name))?;
         write_node(runner, &plan.plan, 1, w)?;
     }
     Ok(())
@@ -418,12 +444,12 @@ fn step_text(runner: &CommandRunner, id: &str) -> String {
     if let Some(CommandSpec::Exec(e)) = runner.resolve(id) {
         if let Ok(cells) = e.matrix_cells(id) {
             if !cells.is_empty() {
-                let ids: Vec<String> = cells.iter().map(|c| audit_safe(&c.id)).collect();
+                let ids: Vec<String> = cells.iter().map(|c| sanitise_to_string(&c.id)).collect();
                 return ids.join(", ");
             }
         }
     }
-    audit_safe(id)
+    sanitise_to_string(id)
 }
 
 fn write_node(
@@ -457,8 +483,8 @@ fn write_node(
                 )?;
             }
             for (step, after) in after_edges(runner, leaf_ids, *parallel) {
-                let after: Vec<String> = after.iter().map(|id| audit_safe(id)).collect();
-                writeln!(w, "{indent}  {} after {}", audit_safe(&step), after.join(", "))?;
+                let after: Vec<String> = after.iter().map(|id| sanitise_to_string(id)).collect();
+                writeln!(w, "{indent}  {} after {}", sanitise_to_string(&step), after.join(", "))?;
             }
             for id in leaf_ids {
                 if let Some(CommandSpec::Exec(e)) = runner.resolve(id) {
@@ -466,8 +492,8 @@ fn write_node(
                         writeln!(
                             w,
                             "{indent}  {} wrapped by {}",
-                            audit_safe(id),
-                            audit_safe(&wrap)
+                            sanitise_to_string(id),
+                            sanitise_to_string(&wrap)
                         )?;
                     }
                 }

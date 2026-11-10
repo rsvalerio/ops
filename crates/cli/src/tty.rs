@@ -4,11 +4,15 @@ use std::io::IsTerminal;
 
 /// Check whether stdout is connected to a terminal.
 ///
+/// Delegates to the shared memoised probe `ops_core::style::stdout_is_terminal`
+/// so this gate can never disagree with the table/colour gates after a
+/// redirect — see the single-source-of-truth contract documented there.
+///
 /// Use this only to decide how to *render to stdout* (colour, table width).
 /// It is the wrong predicate for gating a prompt: `inquire` never touches
 /// stdout — see [`is_prompt_tty`].
 pub fn is_stdout_tty() -> bool {
-    std::io::stdout().is_terminal()
+    ops_core::style::stdout_is_terminal()
 }
 
 /// Check whether an interactive prompt can be rendered and answered.

@@ -81,7 +81,7 @@ pub fn run_doc_ids(root: &Path, w: &mut dyn Write) -> anyhow::Result<ExitCode> {
             continue;
         }
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-        let shown = path.strip_prefix(root).unwrap_or(path).display().to_string();
+        let shown = ops_core::bounded_read::relative_to(path, root).display().to_string();
         findings.extend(scan_source(&shown, &String::from_utf8_lossy(&bytes)));
     }
     findings.sort_by(|a, b| (&a.path, a.line, &a.id).cmp(&(&b.path, b.line, &b.id)));

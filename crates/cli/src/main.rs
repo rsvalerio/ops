@@ -87,7 +87,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use args::{hide_irrelevant_commands, preprocess_args, Cli, CommandFactory, CoreSubcommand};
+use args::{hide_irrelevant_commands, preprocess_args, Cli, CoreSubcommand};
 use help::{is_toplevel_help, print_categorized_help};
 #[cfg(feature = "stack-rust")]
 use subcommands::run_deps;
@@ -106,6 +106,15 @@ use subcommands::{
 /// Named constant for the SIGINT exit convention so the literal `130` is
 /// not repeated at user-cancel call sites.
 pub(crate) const SIGINT_EXIT: u8 = 130;
+
+/// The shell's exit code for a death by `signo`: `128 + signo`
+/// (130 for SIGINT, 143 for SIGTERM). Shared by the run and lock paths so
+/// the convention lives in one place beside [`SIGINT_EXIT`]. The fallback
+/// is unreachable for real signals (signo fits u8 and `128 + signo` fits
+/// u8 for every defined signal) but keeps the total function.
+pub(crate) fn shell_exit_code_for_signal(signo: i32) -> u8 {
+    u8::try_from(signo).ok().and_then(|s: u8| s.checked_add(128)).unwrap_or(SIGINT_EXIT)
+}
 
 #[derive(Debug)]
 pub(crate) struct ExitCodeOverride(pub u8);
@@ -235,13 +244,11 @@ fn run() -> anyhow::Result<ExitCode> {
         std::sync::Arc::new(ops_core::config::load_config_or_default_at(&cwd, "early"));
     let detected_stack = ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd);
 
-    // `Cli::command()` walks the full derive metadata and rebuilds the
-    // clap command tree from scratch on every call. Build it exactly
-    // once for this invocation; cheap `clap::Command::clone`
-    // covers the rare case where both `run()` and `dispatch()` need a
-    // consumed copy (parse path followed by a `None`-subcommand help
-    // render).
-    let built_cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
+    // The process-wide cached tree (see `args::command_tree`) covers the
+    // derive walk once; cheap `clap::Command::clone` covers the rare case
+    // where both `run()` and `dispatch()` need a consumed copy (parse path
+    // followed by a `None`-subcommand help render).
+    let built_cmd = hide_irrelevant_commands(crate::args::command_tree().clone(), detected_stack);
 
     // If the user asked for top-level help (`ops -h` / `ops --help`), show
     // help with dynamic commands included and exit.  We intercept before clap
