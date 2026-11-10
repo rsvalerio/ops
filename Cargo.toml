@@ -61,7 +61,8 @@ tempfile = "3"
 # TIME-1: calendar arithmetic is never hand-rolled.
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 # Bundled SQLite: plain-C build, no link env, JSON1 built in (>= 3.38).
-rusqlite = { version = "0.37", features = ["bundled"] }
+# 0.41 bundles SQLite >= 3.54.0 (RUSTSEC-2026-0459 / CVE-2026-119375).
+rusqlite = { version = "0.41", features = ["bundled"] }
 sha2 = "0.11"
 hex = "0.4"
 signal-hook = "0.3"
