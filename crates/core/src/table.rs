@@ -2,10 +2,7 @@
 
 use std::fmt;
 
-use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, ColumnConstraint, ContentArrangement, Table,
-    TableComponent, Width::Fixed,
-};
+use comfy_table::{presets::UTF8_FULL, ColumnConstraint, ContentArrangement, Table, Width::Fixed};
 
 pub use comfy_table::{Cell, Color};
 
@@ -39,18 +36,8 @@ impl OpsTable {
     pub fn with_tty(is_tty: bool) -> Self {
         let mut inner = Table::new();
         inner
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_style(TableComponent::HorizontalLines, '─')
-            .set_style(TableComponent::HeaderLines, '─')
-            .set_style(TableComponent::VerticalLines, '│')
-            .set_style(TableComponent::LeftBorderIntersections, '├')
-            .set_style(TableComponent::RightBorderIntersections, '┤')
-            .set_style(TableComponent::LeftHeaderIntersection, '├')
-            .set_style(TableComponent::RightHeaderIntersection, '┤')
-            .set_style(TableComponent::MiddleIntersections, '┼')
-            .set_style(TableComponent::MiddleHeaderIntersections, '┼');
+            .load_style(UTF8_FULL.with_rounded_corners())
+            .set_content_arrangement(ContentArrangement::Dynamic);
         Self { inner, is_tty }
     }
 
