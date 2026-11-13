@@ -81,7 +81,7 @@ shlex = "2"
 unicode-width = "0.2"
 unicode-segmentation = "1.13"
 wait-timeout = "0.2"
-comfy-table = "7"
+comfy-table = "8"
 terminal_size = "0.4"
 shellexpand = { version = "3.1.2", default-features = false, features = ["base-0"] }
 # SEC-27 / TASK-1806: `config` is a *live* dependency of `ops-core`, not dead
