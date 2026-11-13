@@ -333,7 +333,7 @@ dependencies = [
  "serde-untagged",
  "serde_core",
  "serde_json",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "winnow 1.0.4",
  "yaml-rust2",
 ]
@@ -1381,7 +1381,7 @@ dependencies = [
  "strum",
  "tempfile",
  "tokio",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.25.13+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
@@ -1402,7 +1402,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "tempfile",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "unicode-segmentation",
 ]
@@ -1459,7 +1459,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
 ]
 
@@ -1480,7 +1480,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "tempfile",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1522,7 +1522,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
 ]
 
@@ -1575,7 +1575,7 @@ dependencies = [
  "strum",
  "tempfile",
  "terminal_size",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.25.13+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
@@ -1755,7 +1755,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1770,7 +1770,7 @@ dependencies = [
  "ops-cargo-toml",
  "ops-core",
  "tempfile",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.25.13+spec-1.1.0",
 ]
 
@@ -1868,7 +1868,7 @@ dependencies = [
  "serial_test",
  "tempfile",
  "thiserror 2.0.21",
- "toml 1.1.4+spec-1.1.0",
+ "toml 1.1.6+spec-1.1.0",
  "unicode-width",
 ]
 
@@ -2890,9 +2890,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.4+spec-1.1.0"
+version = "1.1.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
+checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
 dependencies = [
  "indexmap",
  "serde_core",
