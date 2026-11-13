@@ -607,6 +607,7 @@ fn run_task_action(
                 notes,
                 depends_on,
                 unless_exists,
+                parent,
                 plain: _,
             } = *create;
             let opts = cmd::CreateOptions {
@@ -623,6 +624,7 @@ fn run_task_action(
                 notes,
                 dependencies: depends_on,
                 unless_exists,
+                parent,
             };
             cmd::run_create(store, cfg, &opts, &mut std::io::stdout())
         }
@@ -951,7 +953,12 @@ mod tests {
 
     fn parse_backlog(argv: &[&str]) -> BacklogAction {
         use clap::Parser as _;
-        let cli = crate::args::Cli::parse_from(argv);
+        // The same argv pipeline `main` runs: preprocess, then the
+        // `backlog task <id>` → `view` shorthand, then clap.
+        let args: Vec<std::ffi::OsString> = argv.iter().map(std::ffi::OsString::from).collect();
+        let cli = crate::args::Cli::parse_from(crate::args::expand_backlog_task_shorthand(
+            crate::args::preprocess_args(args),
+        ));
         let Some(crate::args::CoreSubcommand::Backlog { action }) = cli.subcommand else {
             panic!("{argv:?} must parse as a backlog action");
         };
@@ -1041,5 +1048,28 @@ mod tests {
                 "{argv:?} must stay runnable under --dry-run"
             );
         }
+    }
+
+    /// `ops backlog task <id>` dispatches as a view of that task (the
+    /// backlog.md shorthand): every id form resolves the created task, and
+    /// an unknown id fails naming it — the same outcome as the spelled-out
+    /// `task view <id>`.
+    #[test]
+    fn task_id_shorthand_dispatches_as_view() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        run_in(root.as_path(), &["ops", "backlog", "task", "create", "shorthand target"])
+            .expect("seed task");
+        for argv in [
+            ["ops", "backlog", "task", "1", "--plain"].as_slice(),
+            ["ops", "backlog", "task", "TASK-0001"].as_slice(),
+            ["ops", "backlog", "task", "task-0001", "--json"].as_slice(),
+        ] {
+            run_in(root.as_path(), argv).unwrap_or_else(|e| panic!("{argv:?}: {e:#}"));
+        }
+        let err = run_in(root.as_path(), &["ops", "backlog", "task", "9999"])
+            .expect_err("an unknown id must fail like view does");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("9999"), "the error names the id, got: {msg}");
     }
 }

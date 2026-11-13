@@ -772,6 +772,12 @@ pub struct BacklogCreateArgs {
     /// `Exists <id>`. Checked and written under the allocation lock.
     #[arg(long = "unless-exists", value_name = "KEY")]
     pub unless_exists: Option<String>,
+    /// Set `parent_task_id` on the new task — link it to an existing
+    /// parent in the same call. The parent id is validated (it must
+    /// resolve) and stored in canonical form; with `--unless-exists`, an
+    /// `Exists` hit leaves the existing task's parent untouched and says so.
+    #[arg(long)]
+    pub parent: Option<String>,
     /// Plain text output.
     #[arg(long)]
     pub plain: bool,
@@ -1123,6 +1129,54 @@ pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     }
 }
 
+/// Rewrite `ops backlog task <id> [flags…]` into `ops backlog task view <id>
+/// [flags…]`: the backlog.md CLI accepts `backlog task <id>` as a view, and
+/// agents reach for that form. Only the token directly after `task` is
+/// considered, and only when it is task-id-shaped (`TASK-N`, `N`, `N.M`,
+/// case-insensitive, any prefix — the same shape [`ops_backlog::store::task_id_key`]
+/// parses) *and* not a `task` subcommand name, so subcommands keep priority
+/// and no id can shadow `create`/`edit`/`list`/`view`. Anything else — a
+/// non-id token, a flag — passes through untouched and fails in clap with
+/// the same unrecognized-subcommand error as before.
+pub fn expand_backlog_task_shorthand(args: Vec<OsString>) -> Vec<OsString> {
+    let insert_at = args.windows(3).position(|w| {
+        let [backlog, task, token] = w else {
+            return false;
+        };
+        *backlog == "backlog"
+            && *task == "task"
+            && token.to_str().is_some_and(|t| looks_like_task_id(t) && !is_task_subcommand_token(t))
+    });
+    match insert_at {
+        Some(i) => {
+            let mut args = args;
+            args.insert(i.saturating_add(2), OsString::from("view"));
+            args
+        }
+        None => args,
+    }
+}
+
+/// Is `token` a name clap resolves to a `backlog task` subcommand (including
+/// aliases and the implicit `help`)? Derived from the built command tree so a
+/// new `BacklogTaskAction` variant is covered without editing a list.
+fn is_task_subcommand_token(token: &str) -> bool {
+    command_tree()
+        .find_subcommand("backlog")
+        .and_then(|backlog| backlog.find_subcommand("task"))
+        .is_some_and(|task| {
+            task.get_subcommands().any(|sub| {
+                sub.get_name() == token || sub.get_all_aliases().any(|alias| alias == token)
+            })
+        })
+}
+
+/// Task-id-shaped per [`ops_backlog::store::task_id_key`]; a leading `-`
+/// marks a flag, never an id.
+fn looks_like_task_id(token: &str) -> bool {
+    !token.starts_with('-') && ops_backlog::store::task_id_key(token).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1471,6 +1525,30 @@ mod tests {
         assert_eq!(create.title, "T");
         assert_eq!(create.description.as_deref(), Some("the body"));
         assert!(!cli.dry_run, "-d must not leak into the global dry-run");
+    }
+
+    /// `task create --parent <id>` parses onto the create args — the
+    /// same-call link `task edit --parent` would otherwise need a second
+    /// invocation for.
+    #[test]
+    fn parse_backlog_task_create_parent() {
+        let cli = Cli::parse_from([
+            "ops",
+            "backlog",
+            "task",
+            "create",
+            "--parent",
+            "TASK-1764",
+            "the child",
+        ]);
+        let Some(CoreSubcommand::Backlog {
+            action: BacklogAction::Task { action: BacklogTaskAction::Create(create) },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog task create");
+        };
+        assert_eq!(create.title, "the child");
+        assert_eq!(create.parent.as_deref(), Some("TASK-1764"));
     }
 
     #[test]
@@ -1895,5 +1973,89 @@ mod tests {
             result,
             vec![OsString::from("ops"), OsString::from("build"), OsString::from("ops")]
         );
+    }
+
+    // -- expand_backlog_task_shorthand --
+
+    fn expanded(argv: &[&str]) -> Vec<String> {
+        let args: Vec<OsString> = argv.iter().map(OsString::from).collect();
+        expand_backlog_task_shorthand(args)
+            .into_iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// `ops backlog task <id>` gains `view`; every id form the store's
+    /// `task_id_key` accepts is rewritten, and trailing flags pass through.
+    #[test]
+    fn shorthand_inserts_view_before_every_id_form() {
+        for id in ["1765", "TASK-1765", "task-1765", "1764.02", "TASK-1764.02", "TASK-0042"] {
+            assert_eq!(
+                expanded(&["ops", "backlog", "task", id, "--plain"]),
+                vec!["ops", "backlog", "task", "view", id, "--plain"],
+                "{id} must dispatch to view"
+            );
+        }
+        // Global flags before the subcommand survive the rewrite.
+        assert_eq!(
+            expanded(&["ops", "--dry-run", "backlog", "task", "1765", "--json"]),
+            vec!["ops", "--dry-run", "backlog", "task", "view", "1765", "--json"]
+        );
+    }
+
+    /// Subcommand names keep priority — no id-shaped rewrite for them — and
+    /// a non-id token passes through untouched to fail in clap with the
+    /// same unrecognized-subcommand error as before.
+    #[test]
+    fn shorthand_leaves_subcommands_and_non_ids_alone() {
+        for argv in [
+            vec!["ops", "backlog", "task", "create", "T"],
+            vec!["ops", "backlog", "task", "edit", "TASK-1", "-s", "Done"],
+            vec!["ops", "backlog", "task", "list"],
+            vec!["ops", "backlog", "task", "view", "TASK-1"],
+            vec!["ops", "backlog", "task", "help"],
+            vec!["ops", "backlog", "task", "1765-9999-foo"],
+            vec!["ops", "backlog", "search", "1765"],
+            vec!["ops", "backlog", "task"],
+        ] {
+            assert_eq!(expanded(&argv), argv, "{argv:?} must pass through unchanged");
+        }
+    }
+
+    /// A flag directly after `task` is not an id, even a numeric one —
+    /// `--plain` and the clap negative-number-ish `-1` stay flags.
+    #[test]
+    fn shorthand_never_treats_a_flag_as_an_id() {
+        for argv in [
+            vec!["ops", "backlog", "task", "--plain", "1765"],
+            vec!["ops", "backlog", "task", "-1"],
+        ] {
+            assert_eq!(expanded(&argv), argv, "{argv:?} must pass through unchanged");
+        }
+    }
+
+    /// The rewritten argv parses as `task view` carrying the id and flags —
+    /// the end-to-end contract `ops backlog task 1765 --plain` relies on.
+    #[test]
+    fn rewritten_argv_parses_as_view() {
+        for (argv, plain, json) in [
+            (vec!["ops", "backlog", "task", "1765", "--plain"], true, false),
+            (vec!["ops", "backlog", "task", "TASK-1765", "--json"], false, true),
+            (vec!["ops", "backlog", "task", "1764.02"], false, false),
+        ] {
+            let args: Vec<OsString> = argv.iter().map(OsString::from).collect();
+            let cli = Cli::parse_from(expand_backlog_task_shorthand(args));
+            let Some(CoreSubcommand::Backlog {
+                action:
+                    BacklogAction::Task {
+                        action: BacklogTaskAction::View { task_id, plain: p, json: j },
+                    },
+            }) = cli.subcommand
+            else {
+                panic!("{argv:?} must parse as backlog task view");
+            };
+            assert_eq!(task_id, argv[3], "the id token is forwarded verbatim");
+            assert_eq!((p, j), (plain, json), "{argv:?}: flags must land on view");
+        }
     }
 }

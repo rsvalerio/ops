@@ -87,7 +87,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use args::{hide_irrelevant_commands, preprocess_args, Cli, CoreSubcommand};
+use args::{
+    expand_backlog_task_shorthand, hide_irrelevant_commands, preprocess_args, Cli, CoreSubcommand,
+};
 use help::{is_toplevel_help, print_categorized_help};
 #[cfg(feature = "stack-rust")]
 use subcommands::run_deps;
@@ -217,7 +219,7 @@ fn run() -> anyhow::Result<ExitCode> {
     init_logging();
 
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    let effective_args = preprocess_args(args);
+    let effective_args = expand_backlog_task_shorthand(preprocess_args(args));
 
     // Load config early so stack detection and help output can use it.
     //
