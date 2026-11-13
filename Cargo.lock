@@ -1547,7 +1547,7 @@ name = "ops-config-checkers"
 version = "0.92.0"
 dependencies = [
  "anyhow",
- "json5 0.4.1",
+ "json5 1.3.7",
  "linkme",
  "ops-core",
  "ops-extension",
