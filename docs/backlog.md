@@ -14,6 +14,7 @@ into the CLI at `crates/cli/src/backlog_cmd.rs`.
 ## Commands
 
 ```
+ops backlog                                     # bird's-eye overview (same page as `ops about backlog`)
 ops backlog init [--ops-toml|--backlog-md]    # optional: bootstrap the tasks tree (+ a config file)
 ops backlog task create "<title>" [flags]     # prints `Created TASK-NNNN`
 ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
@@ -38,6 +39,15 @@ nothing. Read-only commands (`task list`, `search`, `wave list`, …) on a
 missing tree see an empty backlog and exit 0, printing nothing; `task view
 <id>` keeps its not-found error, as do `task edit`, `commit` and `cleanup`,
 which only rewrite files that must already exist.
+
+### Bare `ops backlog` — overview
+
+`ops backlog` with no subcommand prints the read-only bird's-eye overview —
+the same page as `ops about backlog`: the task total and completion rate, a
+per-status matrix (Live / Completed / Archived / Total), live work (ready /
+blocked / unassigned, oldest open task), live priority counts, created/done
+activity windows, and top labels. On a missing tree it prints `No backlog
+tasks found.` and creates nothing.
 
 ### `init`
 

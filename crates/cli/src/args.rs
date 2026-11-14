@@ -387,10 +387,13 @@ pub enum CoreSubcommand {
     /// or builtin). Never executes a step — not even for `run-before-commit`
     /// / `run-before-push`.
     Explain(ExplainArgs),
-    /// Manage `.backlog` task files (backlog.md-compatible subset).
+    /// Manage `.backlog` task files (backlog.md-compatible subset). With no
+    /// subcommand, print the bird's-eye overview of the tree (the same page
+    /// as `ops about backlog`): per-status totals, live work, priority,
+    /// activity.
     Backlog {
         #[command(subcommand)]
-        action: BacklogAction,
+        action: Option<BacklogAction>,
     },
     /// Run a command while holding a named repository lock.
     ///
@@ -1623,7 +1626,7 @@ mod tests {
     fn parse_backlog_task_create_short_d_binds_description() {
         let cli = Cli::parse_from(["ops", "backlog", "task", "create", "-d", "the body", "T"]);
         let Some(CoreSubcommand::Backlog {
-            action: BacklogAction::Task { action: BacklogTaskAction::Create(create) },
+            action: Some(BacklogAction::Task { action: BacklogTaskAction::Create(create) }),
         }) = cli.subcommand
         else {
             panic!("must parse as backlog task create");
@@ -1648,7 +1651,7 @@ mod tests {
             "the child",
         ]);
         let Some(CoreSubcommand::Backlog {
-            action: BacklogAction::Task { action: BacklogTaskAction::Create(create) },
+            action: Some(BacklogAction::Task { action: BacklogTaskAction::Create(create) }),
         }) = cli.subcommand
         else {
             panic!("must parse as backlog task create");
@@ -1704,8 +1707,9 @@ mod tests {
     #[test]
     fn parse_create_review_tasks() {
         let cli = Cli::parse_from(["ops", "backlog", "create-review-tasks"]);
-        let Some(CoreSubcommand::Backlog { action: BacklogAction::CreateReviewTasks { dry_run } }) =
-            cli.subcommand
+        let Some(CoreSubcommand::Backlog {
+            action: Some(BacklogAction::CreateReviewTasks { dry_run }),
+        }) = cli.subcommand
         else {
             panic!("must parse as backlog create-review-tasks");
         };
@@ -1718,8 +1722,9 @@ mod tests {
     #[test]
     fn parse_create_review_tasks_dry_run() {
         let cli = Cli::parse_from(["ops", "backlog", "create-review-tasks", "--dry-run"]);
-        let Some(CoreSubcommand::Backlog { action: BacklogAction::CreateReviewTasks { dry_run } }) =
-            cli.subcommand
+        let Some(CoreSubcommand::Backlog {
+            action: Some(BacklogAction::CreateReviewTasks { dry_run }),
+        }) = cli.subcommand
         else {
             panic!("must parse as backlog create-review-tasks");
         };
@@ -1742,7 +1747,7 @@ mod tests {
         ]);
         let Some(CoreSubcommand::Backlog {
             action:
-                BacklogAction::CreateCoderabbitTasks { crates, run, fresh, use_credits, dry_run },
+                Some(BacklogAction::CreateCoderabbitTasks { crates, run, fresh, use_credits, dry_run }),
         }) = cli.subcommand
         else {
             panic!("must parse as backlog create-coderabbit-tasks");
@@ -1777,7 +1782,7 @@ mod tests {
         ] {
             let cli = Cli::parse_from(argv);
             let Some(CoreSubcommand::Backlog {
-                action: BacklogAction::CreateReviewTasks { dry_run },
+                action: Some(BacklogAction::CreateReviewTasks { dry_run }),
             }) = cli.subcommand
             else {
                 panic!("must parse as backlog create-review-tasks");
@@ -1786,7 +1791,7 @@ mod tests {
         }
 
         let cli = Cli::parse_from(["ops", "--dry-run", "backlog", "cleanup"]);
-        let Some(CoreSubcommand::Backlog { action: BacklogAction::Cleanup { dry_run, .. } }) =
+        let Some(CoreSubcommand::Backlog { action: Some(BacklogAction::Cleanup { dry_run, .. }) }) =
             cli.subcommand
         else {
             panic!("must parse as backlog cleanup");
@@ -1796,7 +1801,7 @@ mod tests {
         let cli =
             Cli::parse_from(["ops", "--dry-run", "backlog", "create-coderabbit-tasks", "--run"]);
         let Some(CoreSubcommand::Backlog {
-            action: BacklogAction::CreateCoderabbitTasks { dry_run, .. },
+            action: Some(BacklogAction::CreateCoderabbitTasks { dry_run, .. }),
         }) = cli.subcommand
         else {
             panic!("must parse as backlog create-coderabbit-tasks");
@@ -2186,9 +2191,9 @@ mod tests {
             let cli = Cli::parse_from(expand_backlog_task_shorthand(args));
             let Some(CoreSubcommand::Backlog {
                 action:
-                    BacklogAction::Task {
+                    Some(BacklogAction::Task {
                         action: BacklogTaskAction::View { task_id, plain: p, json: j },
-                    },
+                    }),
             }) = cli.subcommand
             else {
                 panic!("{argv:?} must parse as backlog task view");

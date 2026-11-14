@@ -329,13 +329,16 @@ const fn bootstraps_tree(action: &BacklogAction) -> bool {
     }
 }
 
-/// Dispatch one `ops backlog` action. `dry_run` is the global `--dry-run`;
-/// a mutating action without a preview mode fails under it (see
-/// [`unpreviewable_mutation`]) before anything is read or written. A
-/// task-adding action (see [`bootstraps_tree`]) creates the tasks tree
-/// first, announcing it on stdout — but never under the global `--dry-run`,
-/// which promises that nothing is written; a read-only action on a missing
-/// tree sees an empty backlog.
+/// Dispatch one `ops backlog` action. `None` — bare `ops backlog` — prints
+/// the bird's-eye overview (the [`run_about_backlog`] page): read-only, so
+/// it also runs under the global `--dry-run` and a missing tree reads as an
+/// empty backlog. `dry_run` is the global `--dry-run`; a mutating action
+/// without a preview mode fails under it (see [`unpreviewable_mutation`])
+/// before anything is read or written. A task-adding action (see
+/// [`bootstraps_tree`]) creates the tasks tree first, announcing it on
+/// stdout — but never under the global `--dry-run`, which promises that
+/// nothing is written; a read-only action on a missing tree sees an empty
+/// backlog.
 ///
 /// # Errors
 ///
@@ -345,9 +348,12 @@ const fn bootstraps_tree(action: &BacklogAction) -> bool {
 pub fn run_backlog(
     cwd: &Path,
     config: &Config,
-    action: BacklogAction,
+    action: Option<BacklogAction>,
     dry_run: bool,
 ) -> anyhow::Result<()> {
+    let Some(action) = action else {
+        return run_about_backlog(cwd, &config.backlog);
+    };
     if dry_run {
         if let Some(name) = unpreviewable_mutation(&action) {
             anyhow::bail!(
@@ -673,7 +679,32 @@ mod tests {
     /// loaded from it (defaults when the workspace carries none).
     fn run_in(root: &Path, argv: &[&str]) -> anyhow::Result<()> {
         let config = ops_core::config::load_config_or_default_at(root, "test");
-        run_backlog(root, &config, parse_backlog(argv), false)
+        run_backlog(root, &config, Some(parse_backlog(argv)), false)
+    }
+
+    /// Bare `ops backlog` — no subcommand — prints the bird's-eye overview
+    /// (the `ops about backlog` page): it parses to no action, is read-only
+    /// (a missing tree stays missing, reading as an empty backlog), and
+    /// stays runnable under the global `--dry-run`. The page itself is
+    /// `about`'s render, tested in the backlog crate.
+    #[test]
+    fn bare_backlog_prints_the_overview_without_touching_the_tree() {
+        use clap::Parser as _;
+
+        let cli = crate::args::Cli::parse_from(["ops", "backlog"]);
+        let Some(crate::args::CoreSubcommand::Backlog { action }) = cli.subcommand else {
+            panic!("`ops backlog` must parse as the Backlog subcommand");
+        };
+        assert!(action.is_none(), "bare `ops backlog` carries no action");
+
+        // An empty workspace: the overview reads as an empty backlog and
+        // must not create the tree.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        let config = ops_core::config::load_config_or_default_at(root.as_path(), "test");
+        run_backlog(root.as_path(), &config, action, true)
+            .expect("bare backlog is read-only, so --dry-run stays allowed");
+        assert!(!root.join(".backlog").exists(), "the overview must not create the tree");
     }
 
     /// No `.ops.toml`, no `backlog.config.yml`, no `.backlog/`: `task
@@ -962,7 +993,7 @@ mod tests {
         let Some(crate::args::CoreSubcommand::Backlog { action }) = cli.subcommand else {
             panic!("{argv:?} must parse as a backlog action");
         };
-        action
+        action.unwrap_or_else(|| panic!("{argv:?} must carry a backlog action"))
     }
 
     fn task_files(root: &Path) -> Vec<std::path::PathBuf> {
@@ -984,7 +1015,7 @@ mod tests {
         run_backlog(
             root.as_path(),
             &config,
-            parse_backlog(&["ops", "backlog", "task", "create", "seed"]),
+            Some(parse_backlog(&["ops", "backlog", "task", "create", "seed"])),
             false,
         )
         .expect("seed task");
@@ -1006,7 +1037,7 @@ mod tests {
             ["ops", "--dry-run", "backlog", "wave", "claim", "TASK-1"].as_slice(),
             ["ops", "--dry-run", "backlog", "wave", "park", "TASK-1", "--reason", "x"].as_slice(),
         ] {
-            let err = run_backlog(root.as_path(), &config, parse_backlog(argv), true)
+            let err = run_backlog(root.as_path(), &config, Some(parse_backlog(argv)), true)
                 .expect_err("dry-run of an unpreviewable mutation must fail");
             let msg = format!("{err:#}");
             assert!(
