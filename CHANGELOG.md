@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.0](https://github.com/rsvalerio/ops/compare/c3323bdfaeda4e24a54808fe1003badee53a9abf..v0.94.0) - 2026-11-14
+#### 🚀 Features
+- (**backlog**) print the bird's-eye overview on bare ops backlog (#145) - ([c3323bd](https://github.com/rsvalerio/ops/commit/c3323bdfaeda4e24a54808fe1003badee53a9abf)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.93.0](https://github.com/rsvalerio/ops/compare/b2e2509c215d702851908a3d0a25a87895f156b7..v0.93.0) - 2026-11-14
 #### 🚀 Features
 - (**backlog**) accept task <id> shorthand and add task create --parent (#144) - ([32f11e1](https://github.com/rsvalerio/ops/commit/32f11e1f0e38c4f5e0ab11aee0076f3b7f79a7f1)) - [@rsvalerio](https://github.com/rsvalerio)
