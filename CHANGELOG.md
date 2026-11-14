@@ -2,6 +2,35 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.93.0](https://github.com/rsvalerio/ops/compare/b2e2509c215d702851908a3d0a25a87895f156b7..v0.93.0) - 2026-11-14
+#### 🚀 Features
+- (**backlog**) accept task <id> shorthand and add task create --parent (#144) - ([32f11e1](https://github.com/rsvalerio/ops/commit/32f11e1f0e38c4f5e0ab11aee0076f3b7f79a7f1)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**deps**) bump jdx/mise-action from 5.2.6 to 5.2.7 (#138) - ([13f50f0](https://github.com/rsvalerio/ops/commit/13f50f04b143420706cd0ff39a154f50b68e279e)) - dependabot[bot], dependabot[bot], [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump comfy-table from 7.2.2 to 8.0.1 (#143) - ([9db118d](https://github.com/rsvalerio/ops/commit/9db118d388495a6973d5753973adcc775a739bbc)) - dependabot[bot], dependabot[bot], [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump toml from 1.1.4+spec-1.1.0 to 1.1.6+spec-1.1.0 (#142) - ([e68b8e6](https://github.com/rsvalerio/ops/commit/e68b8e644acf62f93fa6ee3273628864cfddf656)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump shlex from 1.3.0 to 2.0.1 (#141) - ([2371e89](https://github.com/rsvalerio/ops/commit/2371e890e403c62f31a311e7855988e5adf20da2)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump json5 from 0.4.1 to 1.3.7 (#140) - ([4ec6394](https://github.com/rsvalerio/ops/commit/4ec639469f52341bcd3536f7eeacdca2bf65f054)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump signal-hook from 0.3.18 to 0.4.6 (#139) - ([8e5f153](https://github.com/rsvalerio/ops/commit/8e5f1533b8ec98f806e7358f45e4000f6816a572)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions-rust-lang/setup-rust-toolchain (#137) - ([6132a8d](https://github.com/rsvalerio/ops/commit/6132a8dd8cfe60e556261ae6112a81ef687ceb4e)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump rusqlite 0.37 to 0.41 for RUSTSEC-2026-0459 (#136) - ([ac35876](https://github.com/rsvalerio/ops/commit/ac35876401d364c530e640473d0f550747150427)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump config from 0.15.25 to 0.15.27 (#130) - ([fb41621](https://github.com/rsvalerio/ops/commit/fb41621058369ccec1f96925fd3cf9adfd94466d)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump bitflags from 2.13.1 to 2.13.2 (#133) - ([6ac290c](https://github.com/rsvalerio/ops/commit/6ac290c048e28eb2302a34750741d71655242067)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump ignore from 0.4.32 to 0.4.34 (#132) - ([40d21a9](https://github.com/rsvalerio/ops/commit/40d21a945d36eb70308323678dac22829529096d)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump libc from 0.2.189 to 0.2.191 (#129) - ([0c00163](https://github.com/rsvalerio/ops/commit/0c00163d7898c821377aa1c71c0a488d51c2948f)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump unicode-width from 0.2.2 to 0.2.3 (#131) - ([384ee80](https://github.com/rsvalerio/ops/commit/384ee8054fe37159202dbcb0e037a488fd311f46)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump jdx/mise-action from 5.2.3 to 5.2.6 (#134) - ([8a0e9cb](https://github.com/rsvalerio/ops/commit/8a0e9cb8192bb7e2990eb616c40cd38a02ce1a65)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions-rust-lang/setup-rust-toolchain from 1.17.0 to 2.0.0 (#128) - ([0fb4c8f](https://github.com/rsvalerio/ops/commit/0fb4c8fadaa610709c091fa9271e49f8a77392da)) - dependabot[bot], dependabot[bot], [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) dedupe helpers and cut repeated work (#135) - ([9b9d15b](https://github.com/rsvalerio/ops/commit/9b9d15b6b5a2bf2e0616c6b3e55dc658cd088151)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2343, lint-actions gate landed via #81 - ([b7efef7](https://github.com/rsvalerio/ops/commit/b7efef7b1d25c2f25e5989b03b9245782d4bf6e2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close TASK-2329, forge rust-ci CI green in #81 - ([b6ad6d2](https://github.com/rsvalerio/ops/commit/b6ad6d2987696cf2166cc73ea58dde7a8f552c9b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close TASK-2330, rustfmt drift resolved in v0.91.0 - ([32b8bcb](https://github.com/rsvalerio/ops/commit/32b8bcbb9efa450339ec1f66b74520091266db51)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) pin ops 0.92.0 in mise.toml - ([b2e2509](https://github.com/rsvalerio/ops/commit/b2e2509c215d702851908a3d0a25a87895f156b7)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.92.0](https://github.com/rsvalerio/ops/compare/30cdb92f1480c2e8dcc9ea576f98f6f836623758..v0.92.0) - 2026-11-02
 #### 🚀 Features
 - (**cli**) add ops check-workspaces for nested lock and lints drift - ([d7c2d04](https://github.com/rsvalerio/ops/commit/d7c2d04551abba2345a246f1f4f19384e139cc16)) - [@rsvalerio](https://github.com/rsvalerio)
