@@ -1,10 +1,10 @@
 ---
 id: TASK-2339
 title: 'event0: replace re-declared cargo built-ins with [cargo] locked = true'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-28 15:29'
-updated_date: '2026-09-29 17:14'
+updated_date: '2026-11-14 15:24'
 labels:
   - ops-alignment
   - ci

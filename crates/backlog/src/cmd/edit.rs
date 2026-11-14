@@ -399,6 +399,31 @@ body text
         );
     }
 
+    /// A task file named at the `NAME_MAX` limit (255 bytes) is editable: the
+    /// staging name truncates and hashes instead of overflowing, so the
+    /// write no longer fails with `File name too long`.
+    #[test]
+    fn edit_succeeds_when_the_file_name_is_at_name_max() {
+        let (dir, store) = scratch_with(TASK);
+        let tasks = dir.path().join(".backlog").join("tasks");
+        // "task-0001 - " (12) + 240 filler bytes + ".md" (3) = 255.
+        let name = format!("task-0001 - {}.md", "x".repeat(240));
+        assert_eq!(name.len(), 255, "the file name itself sits at NAME_MAX");
+        std::fs::rename(tasks.join("task-0001 - original.md"), tasks.join(&name))
+            .expect("rename to the long name");
+        let mut out = Vec::new();
+        run_edit(&store, &EditOptions { status: Some("To Do".to_string()), ..opts() }, &mut out)
+            .expect("edit at NAME_MAX");
+        let doc = TaskDoc::parse(&std::fs::read_to_string(tasks.join(&name)).expect("read"))
+            .expect("re-parse");
+        assert_eq!(doc.frontmatter.status, "To Do");
+        let files: Vec<String> = std::fs::read_dir(&tasks)
+            .expect("read tasks dir")
+            .map(|entry| entry.expect("dir entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(files, vec![name], "no staging leftovers under a long name");
+    }
+
     /// The new slug is claimed before it is written: a title rename refuses
     /// to clobber an unrelated file that already owns the slug instead of
     /// truncating it.
