@@ -119,8 +119,9 @@ pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Re
 
 /// Write `contents` to a fully synced staging file next to `path` and
 /// return the staging path, ready to be published under the destination
-/// name. The staging name is `.{name}.{pid}.tmp`, created exclusively; a
-/// failed write removes it again.
+/// name. The staging name is `.{name}.{pid}.tmp` — truncated and hashed
+/// when that would overflow `NAME_MAX`, see [`staging_name`] — created
+/// exclusively; a failed write removes it again.
 ///
 /// # Errors
 ///
@@ -133,8 +134,7 @@ fn stage_contents(path: &std::path::Path, contents: &str) -> anyhow::Result<std:
     let Some(name) = path.file_name() else {
         anyhow::bail!("{} has no file name to stage a write under", path.display());
     };
-    let staging =
-        path.with_file_name(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
+    let staging = path.with_file_name(staging_name(&name.to_string_lossy(), std::process::id()));
     let mut handle = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -145,6 +145,40 @@ fn stage_contents(path: &std::path::Path, contents: &str) -> anyhow::Result<std:
         return Err(err).with_context(|| format!("staging {}", path.display()));
     }
     Ok(staging)
+}
+
+/// `NAME_MAX` on every filesystem a backlog tree plausibly lives on (ext4,
+/// xfs, btrfs, tmpfs, APFS): a longer staging name fails to create with
+/// `ENAMETOOLONG`, which is the bug this bound exists to avoid. Names on
+/// exotic filesystems with a smaller limit still fail loudly at `create`,
+/// naming the destination.
+const NAME_MAX: usize = 255;
+
+/// Build the staging file name for a destination `name`:
+/// `.{name}.{pid}.tmp`. When that would not fit in [`NAME_MAX`], the name
+/// is truncated on a char boundary and a hash of the full name is
+/// appended, so two long names that share a prefix still stage under
+/// distinct files while the staging name always fits.
+fn staging_name(name: &str, pid: u32) -> String {
+    let plain = format!(".{name}.{pid}.tmp");
+    if plain.len() <= NAME_MAX {
+        return plain;
+    }
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut hasher);
+    let digest = hasher.finish();
+    let tail = format!(".{digest:016x}.{pid}.tmp");
+    // The budget leaves room for the tail and the leading dot; truncation
+    // stays on a char boundary so `to_string_lossy` output is never split
+    // mid-character.
+    let budget = NAME_MAX.saturating_sub(tail.len()).saturating_sub(1);
+    let mut end = budget.min(name.len());
+    while end > 0 && !name.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    let prefix = name.get(..end).unwrap_or_default();
+    format!(".{prefix}{tail}")
 }
 
 /// [`atomic_write`] for a destination that must not already exist — the
@@ -180,4 +214,43 @@ pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> 
     // name, invisible to task scans.
     std::fs::remove_file(&staging).ok();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_names_keep_the_plain_staging_scheme() {
+        assert_eq!(
+            staging_name("task-0001 - original.md", 1234),
+            ".task-0001 - original.md.1234.tmp"
+        );
+    }
+
+    /// A destination at the `NAME_MAX` limit stages under a name that still
+    /// fits, and two long names sharing a prefix stay distinct (the hash).
+    #[test]
+    fn long_names_truncate_to_fit_and_stay_distinct() {
+        let base = "task-0002 - ";
+        let filler = |n: usize| "x".repeat(n);
+        let a = format!("{base}{}a.md", filler(239));
+        let b = format!("{base}{}b.md", filler(239));
+        let staged = staging_name(&a, 1234);
+        assert_eq!(a.len(), NAME_MAX, "destination itself sits at NAME_MAX");
+        assert!(staged.len() <= NAME_MAX, "staging name must fit: {} bytes", staged.len());
+        assert!(staged.starts_with(&format!(".{base}")), "prefix survives for diagnostics");
+        assert_ne!(staged, staging_name(&b, 1234), "shared prefix must not collide");
+    }
+
+    /// Truncation never splits a multi-byte character.
+    #[test]
+    fn truncation_respects_char_boundaries() {
+        // 'é' is two bytes; 130 of them overflow NAME_MAX with the tail,
+        // and the cut lands mid-character for most budgets.
+        let name = "é".repeat(130);
+        let staged = staging_name(&name, 1234);
+        assert!(staged.len() <= NAME_MAX);
+        assert!(staged.is_char_boundary(staged.len()));
+    }
 }
