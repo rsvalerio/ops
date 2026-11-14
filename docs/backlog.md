@@ -19,6 +19,7 @@ ops backlog task create "<title>" [flags]     # prints `Created TASK-NNNN`
 ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
 ops backlog task view <taskId> [--plain|--json]
+ops backlog task <taskId> [--plain|--json]        # shorthand for `task view`
 ops backlog search [query] [flags]
 ops backlog wave list|members|overlap|create|claim|park|migrate [flags]
 ops backlog commit <taskId>... -m <msg>        # commit exactly these tasks' files
@@ -88,6 +89,7 @@ yml-or-defaults config, keeping its work-over-a-broken-manifest contract.
 | `--notes <text>` | Implementation notes section |
 | `--depends-on <ids>` (`--dep`) | Dependency task ids, comma-separated or repeatable |
 | `--unless-exists <key>` | Idempotent filing keyed on a finding identity (see below) |
+| `--parent <taskId>` | Set `parent_task_id` on the new task — link it to its parent in the same call. The parent must resolve (every id form `task view` accepts works); the link is stored in canonical form. With `--unless-exists`, an `Exists` hit leaves the existing task's parent untouched and the `Exists` line says so |
 | `--plain` | Plain output (the only renderer) |
 
 A fresh task gets `ordinal: 1000` (the value the backlog CLI assigns new
@@ -147,6 +149,14 @@ Resolves one id across `tasks/` → `completed/` → `archive/tasks/`, in that
 precedence order (the tree contains four id collisions between `completed/`
 and `archive/tasks/`; tasks/ wins). `--plain` and `--json` are mutually
 exclusive.
+
+`ops backlog task <id> [flags]` — the backlog.md shorthand — dispatches to
+`view` when the token after `task` is a task id rather than a subcommand:
+`TASK-1765`, `1765` and `1764.02` (case-insensitive, any prefix, padding
+normalized) all resolve, and `--plain`/`--json` are forwarded. Subcommand
+names keep priority; anything else still fails with clap's
+unrecognized-subcommand error. The bare `N` / `N.M` forms resolve through
+`task view <id>` and `task edit <id>` too.
 
 ### `search`
 

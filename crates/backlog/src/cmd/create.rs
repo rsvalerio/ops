@@ -27,6 +27,10 @@ pub struct CreateOptions {
     pub dependencies: Vec<String>,
     /// Identity key: when an open task already carries it, create nothing.
     pub unless_exists: Option<String>,
+    /// Parent task id: written as the new task's `parent_task_id` — the
+    /// structural member→parent link. The parent must exist; the id is
+    /// resolved and stored in its canonical form.
+    pub parent: Option<String>,
 }
 
 /// How many allocation attempts `run_create` makes before conceding that
@@ -38,15 +42,18 @@ const CREATE_ATTEMPTS: usize = 8;
 /// With [`CreateOptions::unless_exists`], the key is stored in the task's
 /// `dedup_key` frontmatter, and when an open task in `tasks/` (any status
 /// but the configured terminal one) already carries the same key, nothing
-/// is created and `Exists TASK-NNNN` is printed instead. The check and the
-/// write happen under the store's allocation lock, so concurrent keyed
-/// creates file exactly one task.
+/// is created and `Exists TASK-NNNN` is printed instead — with
+/// [`CreateOptions::parent`] requested, the existing task's
+/// `parent_task_id` is left untouched and the `Exists` line says so. The
+/// check and the write happen under the store's allocation lock, so
+/// concurrent keyed creates file exactly one task.
 ///
 /// # Errors
 ///
-/// The clock is unreadable, the key is blank, the allocation lock
-/// cannot be taken, a task file does not parse during the key check, or the
-/// file cannot be written — errors name the path.
+/// The clock is unreadable, the key is blank, the parent id resolves to
+/// nothing, the allocation lock cannot be taken, a task file does not parse
+/// during the key check, or the file cannot be written — errors name the
+/// path.
 pub fn run_create<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
@@ -56,7 +63,12 @@ pub fn run_create<W: Write>(
     match create_task(store, cfg, opts)? {
         Created::New(id) => writeln!(out, "Created {id}").context("printing the created task id"),
         Created::Exists(id) => {
-            writeln!(out, "Exists {id}").context("printing the existing task id")
+            if opts.parent.is_some() {
+                writeln!(out, "Exists {id}; parent_task_id left unchanged")
+                    .context("printing the existing task id")
+            } else {
+                writeln!(out, "Exists {id}").context("printing the existing task id")
+            }
         }
     }
 }
@@ -82,6 +94,22 @@ pub fn create_task(
     opts: &CreateOptions,
 ) -> anyhow::Result<Created> {
     let stamp = UtcStamp::now()?;
+    // Resolve --parent before anything is written (the dedup check
+    // included): the link must name an existing task, stored in the
+    // parent's canonical id — `find` normalizes case, prefix padding and
+    // the bare `N` / `N.M` forms. A blank parent is ignored, matching
+    // `task edit --parent`.
+    let parent_id = match opts.parent.as_deref() {
+        Some(parent) if !parent.trim().is_empty() => Some(
+            store
+                .find(parent)?
+                .ok_or_else(|| anyhow::anyhow!("parent task {parent} not found"))?
+                .doc
+                .frontmatter
+                .id,
+        ),
+        _ => None,
+    };
     // Held until this function returns: the key check and the file write
     // must be one critical section, or two runs both see "no task" and both
     // file.
@@ -108,7 +136,7 @@ pub fn create_task(
         let id = format_task_id(&cfg.task_prefix, number, cfg.zero_padded_ids);
         let file_name = main_task_file_name(number, cfg.zero_padded_ids, &opts.title);
         let path = store.task_path(&file_name);
-        let rendered = render_new_task(opts, cfg, &id, &stamp);
+        let rendered = render_new_task(opts, cfg, &id, &stamp, parent_id.as_deref());
 
         let mut handle = match std::fs::File::create_new(&path) {
             Ok(handle) => handle,
@@ -130,13 +158,15 @@ pub fn create_task(
 
 /// The rendered task file for a would-be `id`: the frontmatter with every
 /// option applied (defaults from `cfg`, the `dedup_key` extra when
-/// `unless_exists` is set) around the body with description, acceptance
-/// criteria, definition of done, plan and notes.
+/// `unless_exists` is set, `parent_task_id` when `parent` was resolved)
+/// around the body with description, acceptance criteria, definition of
+/// done, plan and notes.
 fn render_new_task(
     opts: &CreateOptions,
     cfg: &BacklogConfig,
     id: &str,
     stamp: &UtcStamp,
+    parent_id: Option<&str>,
 ) -> String {
     let mut frontmatter = Frontmatter {
         id: id.to_string(),
@@ -156,6 +186,9 @@ fn render_new_task(
     };
     if let Some(key) = &opts.unless_exists {
         frontmatter.set_extra_scalar(DEDUP_KEY, key);
+    }
+    if let Some(parent) = parent_id {
+        frontmatter.set_extra_scalar("parent_task_id", parent);
     }
     let ac = AcItem::unchecked_all(&opts.ac);
     let dod = AcItem::unchecked_all(&opts.dod);
@@ -331,5 +364,107 @@ mod tests {
         assert_eq!(task_count(&dir), 1);
         assert_eq!(outputs.iter().filter(|o| o.starts_with("Created ")).count(), 1);
         assert_eq!(outputs.iter().filter(|o| *o == "Exists TASK-0001\n").count(), 7);
+    }
+
+    fn seed_parent(dir: &tempfile::TempDir) {
+        std::fs::write(
+            dir.path().join(".backlog/tasks/task-0010 - parent.md"),
+            "---\nid: TASK-0010\ntitle: 'parent'\nstatus: To Do\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n",
+        )
+        .expect("seed parent");
+    }
+
+    /// `--parent` writes `parent_task_id` in the new task's frontmatter,
+    /// resolved to the parent's canonical id whatever form was passed.
+    #[test]
+    fn parent_links_the_new_task_in_the_same_call() {
+        let (dir, store, cfg) = scratch();
+        seed_parent(&dir);
+        for (i, passed) in ["TASK-0010", "10"].iter().enumerate() {
+            let opts = CreateOptions {
+                title: format!("child {i}"),
+                parent: Some((*passed).to_string()),
+                ..CreateOptions::default()
+            };
+            let mut out = Vec::new();
+            run_create(&store, &cfg, &opts, &mut out).expect("create");
+            let number = 11 + i; // the seed parent holds number 10
+            let written = std::fs::read_to_string(
+                dir.path().join(format!(".backlog/tasks/task-{number:04} - child-{i}.md")),
+            )
+            .expect("read back");
+            let doc = crate::model::TaskDoc::parse(&written).expect("re-parse");
+            assert_eq!(
+                doc.frontmatter.extra_scalar("parent_task_id"),
+                Some("TASK-0010"),
+                "the link lands in canonical form ({passed} passed)"
+            );
+        }
+        assert_eq!(task_count(&dir), 3);
+    }
+
+    /// A parent id that resolves to nothing is refused before anything is
+    /// written — no task file, not even with `--unless-exists` pending.
+    #[test]
+    fn an_unknown_parent_is_refused_before_anything_is_written() {
+        let (dir, store, cfg) = scratch();
+        seed_parent(&dir);
+        for opts in [
+            CreateOptions {
+                title: "orphan".to_string(),
+                parent: Some("TASK-9999".to_string()),
+                ..CreateOptions::default()
+            },
+            CreateOptions {
+                title: "orphan".to_string(),
+                parent: Some("TASK-9999".to_string()),
+                unless_exists: Some(KEY.to_string()),
+                ..CreateOptions::default()
+            },
+        ] {
+            let mut out = Vec::new();
+            let err = run_create(&store, &cfg, &opts, &mut out).expect_err("must refuse");
+            let msg = format!("{err:#}");
+            assert!(
+                msg.contains("TASK-9999") && msg.contains("not found"),
+                "the error names the parent, got: {msg}"
+            );
+        }
+        assert_eq!(task_count(&dir), 1, "only the seed parent exists");
+    }
+
+    /// With `--unless-exists`, an `Exists` hit re-parents nothing and says
+    /// so on the `Exists` line.
+    #[test]
+    fn an_exists_hit_leaves_the_existing_tasks_parent_untouched() {
+        let (dir, store, cfg) = scratch();
+        seed_parent(&dir);
+        // The keyed task already carries a different parent.
+        std::fs::write(
+            dir.path().join(".backlog/tasks/task-0011 - keyed.md"),
+            "---\nid: TASK-0011\ntitle: 'keyed'\nstatus: To Do\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\ndedup_key: k\n---\n",
+        )
+        .expect("seed keyed");
+        let opts = CreateOptions {
+            title: "again".to_string(),
+            unless_exists: Some("k".to_string()),
+            parent: Some("TASK-0010".to_string()),
+            ..CreateOptions::default()
+        };
+        let mut out = Vec::new();
+        run_create(&store, &cfg, &opts, &mut out).expect("create");
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            "Exists TASK-0011; parent_task_id left unchanged\n"
+        );
+        let written =
+            std::fs::read_to_string(dir.path().join(".backlog/tasks/task-0011 - keyed.md"))
+                .expect("read back");
+        let doc = crate::model::TaskDoc::parse(&written).expect("re-parse");
+        assert!(
+            doc.frontmatter.extra_scalar("parent_task_id").is_none(),
+            "the existing task's parent must stay unset"
+        );
+        assert_eq!(task_count(&dir), 2);
     }
 }

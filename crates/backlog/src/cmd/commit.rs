@@ -20,7 +20,7 @@ use anyhow::Context as _;
 
 use super::git;
 use crate::model::TaskDoc;
-use crate::store::Store;
+use crate::store::{task_id_key, Store};
 
 /// Arguments of `commit`.
 #[derive(Debug, Clone)]
@@ -213,9 +213,25 @@ fn resolve_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
     Ok(paths)
 }
 
+/// A task id as supplied to `commit`, held for deleted-file matching in
+/// both forms [`Store::find`] accepts: the exact (lowercased) spelling and
+/// the [`task_id_key`] shape.
+struct WantedId(String, Option<(u32, Option<u32>)>);
+
+impl WantedId {
+    /// Does a deleted file's stored id resolve to this wanted id — by
+    /// exact spelling or by [`task_id_key`] shape, like `Store::find`?
+    fn matches(&self, stored: &str) -> bool {
+        self.0 == stored.to_ascii_lowercase()
+            || self.1.is_some_and(|k| task_id_key(stored) == Some(k))
+    }
+}
+
 /// Tracked backlog files that are gone from the working tree (or whose
 /// deletion is already staged) and whose `HEAD` content carries one of
-/// `ids`: the old path left behind when `task edit -t` renamed a task or
+/// `ids` — matched the same way [`Store::find`] resolves ids, so the bare
+/// and differently-padded forms see their old path too: the old path left
+/// behind when `task edit -t` renamed a task or
 /// `cleanup` moved it to `completed/`. Without them the commit would record
 /// the new path but leave `HEAD` holding the old one too — two files with
 /// one id.
@@ -255,7 +271,14 @@ fn deleted_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
             pathspec.as_str(),
         ],
     )?));
-    let wanted: Vec<String> = ids.iter().map(|id| id.to_ascii_lowercase()).collect();
+    // Match a deleted file's stored id the same way `Store::find` resolves
+    // the live one: exact (case-insensitive) or through `task_id_key`, so
+    // the bare/differently-padded forms (`12` for `TASK-0012`) also pick up
+    // the old path a rename left behind. Spellings only would drop it, and
+    // the commit would record the new path while `HEAD` keeps the old one —
+    // two files carrying one id.
+    let wanted: Vec<WantedId> =
+        ids.iter().map(|id| WantedId(id.to_ascii_lowercase(), task_id_key(id))).collect();
     let mut found: Vec<String> = Vec::new();
     for path in candidates {
         if found.contains(&path)
@@ -271,7 +294,8 @@ fn deleted_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
         let Ok(doc) = TaskDoc::parse(&src) else {
             continue;
         };
-        if wanted.contains(&doc.frontmatter.id.to_ascii_lowercase()) {
+        let stored = &doc.frontmatter.id;
+        if wanted.iter().any(|wanted| wanted.matches(stored)) {
             found.push(path);
         }
     }
@@ -414,6 +438,29 @@ mod tests {
         let tree = git(dir.path(), &["ls-tree", "-r", "--name-only", "HEAD"]);
         assert!(!tree.contains("task-1 - t.md"), "old path gone: {tree}");
         assert!(tree.contains("task-3 - t.md"), "unlisted kept: {tree}");
+    }
+
+    /// The old path's deletion is picked up through the same tolerant id
+    /// matching `find` uses, not the supplied spelling: after a rename,
+    /// the bare form (`commit 1`) and the unpadded full form must both
+    /// carry the old file's deletion into the commit — otherwise `HEAD`
+    /// keeps the old path alongside the new one, two files carrying one
+    /// id.
+    #[test]
+    fn a_renamed_tasks_deletion_resolves_from_bare_and_unpadded_ids() {
+        for id in ["1", "TASK-1"] {
+            let (dir, store) = repo();
+            let tasks = dir.path().join(".backlog/tasks");
+            std::fs::rename(tasks.join("task-1 - t.md"), tasks.join("task-1 - new.md"))
+                .expect("rename");
+            commit(&store, &dir, &[id]).expect("commit");
+            let tree = git(dir.path(), &["ls-tree", "-r", "--name-only", "HEAD"]);
+            assert!(tree.contains("task-1 - new.md"), "{id}: new path: {tree}");
+            assert!(
+                !tree.contains("task-1 - t.md"),
+                "{id}: the old path must leave HEAD with the commit: {tree}"
+            );
+        }
     }
 
     /// A deletion of the task's old path that is already staged (a

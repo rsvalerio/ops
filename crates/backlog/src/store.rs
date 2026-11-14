@@ -194,7 +194,9 @@ impl Store {
     }
 
     /// Resolve one task id across [`LOOKUP_DIRS`] in precedence order.
-    /// Matching is case-insensitive on the full `TASK-NNNN` id.
+    /// Matching is case-insensitive on the full id, and also
+    /// accepts the bare forms `N` / `N.M` (any prefix or zero padding) via
+    /// [`task_id_key`] — `1765`, `1764.02` and `task-1764.02` all resolve.
     ///
     /// Tolerance rule: a lookup directory that is merely absent is skipped,
     /// and a task file that
@@ -208,6 +210,7 @@ impl Store {
     /// [`Store::scan_all_tasks`].
     pub fn find(&self, id: &str) -> anyhow::Result<Option<TaskEntry>> {
         let wanted = id.to_ascii_lowercase();
+        let wanted_key = task_id_key(id);
         for dir in LOOKUP_DIRS {
             let dir_path = self.backlog_root.join(dir);
             let Some(read) = read_existing_dir(&dir_path)? else {
@@ -224,7 +227,9 @@ impl Store {
                 let Ok(doc) = TaskDoc::parse(&src) else {
                     continue;
                 };
-                if doc.frontmatter.id.to_ascii_lowercase() == wanted {
+                let matches = doc.frontmatter.id.to_ascii_lowercase() == wanted
+                    || wanted_key.is_some_and(|key| task_id_key(&doc.frontmatter.id) == Some(key));
+                if matches {
                     return Ok(Some(TaskEntry { path, doc }));
                 }
             }
@@ -318,6 +323,29 @@ fn leading_task_number_of(id: &str) -> Option<u32> {
         .and_then(|(_, rest)| rest.split('.').next())
         .filter(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))?;
     digits.parse::<u32>().ok()
+}
+
+/// The `(number, subtask)` comparison key of a task id, tolerating any
+/// prefix, case or zero padding.
+///
+/// `task-1764.02`, `task-1764.2` and the bare `1764.02` all key to
+/// `(1764, Some(2))`. The numeric part is what follows the *last* `-` (or
+/// the whole id when it carries none), split at `.`; anything that does not
+/// parse as `N` / `N.M` keys to `None`.
+///
+/// The subtask half keeps a parent (`task-1764`) from matching its subtask
+/// (`task-1764.02`): the two share their leading number, so the leading
+/// number alone is ambiguous.
+#[must_use = "the key exists to be compared; discarding it re-parses nothing"]
+pub fn task_id_key(id: &str) -> Option<(u32, Option<u32>)> {
+    let numeric = id.rsplit_once('-').map_or(id, |(_, rest)| rest);
+    let (main, sub) = numeric.split_once('.').map_or((numeric, None), |(m, s)| (m, Some(s)));
+    let main = main.parse::<u32>().ok()?;
+    let sub = match sub {
+        Some(s) => Some(s.parse::<u32>().ok()?),
+        None => None,
+    };
+    Some((main, sub))
 }
 
 /// A backlog task filename split into id and slug:
@@ -617,6 +645,72 @@ mod tests {
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
         assert!(store.find("task-0012").expect("lookup").is_some());
         assert!(store.find("TASK-9999").expect("lookup").is_none());
+    }
+
+    /// The bare shorthand forms resolve through [`task_id_key`]: a bare
+    /// number matches its padded id, a bare subtask `1764.02` matches
+    /// `task-1764.02`, and zero padding never gets in the way.
+    #[test]
+    fn find_accepts_bare_and_differently_padded_id_forms() {
+        let dir = scratch_backlog(&[("tasks", "task-0012 - x.md")]);
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        assert!(store.find("12").expect("lookup").is_some(), "bare number must resolve");
+        assert!(
+            store.find("TASK-12").expect("lookup").is_some(),
+            "an unpadded id must resolve against the padded one"
+        );
+        assert!(store.find("9999").expect("lookup").is_none());
+    }
+
+    /// The subtask half of the key keeps parent and subtask distinct: a
+    /// dotted id never resolves to its parent and vice versa, whatever the
+    /// padding on either side.
+    #[test]
+    fn find_keeps_a_dotted_subtask_distinct_from_its_parent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let tasks = dir.path().join(".backlog").join("tasks");
+        std::fs::create_dir_all(&tasks).expect("tasks dir");
+        for (name, id) in
+            [("task-1764 - parent.md", "TASK-1764"), ("task-1764.02 - sub.md", "TASK-1764.02")]
+        {
+            std::fs::write(
+                tasks.join(name),
+                format!(
+                    "---\nid: {id}\ntitle: 't'\nstatus: To Do\nassignee: []\ncreated_date: \
+                     '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n"
+                ),
+            )
+            .expect("seed");
+        }
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let found = |id: &str| {
+            store.find(id).expect("lookup").map(|e| e.doc.frontmatter.id).expect("must resolve")
+        };
+        assert_eq!(found("1764"), "TASK-1764", "bare parent number hits the parent only");
+        assert_eq!(found("1764.02"), "TASK-1764.02");
+        assert_eq!(found("1764.2"), "TASK-1764.02", "subtask padding is normalized");
+        assert_eq!(found("TASK-1764.02"), "TASK-1764.02");
+        assert!(
+            store.find("1764.03").expect("lookup").is_none(),
+            "an absent subtask must not fall back to its parent"
+        );
+    }
+
+    /// [`task_id_key`] is the single shape both the tolerant `find` and the
+    /// CLI's `backlog task <id>` shorthand agree on; pin its edges.
+    #[test]
+    fn task_id_key_shapes() {
+        assert_eq!(task_id_key("TASK-1765"), Some((1765, None)));
+        assert_eq!(task_id_key("task-1764.02"), Some((1764, Some(2))));
+        assert_eq!(task_id_key("1765"), Some((1765, None)));
+        assert_eq!(task_id_key("1764.02"), Some((1764, Some(2))));
+        assert_eq!(task_id_key("TASK-0042"), Some((42, None)), "padding normalizes");
+        assert_eq!(task_id_key("ISSUE-42"), Some((42, None)), "any prefix is tolerated");
+        assert_eq!(task_id_key("TASK-1764."), None, "empty subtask part is no id");
+        assert_eq!(task_id_key("TASK-1764.x"), None);
+        assert_eq!(task_id_key("create"), None, "a subcommand name is no id");
+        assert_eq!(task_id_key(""), None);
+        assert_eq!(task_id_key("1.2.3"), None, "two dots are no id");
     }
 
     /// A `read_dir` failure other than `NotFound` must surface from `find`
