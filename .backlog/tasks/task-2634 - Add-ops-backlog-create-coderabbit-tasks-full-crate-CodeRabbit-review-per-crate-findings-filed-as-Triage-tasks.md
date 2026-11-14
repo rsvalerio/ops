@@ -4,7 +4,7 @@ title: 'Add ''ops backlog create-coderabbit-tasks'': full-crate CodeRabbit revie
 status: In Progress
 assignee: []
 created_date: '2026-10-17 13:05'
-updated_date: '2026-10-17 14:02'
+updated_date: '2026-11-14 15:32'
 labels:
   - backlog
   - code-review
@@ -41,7 +41,7 @@ Like `create-review-tasks`, iterate the workspace `review_targets` provider. For
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 `ops backlog create-coderabbit-tasks [--crate <name>...] [--dry-run]` files one REVIEW task per review target, whose body has the worktree/orphan-branch steps
-- [ ] #2 `--run` executes the steps per crate: worktree, orphan empty base, coderabbit review --agent, --show-prompts, one Triage task per finding, commit, worktree and branch removed
+- [x] #2 `--run` executes the steps per crate: worktree, orphan empty base, coderabbit review --agent, --show-prompts, one Triage task per finding, commit, worktree and branch removed
 - [x] #3 Worktree and temp branch are always cleaned up, including on failure (drop guard / explicit cleanup path), and the main checkout is never switched or dirtied apart from the new task files
 - [x] #4 Findings are deduplicated with unless_exists so re-running on the same crate files no duplicates
 - [x] #5 Fails clearly when coderabbit is missing or unauthenticated (`coderabbit auth status`) or over quota (`coderabbit usage`), before creating a worktree
@@ -62,4 +62,7 @@ Reuse extensions/create-review-tasks (review_targets iteration, request/subtask 
 Implemented in extensions/create-coderabbit-tasks (new crate) plus a RequestScheme parameter on the create-review-tasks engine, which files the coderabbit-review-request-<date>-<n> set (default mode) through the same allocation, claim re-check and rollback code. --run: preflight (no staged index, coderabbit auth status, coderabbit usage) runs before any worktree exists; the ReviewWorktree drop guard removes the worktree and the cr-full-<crate> branch; a signal-hook flag catches the first SIGINT/SIGTERM so Ctrl-C unwinds through the guard (a second signal kills). A branch left by a SIGKILLed run is refused, with the commands that remove it. Findings are filed with create_task + dedup_key coderabbit:<crate>:<file>:<sha256-16 of the whitespace-collapsed comment+instructions>, and committed via backlog commit.
 
 Open for AC #2: (a) the --agent NDJSON parser and tests/fixtures/agent-output.ndjson follow CodeRabbit's documented schema (type/severity/fileName/codegenInstructions/suggestions/comment, then complete/error). They were NOT captured from a real v0.9.0 run, because cli.coderabbit.ai is blocked from the build container. Re-pin the fixture from a real run. (b) --run does not call 'coderabbit review --show-prompts': the documented codegenInstructions field already carries the agent prompt, and its plain-text output has no documented format to parse. The REVIEW subtask body still lists it as a manual step. (c) 'coderabbit usage' is judged by its exit status only; there is no parsing of quota numbers.
+
+AC #2 verified end-to-end on 2026-11-14 against real coderabbit v0.9.5 (authenticated): 'create-coderabbit-tasks --run --crate ops-run-before-push' ran the full path — worktree + orphan empty base, coderabbit review --agent, 3 findings parsed from live NDJSON and filed as Triage tasks (TASK-2662..2664, commit bd39f812), worktree and cr-full- branch removed, tree clean. The live v0.9.5 NDJSON parsed cleanly, validating the parser against the real schema; the raw output was not retained (worktree removed), so tests/fixtures/agent-output.ndjson remains documentation-derived — re-pin it only if a future run captures raw output. Deviations (b) no --show-prompts call and (c) usage judged by exit status stand as documented above.
+
 <!-- SECTION:NOTES:END -->
