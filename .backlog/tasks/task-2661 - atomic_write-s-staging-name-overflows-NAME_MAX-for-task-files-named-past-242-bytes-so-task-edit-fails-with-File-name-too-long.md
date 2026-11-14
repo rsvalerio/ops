@@ -1,9 +1,10 @@
 ---
 id: TASK-2661
 title: 'atomic_write''s staging name overflows NAME_MAX for task files named past ~242 bytes, so task edit fails with File name too long'
-status: Triage
+status: In Progress
 assignee: []
 created_date: '2026-11-14 11:23'
+updated_date: '2026-11-14 15:21'
 labels:
   - backlog
   - bug
@@ -28,6 +29,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops backlog task edit succeeds on a task whose file name is 255 bytes long
-- [ ] #2 a regression test edits a task whose file name is at the NAME_MAX limit
+- [x] #1 ops backlog task edit succeeds on a task whose file name is 255 bytes long
+- [x] #2 a regression test edits a task whose file name is at the NAME_MAX limit
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in crates/backlog/src/cmd/mod.rs: staging_name() keeps .{name}.{pid}.tmp when it fits NAME_MAX (255), otherwise truncates the name on a char boundary and appends a 16-hex DefaultHasher digest of the full name so shared prefixes stay distinct. Covers atomic_write and atomic_write_noclobber (both stage via stage_contents). Verified: unit tests for staging_name, edit.rs regression test edit_succeeds_when_the_file_name_is_at_name_max, end-to-end ops backlog task edit on a 255-byte file name in a temp repo, ops verify 9/9 and ops qa 7/7. Change uncommitted.
+<!-- SECTION:NOTES:END -->
