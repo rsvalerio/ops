@@ -1131,30 +1131,136 @@ pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
 
 /// Rewrite `ops backlog task <id> [flags…]` into `ops backlog task view <id>
 /// [flags…]`: the backlog.md CLI accepts `backlog task <id>` as a view, and
-/// agents reach for that form. Only the token directly after `task` is
-/// considered, and only when it is task-id-shaped (`TASK-N`, `N`, `N.M`,
-/// case-insensitive, any prefix — the same shape [`ops_backlog::store::task_id_key`]
-/// parses) *and* not a `task` subcommand name, so subcommands keep priority
-/// and no id can shadow `create`/`edit`/`list`/`view`. Anything else — a
-/// non-id token, a flag — passes through untouched and fails in clap with
-/// the same unrecognized-subcommand error as before.
+/// agents reach for that form. Only the *leading command chain* — argv\\[0\\],
+/// global flags, then the `backlog task` command tokens and the id candidate
+/// — is considered, never a `backlog task <id>` sequence deeper in argv:
+/// after a `--` passthrough (`ops lock review -- backlog task 1765`) or
+/// among another command's positionals (`ops run echo backlog task 1765`)
+/// those tokens belong to a child program and pass through untouched. The
+/// rewrite fires only when the candidate is task-id-shaped (`TASK-N`, `N`,
+/// `N.M`, case-insensitive, any prefix — the same shape
+/// [`ops_backlog::store::task_id_key`] parses) *and* not a `task`
+/// subcommand name, so subcommands keep priority and no id can shadow
+/// `create`/`edit`/`list`/`view`. Anything else — a non-id token, a flag —
+/// passes through untouched and fails in clap with the same
+/// unrecognized-subcommand error as before.
 pub fn expand_backlog_task_shorthand(args: Vec<OsString>) -> Vec<OsString> {
-    let insert_at = args.windows(3).position(|w| {
-        let [backlog, task, token] = w else {
-            return false;
-        };
-        *backlog == "backlog"
-            && *task == "task"
-            && token.to_str().is_some_and(|t| looks_like_task_id(t) && !is_task_subcommand_token(t))
-    });
-    match insert_at {
-        Some(i) => {
-            let mut args = args;
-            args.insert(i.saturating_add(2), OsString::from("view"));
-            args
+    let Some(id_at) = backlog_task_id_position(&args) else {
+        return args;
+    };
+    let mut args = args;
+    args.insert(id_at, OsString::from("view"));
+    args
+}
+
+/// Index of the token the leading `backlog task` chain presents as the task
+/// id — the position `view` must be inserted at — or `None`.
+///
+/// The walk starts after argv\\[0\\] and steps over the root's global flags
+/// (with the value those that take one consume) to each command-position
+/// token; the first must be `backlog`, the next `task`, and the one after
+/// that is the id candidate. Anything else — a different subcommand, `--`,
+/// the end of argv — stops with no rewrite, which is what keeps child
+/// programs' own argv (`-- backlog task 1765`) and other commands'
+/// positionals out of the rewrite's reach.
+fn backlog_task_id_position(args: &[OsString]) -> Option<usize> {
+    let mut i = 1;
+    for expected in ["backlog", "task"] {
+        i = skip_global_flags(args, i)?;
+        if args.get(i).and_then(|a| a.to_str()) != Some(expected) {
+            return None;
         }
-        None => args,
+        i = i.saturating_add(1);
     }
+    let id_at = skip_global_flags(args, i)?;
+    let token = args.get(id_at)?.to_str()?;
+    (looks_like_task_id(token) && !is_task_subcommand_token(token)).then_some(id_at)
+}
+
+/// Advance `i` past global flags to the next command-position token, or
+/// `None` when the chain ends first — at `--` (everything after it is a
+/// child program's argv, never ours to rewrite) or at the end of argv.
+///
+/// Only flags the built tree marks `global` on the root command are
+/// stepped over — the only tokens clap lets sit before a subcommand — with
+/// `--flag value` consuming the value token and `--flag=value` needing no
+/// second one. Any other token ends the skip: it is a command-position
+/// token (or a typo clap will report itself). A non-UTF-8 token cannot be
+/// a flag; it ends the skip the same way.
+fn skip_global_flags(args: &[OsString], mut i: usize) -> Option<usize> {
+    while let Some(arg) = args.get(i) {
+        let Some(token) = arg.to_str() else {
+            return Some(i);
+        };
+        if token == "--" {
+            return None;
+        }
+        if let Some(long) = token.strip_prefix("--") {
+            let (name, attached) = long.split_once('=').unwrap_or((long, ""));
+            let Some(shape) = global_flag_shapes().iter().find(|f| f.long.as_deref() == Some(name))
+            else {
+                // Not one of the root's global flags: a command-position
+                // token (a subcommand-level flag like `--plain`, or a
+                // typo clap will report itself). The walk stops here.
+                return Some(i);
+            };
+            let value_token = usize::from(attached.is_empty() && shape.takes_value);
+            i = i.saturating_add(1).saturating_add(value_token);
+            continue;
+        }
+        if token.starts_with('-') && token.len() > 1 {
+            // A short cluster only counts while every char is a known
+            // global short; the value follows as its own token when the
+            // last char is a value-taking one.
+            let shorts = token.chars().skip(1).collect::<Vec<char>>();
+            if !shorts.iter().copied().all(|c| global_flag_shorts().contains(&c)) {
+                return Some(i);
+            }
+            let value_token =
+                usize::from(shorts.last().copied().is_some_and(global_flag_shorts_takes_value));
+            i = i.saturating_add(1).saturating_add(value_token);
+            continue;
+        }
+        return Some(i);
+    }
+    None
+}
+
+/// One of the root command's global flags: its long and/or short spelling,
+/// and whether it consumes a value.
+struct GlobalFlagShape {
+    long: Option<String>,
+    short: Option<char>,
+    takes_value: bool,
+}
+
+/// The root's global flags, derived from the built command tree so a new
+/// global arg is covered without editing a list.
+fn global_flag_shapes() -> &'static Vec<GlobalFlagShape> {
+    static SHAPES: OnceLock<Vec<GlobalFlagShape>> = OnceLock::new();
+    SHAPES.get_or_init(|| {
+        command_tree()
+            .get_arguments()
+            .filter(|arg| arg.is_global_set())
+            .map(|arg| GlobalFlagShape {
+                long: arg.get_long().map(str::to_string),
+                short: arg.get_short(),
+                takes_value: arg.get_action().takes_values(),
+            })
+            .collect()
+    })
+}
+
+/// The short spellings of the root's global flags.
+fn global_flag_shorts() -> &'static std::collections::HashSet<char> {
+    static SHORTS: OnceLock<std::collections::HashSet<char>> = OnceLock::new();
+    SHORTS.get_or_init(|| global_flag_shapes().iter().filter_map(|f| f.short).collect())
+}
+
+/// Is `short` a global flag that consumes a value (making the token after
+/// its cluster that value)?
+fn global_flag_shorts_takes_value(short: char) -> bool {
+    global_flag_shapes().iter().any(|f| f.takes_value && f.short == Some(short))
 }
 
 /// Is `token` a name clap resolves to a `backlog task` subcommand (including
@@ -2031,6 +2137,39 @@ mod tests {
             vec!["ops", "backlog", "task", "-1"],
         ] {
             assert_eq!(expanded(&argv), argv, "{argv:?} must pass through unchanged");
+        }
+    }
+
+    /// A `backlog task <id>` sequence beyond the leading command chain is a
+    /// child program's own argv and must pass through untouched — the
+    /// rewrite must not hand a child program an inserted `view`. After a
+    /// `--` passthrough (`ops lock review -- backlog task 1765 --plain`)
+    /// and among another command's positionals (`ops run echo …`).
+    #[test]
+    fn shorthand_leaves_child_program_arguments_alone() {
+        for argv in [
+            vec!["ops", "lock", "review", "--", "backlog", "task", "1765", "--plain"],
+            vec!["ops", "run", "echo", "backlog", "task", "1765"],
+            vec!["ops", "--", "backlog", "task", "1765"],
+        ] {
+            assert_eq!(expanded(&argv), argv, "{argv:?} must pass through unchanged");
+        }
+    }
+
+    /// Global flags before `backlog` — including a value-taking one in both
+    /// spellings — do not hide the chain from the walk.
+    #[test]
+    fn shorthand_sees_through_leading_global_flags() {
+        for argv in [
+            vec!["ops", "--dry-run", "backlog", "task", "1765"],
+            vec!["ops", "--tap", "out.log", "backlog", "task", "1765"],
+            vec!["ops", "--tap=out.log", "backlog", "task", "1765"],
+            vec!["ops", "-v", "backlog", "task", "1765"],
+        ] {
+            let mut expected = argv.clone();
+            let at = argv.iter().position(|t| *t == "1765").expect("id token");
+            expected.insert(at, "view");
+            assert_eq!(expanded(&argv), expected, "{argv:?} must gain view");
         }
     }
 
