@@ -1,7 +1,7 @@
 ---
 id: TASK-2634
 title: 'Add ''ops backlog create-coderabbit-tasks'': full-crate CodeRabbit review per crate, findings filed as Triage tasks'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-17 13:05'
 updated_date: '2026-11-14 15:32'
