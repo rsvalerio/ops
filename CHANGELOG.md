@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.1](https://github.com/rsvalerio/ops/compare/aef89ef058cd6e481a17e453a52483b8411c7c1a..v0.94.1) - 2026-11-14
+#### 🐛 Bug Fixes
+- (**backlog**) bound the staging name to NAME_MAX for long task file names (#146) - ([b09f6a5](https://github.com/rsvalerio/ops/commit/b09f6a577336311aabce02c9aec3c0a4060dcd8e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- update backlog tasks - ([8eaea0d](https://github.com/rsvalerio/ops/commit/8eaea0dac53ae81f767edfcaa0bcddc3a0c27578)) - [@rsvalerio](https://github.com/rsvalerio)
+- update backlog tasks - ([aef89ef](https://github.com/rsvalerio/ops/commit/aef89ef058cd6e481a17e453a52483b8411c7c1a)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.0](https://github.com/rsvalerio/ops/compare/c3323bdfaeda4e24a54808fe1003badee53a9abf..v0.94.0) - 2026-11-14
 #### 🚀 Features
 - (**backlog**) print the bird's-eye overview on bare ops backlog (#145) - ([c3323bd](https://github.com/rsvalerio/ops/commit/c3323bdfaeda4e24a54808fe1003badee53a9abf)) - [@rsvalerio](https://github.com/rsvalerio)
