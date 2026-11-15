@@ -1,14 +1,16 @@
 ---
 id: TASK-2664
 title: 'CodeRabbit minor: Remove the inherited bypass from shell-test processes.'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-14 15:31'
+updated_date: '2026-11-15 10:09'
 labels:
   - coderabbit
   - code-review
   - coderabbit-minor
 dependencies: []
+parent_task_id: 'TASK-2665'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: medium
