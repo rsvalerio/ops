@@ -1,9 +1,10 @@
 ---
 id: TASK-2666
 title: 'TEST: Remove the inherited bypass from sibling hook-crate shell tests'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-15 10:12'
+updated_date: '2026-11-15 11:50'
 labels:
   - code-review-rust
   - test
@@ -32,3 +33,9 @@ ordinal: 1000
 - [ ] #1 Every shell-test Command constructor in run-before-commit and hook-common removes its hook's bypass env var, with explicit test envs still applied after the removal
 - [ ] #2 Suites pass under SKIP_OPS_RUN_BEFORE_COMMIT=1 and SKIP_OPS_RUN_BEFORE_PROBE=1 respectively
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in beac37ea on fix/task-2666-inherited-bypass (branch off origin/main, separate from run-20261115). Both leaking constructors got env_remove of their hook bypass var: run-before-commit hook_script_reports_a_missing_ops_binary_by_name (SKIP_ENV_VAR) and hook-common run closure (SKIP_OPS_RUN_BEFORE_PROBE). The bypass-value spawns already set the var explicitly, which overrides inheritance — no change needed there; sh -n spawns only parse. Verified: ops-run-before-commit 33/33 under SKIP_OPS_RUN_BEFORE_COMMIT=1, ops-hook-common 69/69 under SKIP_OPS_RUN_BEFORE_PROBE=1, ops verify 9/9.
+<!-- SECTION:NOTES:END -->
