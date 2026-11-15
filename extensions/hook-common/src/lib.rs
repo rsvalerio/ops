@@ -348,6 +348,12 @@ mod tests {
         let run = |envs: &[(&str, &str)]| {
             let mut cmd = std::process::Command::new("/bin/sh");
             cmd.arg(&script_path).env("PATH", "/usr/bin:/bin");
+            // `Command` inherits the parent environment, so a bypass left
+            // in the test runner's env (`SKIP_OPS_RUN_BEFORE_PROBE=1
+            // cargo test`) would exit the hook before the missing-ops
+            // probe the fail-closed calls below exist to exercise. Explicit
+            // `envs` re-set it where a call chooses the bypass deliberately.
+            cmd.env_remove("SKIP_OPS_RUN_BEFORE_PROBE");
             for (k, v) in envs {
                 cmd.env(k, v);
             }

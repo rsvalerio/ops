@@ -241,6 +241,11 @@ mod tests {
         let out = std::process::Command::new("/bin/sh")
             .arg(&script)
             .env("PATH", dir.path())
+            // `Command` inherits the parent environment, so a bypass left
+            // in the test runner's env (`SKIP_OPS_RUN_BEFORE_COMMIT=1
+            // cargo test`) would exit the hook before the missing-ops
+            // probe this test exists to exercise.
+            .env_remove(SKIP_ENV_VAR)
             .output()
             .unwrap();
 
