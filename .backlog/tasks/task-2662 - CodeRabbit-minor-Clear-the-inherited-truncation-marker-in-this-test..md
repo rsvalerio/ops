@@ -1,14 +1,16 @@
 ---
 id: TASK-2662
 title: 'CodeRabbit minor: Clear the inherited truncation marker in this test.'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-14 15:31'
+updated_date: '2026-11-15 10:08'
 labels:
   - coderabbit
   - code-review
   - coderabbit-minor
 dependencies: []
+parent_task_id: 'TASK-2665'
 modified_files:
   - extensions/run-before-push/tests/classify_ref_updates.rs
 priority: medium

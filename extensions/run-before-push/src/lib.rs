@@ -355,6 +355,12 @@ mod tests {
         command
             .arg(&script)
             .env("PATH", path_value)
+            // `Command` inherits the parent environment, so a bypass left in
+            // the test runner's env (`SKIP_OPS_RUN_BEFORE_PUSH=1 cargo test`)
+            // would exit the hook before the capture and the missing-ops
+            // probe this suite exists to exercise. Explicit `envs` below
+            // re-set it where a test chooses the bypass deliberately.
+            .env_remove(SKIP_ENV_VAR)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -486,44 +492,31 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn hook_script_fails_closed_when_the_ref_capture_fails() {
-        use std::io::Write as _;
-
         let dir = tempfile::tempdir().expect("tempdir");
         fake_ops(dir.path(), "#!/bin/sh\necho OPS-WAS-REACHED\n");
-        let script = dir.path().join("pre-push");
-        std::fs::write(&script, HOOK_SCRIPT).unwrap();
 
         // PATH holds the fake ops (so the probe passes) but no `head` (so
         // the capture fails) — exactly the degraded-PATH shape of a GUI git
-        // client or minimal container.
-        let mut child = std::process::Command::new("/bin/sh")
-            .arg(&script)
-            .env("PATH", dir.path())
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(b"refs/heads/main 1111 refs/heads/main 2222\n")
-            .unwrap();
-        let out = child.wait_with_output().unwrap();
+        // client or minimal container. `run_hook_script` also tolerates the
+        // BrokenPipe the child can hand the writer by finishing the failed
+        // capture before the parent's stdin write lands.
+        let (status, stdout, stderr) = run_hook_script(
+            dir.path(),
+            &dir.path().display().to_string(),
+            "refs/heads/main 1111 refs/heads/main 2222\n",
+            &[],
+        );
 
         assert_ne!(
-            out.status.code(),
+            status.code(),
             Some(0),
             "a failed capture must never skip the configured checks"
         );
-        let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.contains("pre-push"), "the diagnostic must name the hook: {stderr}");
         assert!(
             stderr.contains("ref-update"),
             "the diagnostic must name what could not be read: {stderr}"
         );
-        let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
             !stdout.contains("OPS-WAS-REACHED"),
             "ops must not run on a failed capture, stdout was: {stdout}"

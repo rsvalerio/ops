@@ -1,14 +1,16 @@
 ---
 id: TASK-2663
 title: 'CodeRabbit minor: Allow BrokenPipe when the capture-failure child exits first.'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-14 15:31'
+updated_date: '2026-11-15 10:09'
 labels:
   - coderabbit
   - code-review
   - coderabbit-minor
 dependencies: []
+parent_task_id: 'TASK-2665'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: medium
