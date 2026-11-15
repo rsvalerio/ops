@@ -87,6 +87,9 @@ fn skip_reason_is_none_only_for_run() {
 #[test]
 #[serial_test::serial]
 fn skip_reason_reads_the_forwarded_env_var() {
+    // An inherited truncation marker short-circuits `push_refs` to `Run`
+    // before it reads the forwarded stream, so clear it for the whole test.
+    let _not_truncated = EnvGuard::remove(REFS_TRUNCATED_ENV_VAR);
     {
         let _guard = EnvGuard::remove(REF_UPDATES_ENV_VAR);
         assert_eq!(push_refs(), PushRefs::Run);
