@@ -11,7 +11,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-sqlite = ["dep:ops-sqlite", "ops-extension/sqlite", "ops-about/sqlite"]
+sqlite = ["ops-extension/sqlite", "ops-about/sqlite"]
 stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-create-review-tasks-rust", "dep:ops-deps", "dep:ops-metadata", "dep:ops-rust-loc", "dep:ops-rust-foundation", "sqlite"]
 stack-node = ["dep:ops-about-node"]
 stack-vite = []
@@ -28,7 +28,6 @@ coverage = ["dep:ops-test-coverage", "sqlite"]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-runner = { workspace = true }
-ops-sqlite = { workspace = true, optional = true }
 ops-tokei = { workspace = true, optional = true }
 ops-about = { workspace = true }
 ops-backlog = { workspace = true }

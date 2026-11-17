@@ -6,6 +6,11 @@ edition = "2024"
 license.workspace = true
 rust-version.workspace = true
 
+[package.metadata.cargo-machete]
+# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
+# in this crate, which machete cannot see through.
+ignored = ["linkme"]
+
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
