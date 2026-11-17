@@ -1368,7 +1368,6 @@ dependencies = [
  "ops-runner",
  "ops-rust-foundation",
  "ops-rust-loc",
- "ops-sqlite",
  "ops-test-coverage",
  "ops-text-fixers",
  "ops-tfplan",
@@ -1504,7 +1503,7 @@ name = "ops-backlog"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "chrono",
+ "jiff",
  "serde_json",
  "tempfile",
 ]

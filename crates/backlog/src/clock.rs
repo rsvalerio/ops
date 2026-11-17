@@ -2,7 +2,7 @@
 //!
 //! `created_date` needs only a UTC civil date plus minute resolution, but the
 //! epoch → civil-date reduction that produces it is exactly the arithmetic
-//! that must not be hand-rolled, so it is delegated to `chrono`.
+//! that must not be hand-rolled, so it is delegated to `jiff`.
 //!
 //! Reading the clock is fallible and says so. When the host clock reads
 //! before 1970-01-01 — a container started before NTP steps it, an RTC-less
@@ -24,15 +24,15 @@ pub struct UtcStamp {
 
 impl UtcStamp {
     /// Convert Unix seconds (UTC) into a [`UtcStamp`], or `None` when the
-    /// instant lies outside the range `chrono` can represent (roughly year
-    /// 262143 — unreachable for any wall-clock value, but the conversion
+    /// instant lies outside the range `jiff` can represent (through year
+    /// 9999 — unreachable for any wall-clock value, but the conversion
     /// refuses rather than clamping).
     #[must_use = "converting without using the stamp discards the calendar arithmetic"]
     pub fn from_unix_secs(secs: u64) -> Option<Self> {
-        let at = chrono::DateTime::from_timestamp(i64::try_from(secs).ok()?, 0)?;
+        let at = jiff::Timestamp::from_second(i64::try_from(secs).ok()?).ok()?;
         Some(Self {
-            date: at.format("%Y-%m-%d").to_string(),
-            minutes: at.format("%H:%M").to_string(),
+            date: at.strftime("%Y-%m-%d").to_string(),
+            minutes: at.strftime("%H:%M").to_string(),
         })
     }
 

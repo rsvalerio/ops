@@ -65,6 +65,26 @@ impl OutputFormat {
     }
 }
 
+/// The host wall clock as a UTC instant, read once at the command edge and
+/// threaded down so the handlers stay testable against a fixed clock.
+///
+/// # Errors
+///
+/// The host clock reads outside the range `jiff` can represent (before year
+/// -9999 or after 9999) — reported instead of panicking.
+pub(crate) fn wall_clock() -> anyhow::Result<jiff::Timestamp> {
+    use anyhow::Context as _;
+    jiff::Timestamp::try_from(std::time::SystemTime::now())
+        .context("system clock reads outside the representable date range")
+}
+
+/// `days` UTC calendar days as an elapsed duration. In UTC a calendar day is
+/// exactly 24 hours (no DST), so this equals calendar-day arithmetic; the
+/// helper exists so callers never spell the `* 24` themselves.
+pub(crate) const fn utc_days(days: i64) -> jiff::SignedDuration {
+    jiff::SignedDuration::from_hours(days.saturating_mul(24))
+}
+
 /// Ask `<prompt> [y/N] ` and read one answer line. `y`/`yes`
 /// (case-insensitive) proceeds; empty input — including EOF on a closed
 /// stdin — and anything else cancels. No is the default, matching the
@@ -79,7 +99,6 @@ pub(crate) fn confirm<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<bool> {
     use anyhow::Context as _;
-
     write!(out, "{prompt} [y/N] ").context("printing the confirmation prompt")?;
     out.flush().context("flushing the confirmation prompt")?;
     let mut answer = String::new();
@@ -108,7 +127,6 @@ pub(crate) fn confirm<W: Write>(
 /// destination fails — each error names the destination path.
 pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
     use anyhow::Context as _;
-
     let staging = stage_contents(path, contents)?;
     if let Err(err) = std::fs::rename(&staging, path) {
         std::fs::remove_file(&staging).ok();
@@ -200,7 +218,6 @@ fn staging_name(name: &str, pid: u32) -> String {
 /// — as [`atomic_write`].
 pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
     use anyhow::Context as _;
-
     let staging = stage_contents(path, contents)?;
     if let Err(err) = std::fs::hard_link(&staging, path) {
         std::fs::remove_file(&staging).ok();
