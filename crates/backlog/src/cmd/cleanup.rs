@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::Context as _;
-use chrono::{DateTime, Days, NaiveDateTime, TimeZone as _, Utc};
+use jiff::Timestamp;
 
 use crate::config::BacklogConfig;
 use crate::store::{Store, TaskEntry};
@@ -35,7 +35,7 @@ pub struct CleanupOptions {
 /// clock and stdin; tests inject fixed values through the same struct —
 /// grouping them also keeps the handler within clippy's argument budget.
 struct CleanupEnv<'a> {
-    now: DateTime<Utc>,
+    now: Timestamp,
     input: &'a mut dyn std::io::BufRead,
 }
 
@@ -52,9 +52,7 @@ pub fn run_cleanup<W: Write>(
     opts: &CleanupOptions,
     out: &mut W,
 ) -> anyhow::Result<()> {
-    // The workspace chrono carries no `clock` feature; the wall clock is read
-    // as a SystemTime and converted, exactly like `clock::UtcStamp`.
-    let now: DateTime<Utc> = std::time::SystemTime::now().into();
+    let now = super::wall_clock()?;
     let mut input = std::io::stdin().lock();
     let mut env = CleanupEnv { now, input: &mut input };
     let result = cleanup_with(store, cfg, opts, &mut env, out);
@@ -88,7 +86,7 @@ fn cleanup_with<W: Write>(
     let entries = store.scan_tasks()?;
     let cutoff = env
         .now
-        .checked_sub_days(Days::new(u64::from(opts.older_than_days)))
+        .checked_sub(super::utc_days(i64::from(opts.older_than_days)))
         .context("computing the cleanup cutoff")?;
     let aged = preview_aged_tasks(&entries, terminal, cutoff, opts.older_than_days, out)?;
     if aged.is_empty() {
@@ -126,7 +124,7 @@ fn cleanup_with<W: Write>(
 fn preview_aged_tasks<'a, W: Write>(
     entries: &'a [TaskEntry],
     terminal: &str,
-    cutoff: DateTime<Utc>,
+    cutoff: Timestamp,
     older_than_days: u32,
     out: &mut W,
 ) -> anyhow::Result<Vec<&'a TaskEntry>> {
@@ -194,7 +192,7 @@ pub(crate) fn terminal_status(statuses: &[String]) -> Option<&str> {
 /// A task's age reads `updated_date` with `created_date` as fallback — the
 /// npm CLI's rule. A date that is absent or unparseable excludes the task
 /// (there, an invalid Date compares false; here, `None` does).
-fn is_older_than(entry: &TaskEntry, cutoff: DateTime<Utc>) -> bool {
+fn is_older_than(entry: &TaskEntry, cutoff: Timestamp) -> bool {
     let fm = &entry.doc.frontmatter;
     let raw = fm.updated_date.as_deref().unwrap_or(fm.created_date.as_str());
     parse_frontmatter_date(raw).is_some_and(|dt| dt < cutoff)
@@ -202,11 +200,11 @@ fn is_older_than(entry: &TaskEntry, cutoff: DateTime<Utc>) -> bool {
 
 /// Parse a `'YYYY-MM-DD HH:MM'` frontmatter date, with or without the
 /// seconds part the 24 oldest files carry, as UTC.
-pub(crate) fn parse_frontmatter_date(raw: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_frontmatter_date(raw: &str) -> Option<Timestamp> {
     ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
         .iter()
-        .find_map(|fmt| NaiveDateTime::parse_from_str(raw.trim(), fmt).ok())
-        .map(|dt| Utc.from_utc_datetime(&dt))
+        .find_map(|fmt| jiff::civil::DateTime::strptime(fmt, raw.trim()).ok())
+        .and_then(|dt| jiff::tz::TimeZone::UTC.to_timestamp(dt).ok())
 }
 
 /// The `completed/` path one task file would move to, under the same name.
@@ -301,10 +299,8 @@ mod tests {
     }
 
     /// Fixed clock: 2026-09-06 12:00 UTC.
-    fn now() -> DateTime<Utc> {
-        Utc.from_utc_datetime(
-            &NaiveDateTime::parse_from_str("2026-09-06 12:00", "%Y-%m-%d %H:%M").expect("now"),
-        )
+    fn now() -> Timestamp {
+        "2026-09-06T12:00:00Z".parse().expect("now")
     }
 
     fn run(

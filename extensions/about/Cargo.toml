@@ -13,6 +13,11 @@ sqlite = ["dep:ops-sqlite", "ops-extension/sqlite"]
 # dev-dependencies; production code never sees it.
 test-support = ["ops-core/test-support"]
 
+[package.metadata.cargo-machete]
+# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
+# in this crate, which machete cannot see through.
+ignored = ["linkme"]
+
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }

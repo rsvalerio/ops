@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use anyhow::Context as _;
-use chrono::{DateTime, Days, Utc};
+use jiff::Timestamp;
 
 use crate::config::BacklogConfig;
 use crate::render::{priority_rank, readiness_of};
@@ -82,9 +82,7 @@ pub fn run_about_backlog<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<()> {
     let tasks = store.scan_all_tasks()?;
-    // The workspace chrono carries no `clock` feature; the wall clock is read
-    // as a SystemTime and converted, exactly like `run_cleanup`.
-    let now: DateTime<Utc> = std::time::SystemTime::now().into();
+    let now = super::wall_clock()?;
     about_with(&tasks, cfg, now, out)
 }
 
@@ -97,7 +95,7 @@ pub fn run_about_backlog<W: Write>(
 fn about_with<W: Write>(
     tasks: &[LocatedTask],
     cfg: &BacklogConfig,
-    now: DateTime<Utc>,
+    now: Timestamp,
     out: &mut W,
 ) -> anyhow::Result<()> {
     let data = overview(tasks, cfg, now);
@@ -109,7 +107,7 @@ fn about_with<W: Write>(
 }
 
 /// Aggregate every metric over the scanned tree.
-fn overview(tasks: &[LocatedTask], cfg: &BacklogConfig, now: DateTime<Utc>) -> BacklogOverview {
+fn overview(tasks: &[LocatedTask], cfg: &BacklogConfig, now: Timestamp) -> BacklogOverview {
     let terminal = terminal_status(&cfg.statuses).map(str::to_string);
     let is_terminal =
         |status: &str| terminal.as_deref().is_some_and(|t| status.eq_ignore_ascii_case(t));
@@ -211,7 +209,7 @@ fn readiness_counts(live_open: &[&LocatedTask], live: &[&LocatedTask]) -> (usize
 
 /// The oldest live non-terminal task by `created_date`; tasks with absent or
 /// unparseable dates are excluded.
-fn oldest_open(live_open: &[&LocatedTask], now: DateTime<Utc>) -> Option<OldestOpen> {
+fn oldest_open(live_open: &[&LocatedTask], now: Timestamp) -> Option<OldestOpen> {
     live_open
         .iter()
         .filter_map(|t| parse_frontmatter_date(&t.doc.frontmatter.created_date).map(|dt| (*t, dt)))
@@ -220,7 +218,7 @@ fn oldest_open(live_open: &[&LocatedTask], now: DateTime<Utc>) -> Option<OldestO
             id: t.doc.frontmatter.id.clone(),
             title: t.doc.frontmatter.title.clone(),
             created_day: t.doc.frontmatter.created_date.chars().take(10).collect(),
-            days_old: now.signed_duration_since(dt).num_days(),
+            days_old: now.duration_since(dt).as_hours() / 24,
         })
 }
 
@@ -252,14 +250,14 @@ fn priority_counts(live: &[&LocatedTask]) -> Vec<(&'static str, usize)> {
 fn activity_counts(
     tasks: &[LocatedTask],
     is_terminal: &dyn Fn(&str) -> bool,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> (usize, usize, usize, usize) {
     // A clock so far in the future that the subtraction overflows has no
     // meaningful "last N days"; counting everything as outside the window
     // (cutting off at `now`) is the least surprising degradation.
-    let cutoff = |days: u64| now.checked_sub_days(Days::new(days)).unwrap_or(now);
+    let cutoff = |days: i64| now.checked_sub(super::utc_days(days)).unwrap_or(now);
     let in_window =
-        |raw: &str, from: DateTime<Utc>| parse_frontmatter_date(raw).is_some_and(|dt| dt >= from);
+        |raw: &str, from: Timestamp| parse_frontmatter_date(raw).is_some_and(|dt| dt >= from);
     let mut created_7d: usize = 0;
     let mut created_30d: usize = 0;
     let mut done_7d: usize = 0;
@@ -518,12 +516,8 @@ mod tests {
     }
 
     /// Fixed clock: 2026-09-06 12:00 UTC — the cleanup tests' clock.
-    fn now() -> DateTime<Utc> {
-        chrono::TimeZone::from_utc_datetime(
-            &Utc,
-            &chrono::NaiveDateTime::parse_from_str("2026-09-06 12:00", "%Y-%m-%d %H:%M")
-                .expect("now"),
-        )
+    fn now() -> Timestamp {
+        "2026-09-06T12:00:00Z".parse().expect("now")
     }
 
     fn scan(store: &Store) -> Vec<LocatedTask> {

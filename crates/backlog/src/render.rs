@@ -48,7 +48,7 @@ fn priority_capitalized(priority: &str) -> String {
 /// its cause — worse than an honest null.
 fn json_date(raw: &str) -> Option<String> {
     crate::cmd::cleanup::parse_frontmatter_date(raw)
-        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .map(|ts| ts.strftime("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
 /// `Some(date)` as a JSON string literal, `None` as `null` — the envelope's

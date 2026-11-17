@@ -9,7 +9,7 @@ license.workspace = true
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 # Calendar arithmetic is never hand-rolled (TIME-1 lineage).
-chrono = { workspace = true }
+jiff = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
