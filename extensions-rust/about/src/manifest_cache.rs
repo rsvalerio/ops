@@ -21,72 +21,36 @@
 //!   the entry's lifetime**: creating or deleting a member directory changes
 //!   neither the root manifest's mtime nor its length, so the key still
 //!   matches and the pre-change member list keeps being served. This is
-//!   deliberate (the one-stat hot-path budget above) and test-pinned by
+//!   deliberate (it keeps the hit path to one `stat`) and test-pinned by
 //!   `resolved_workspace_members_are_amortised_via_typed_manifest_cache`.
-//!   A host that can outlive a member-set change — daemon, language server,
-//!   CI worker — must call `ctx.refresh` to observe it; the single-shot CLI's
-//!   process boundary hides the freeze by construction.
+//!   A host that can outlive a member-set change must call `ctx.refresh` to
+//!   observe it; the single-shot CLI's process boundary hides the freeze by
+//!   construction.
 //!
-//! Keying by the root means the root must be resolved
-//! *before* the probe, which would otherwise put a canonicalizing ancestor walk
-//! in front of every hit and blow the one-`stat` hot-path budget the freshness
-//! design above is chosen for. [`crate::workspace_root_cache`] memoizes that
-//! walk per cwd, so the budget still describes what the hit path actually does.
+//! Keying by the root means the root must be resolved *before* the probe.
+//! [`crate::workspace_root_cache`] memoizes that ancestor walk per cwd, so a
+//! hit still costs one `HashMap` probe plus the freshness `stat`.
 //!
-//! # Why a cache at all
+//! # Sharing and locking
 //!
 //! Identity, units, and coverage providers each call
-//! `load_workspace_manifest` during a single `ops about` invocation, and the
-//! resolved manifest is identical across them. The cache lets them share one
-//! parse instead of each deserializing its own copy.
+//! `load_workspace_manifest` during a single `ops about` invocation; the cache
+//! lets them share one parse. It is a process-global `Mutex<HashMap>` rather
+//! than a `thread_local!`, so a provider on a different worker thread sees the
+//! same entries, and readers clone the `Arc<CargoToml>` rather than reparse.
 //!
-//! The cache is a process-global `Mutex<HashMap>` rather than a
-//! `thread_local!`, so a provider scheduled on a different worker thread (e.g.
-//! a tokio fan-out) sees the same entries. The mutex is held only for the
-//! lookup / insert and never across provider work, so contention is bounded;
-//! readers clone the `Arc<CargoToml>` so the typed manifest is shared across
-//! threads with no reparse.
+//! The mutex is held only for the probe or the insert (map lookup plus LRU
+//! tick), never across IO, parsing or provider work. It serialises every
+//! probe, which assumes a **single-threaded host**: the CLI runs providers in
+//! turn from one thread, so the lock is uncontended. A host that runs
+//! providers in parallel against many distinct roots would contend on it, and
+//! a long-lived host also meets the member-set freeze above.
 //!
-//! The cache lock is acquired exclusively through
-//! [`lock_typed_manifest_cache`], which propagates a poisoned lock as a panic
-//! naming the cache (`ops_core::sync::lock`): a panic in a sibling
-//! provider while it held the lock may have left the map and its LRU queue
-//! out of step, so no later caller continues with it.
-//!
-//! # Concurrency contract
-//!
-//! The wrapper is a single `Mutex<HashMap>`, which serialises every probe.
-//! This is intentional and bounded by the workload it guards:
-//!
-//! - **Single-shot CLI (`ops about`):** every provider runs in turn from one
-//!   thread, so the lock is uncontended. The hot path is `HashMap` probe + LRU
-//!   tick under the lock and never holds the lock across IO or parsing.
-//! - **Daemon / language-server hosts:** when multiple worker threads start
-//!   running providers in parallel against many distinct workspace roots, this
-//!   single-mutex shape becomes the bottleneck (the contract forbids
-//!   `Mutex<Collection>` on hot paths exactly because of this). At that point
-//!   the cache MUST migrate to `DashMap<PathBuf, TypedManifestEntry>` plus a
-//!   separate small `parking_lot::Mutex<()>` only for the LRU eviction scan —
-//!   sharded reads, occasional global serialisation just for the cap-evict
-//!   step. Keep this comment in sync with
-//!   `extensions/about/src/manifest_cache.rs`, the sibling cache, which uses a
-//!   per-key `OnceLock` shape so distinct paths progress in parallel; the
-//!   typed-manifest cache here intentionally does not, because no daemon
-//!   caller exists yet.
-//!
-//! Reviewer rule: do not add a daemon caller without first making the migration
-//! above. A new caller that opens parallel `ctx`s against distinct roots and
-//! bottlenecks here would silently undo a downstream performance fix.
-//!
-//! The same rule covers member-set staleness. The freshness key
-//! stats only `<root>/Cargo.toml` (see **Member-set freeze** above), so a
-//! daemon that can outlive a `cargo new crates/foo` — or a member-directory
-//! removal — serves the frozen `resolved_members` and
-//! `canonical_member_manifests` views indefinitely, diverging from
-//! `cargo metadata` with no warn. A daemon caller must first either extend
-//! the freshness key to cover the resolved member set or drive `ctx.refresh`
-//! on workspace-modification events; only then may it rely on `ops about`
-//! member data.
+//! The lock is acquired exclusively through [`lock_typed_manifest_cache`],
+//! which propagates a poisoned lock as a panic naming the cache
+//! (`ops_core::sync::lock`): a panic in a sibling provider while it held the
+//! lock may have left the map and its LRU queue out of step, so no later
+//! caller continues with it.
 //!
 //! **Every test that reaches this cache must carry
 //! `#[serial_test::serial(typed_manifest_cache)]`** — including the ones that
