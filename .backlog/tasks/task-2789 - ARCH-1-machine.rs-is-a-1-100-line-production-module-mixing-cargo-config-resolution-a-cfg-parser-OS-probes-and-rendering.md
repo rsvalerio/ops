@@ -1,10 +1,10 @@
 ---
 id: TASK-2789
 title: 'ARCH-1: machine.rs is a 1,100-line production module mixing cargo-config resolution, a cfg parser, OS probes and rendering'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:15'
 labels:
   - code-review-rust
   - ARCH
@@ -29,12 +29,16 @@ dedup_key: 'ARCH-1:extensions/about/src/machine.rs:module'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 machine is split into submodules by concern (e.g. machine/cargo_config.rs, machine/cfg_expr.rs, machine/probe.rs, machine/render.rs) with the public API unchanged
-- [ ] #2 No resulting production module exceeds ~500 lines
+- [x] #1 machine is split into submodules by concern (e.g. machine/cargo_config.rs, machine/cfg_expr.rs, machine/probe.rs, machine/render.rs) with the public API unchanged
+- [x] #2 No resulting production module exceeds ~500 lines
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+Fixed in wave TASK-2857: machine.rs split into machine/{mod,layers,settings,cfg_expr,probe,render}.rs; public API re-exported unchanged from ops_about::machine; largest production module is settings.rs (~370 lines).
+
 <!-- SECTION:NOTES:END -->

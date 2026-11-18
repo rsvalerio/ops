@@ -1,10 +1,10 @@
 ---
 id: TASK-2785
 title: 'SEC-33: cfg(..) target-key evaluator recurses without a depth limit'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:18'
 labels:
   - code-review-rust
   - SEC
@@ -29,12 +29,16 @@ dedup_key: 'SEC-33:extensions/about/src/machine.rs:CfgParser::predicate'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CfgParser tracks depth and returns None past a named const limit (with a rationale comment)
-- [ ] #2 A test feeds a deeply nested cfg key and asserts cfg_matches returns false without overflowing
+- [x] #1 CfgParser tracks depth and returns None past a named const limit (with a rationale comment)
+- [x] #2 A test feeds a deeply nested cfg key and asserts cfg_matches returns false without overflowing
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+Fixed in wave TASK-2857: CfgParser tracks list depth, MAX_CFG_DEPTH = 32 with rationale; test deeply_nested_cfg_key_does_not_match_or_overflow (100k levels).
+
 <!-- SECTION:NOTES:END -->

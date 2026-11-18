@@ -1,10 +1,10 @@
 ---
 id: TASK-2787
 title: 'SEC-18: about machine probes rustc/cargo inside the checkout, where a rust-toolchain file can pick the binary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:18'
 labels:
   - code-review-rust
   - SEC
@@ -30,12 +30,16 @@ dedup_key: 'SEC-18:extensions/about/src/machine.rs:collect_machine_report'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either the rustc/cargo probes run with toolchain-file overrides neutralized (e.g. RUSTUP_TOOLCHAIN pinned, or cwd outside the checkout where possible), or the threat-model decision is recorded
-- [ ] #2 The comment beside sccache_stats states the invariant the module actually upholds
+- [x] #1 Either the rustc/cargo probes run with toolchain-file overrides neutralized (e.g. RUSTUP_TOOLCHAIN pinned, or cwd outside the checkout where possible), or the threat-model decision is recorded
+- [x] #2 The comment beside sccache_stats states the invariant the module actually upholds
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+Resolved in wave TASK-2857 by recording the threat-model decision: rustc/cargo probes keep running in the checkout (rustup toolchain-file selection accepted, since the report must describe the toolchain a build there uses and ops already runs cargo metadata in the checkout). Recorded on probe::probe_host_target; the comment beside sccache_stats now states the actual invariant: never run a program path read from the checkout's cargo config.
+
 <!-- SECTION:NOTES:END -->

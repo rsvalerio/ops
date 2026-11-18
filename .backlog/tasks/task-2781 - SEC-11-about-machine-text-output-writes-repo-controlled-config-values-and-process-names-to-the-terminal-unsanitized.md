@@ -1,10 +1,10 @@
 ---
 id: TASK-2781
 title: 'SEC-11: about machine text output writes repo-controlled config values and process names to the terminal unsanitized'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:15'
 labels:
   - code-review-rust
   - SEC
@@ -29,12 +29,16 @@ dedup_key: 'SEC-11:extensions/about/src/machine.rs:format_machine_report'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every repo- or process-derived string rendered by format_machine_report is checked with the shared unsafe-display predicate (dropped/replaced) or escaped before printing
-- [ ] #2 A test renders a report whose linker/rustflags/process name carry ESC, CR/LF and U+202E and asserts none survive in the text output
+- [x] #1 Every repo- or process-derived string rendered by format_machine_report is checked with the shared unsafe-display predicate (dropped/replaced) or escaped before printing
+- [x] #2 A test renders a report whose linker/rustflags/process name carry ESC, CR/LF and U+202E and asserts none survive in the text output
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+Fixed in wave TASK-2857: machine/render.rs escapes every repo/process-derived string (setting value/source, process name, host, fs path/type) via ops_core::ui::sanitise_to_string; test text_report_escapes_control_and_bidi_chars_in_untrusted_values.
+
 <!-- SECTION:NOTES:END -->
