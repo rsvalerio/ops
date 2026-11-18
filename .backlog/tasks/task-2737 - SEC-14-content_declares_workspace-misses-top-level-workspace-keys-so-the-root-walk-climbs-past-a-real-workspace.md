@@ -1,10 +1,10 @@
 ---
 id: TASK-2737
 title: 'SEC-14: content_declares_workspace misses top-level workspace keys, so the root walk climbs past a real workspace'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:37'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:28'
 labels:
   - code-review-rust
   - security
@@ -38,9 +38,10 @@ Line 463 skips every line that does not start with `[`, so both forms return `fa
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 content_declares_workspace returns true for a top-level inline `workspace = { ... }` and for a top-level dotted `workspace.<key> = ...` appearing before the first table header
-- [ ] #2 A dotted `workspace.x` key inside another table (e.g. under [package] or [dependencies]) still returns false
-- [ ] #3 find_workspace_root and find_workspace_root_strict have tests that select an inline-declared workspace root over an ancestor declaring [workspace]
+- [x] #1 content_declares_workspace returns true for a top-level inline `workspace = { ... }` and for a top-level dotted `workspace.<key> = ...` appearing before the first table header
+- [x] #2 A dotted `workspace.x` key inside another table (e.g. under [package] or [dependencies]) still returns false
+- [x] #3 find_workspace_root and find_workspace_root_strict have tests that select an inline-declared workspace root over an ancestor declaring [workspace]
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2743
 title: 'API-16: kebab-case manifest keys use alias, so provider JSON emits snake_case rust_version / license_file / default_run / default_members'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - api-design
@@ -29,9 +29,10 @@ dedup_key: 'API-16:extensions-rust/cargo-toml/src/types.rs:Package'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each kebab-case Cargo key is mapped with rename = "<kebab>" plus alias = "<snake>", matching dev-dependencies
-- [ ] #2 A round-trip test asserts the serialized JSON keys use Cargo's spelling (rust-version, license-file, default-run, default-members)
-- [ ] #3 Package::default_run's doc describes the default binary name
+- [x] #1 Each kebab-case Cargo key is mapped with rename = "<kebab>" plus alias = "<snake>", matching dev-dependencies
+- [x] #2 A round-trip test asserts the serialized JSON keys use Cargo's spelling (rust-version, license-file, default-run, default-members)
+- [x] #3 Package::default_run's doc describes the default binary name
+
 <!-- AC:END -->
 
 ## Implementation Notes

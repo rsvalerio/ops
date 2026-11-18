@@ -1,10 +1,10 @@
 ---
 id: TASK-2741
 title: 'ERR-6: authors inheritance overwrites an undeclared workspace authors with an empty Value'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - error-handling
@@ -37,8 +37,9 @@ if matches!(&pkg.authors, InheritableField::Inherited { workspace: true }) {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 authors is resolved via resolve_vec_field (or equivalent) so an empty/undeclared workspace authors leaves the member field Inherited
-- [ ] #2 A test covers authors.workspace = true with no [workspace.package] authors and asserts the field stays Inherited
+- [x] #1 authors is resolved via resolve_vec_field (or equivalent) so an empty/undeclared workspace authors leaves the member field Inherited
+- [x] #2 A test covers authors.workspace = true with no [workspace.package] authors and asserts the field stays Inherited
+
 <!-- AC:END -->
 
 ## Implementation Notes
