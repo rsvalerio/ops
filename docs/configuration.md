@@ -425,6 +425,16 @@ mode. `--tap` and `--junit` beside it are ignored with a warning, and
 flag. A group can set `raw = true` itself to promote anything that names it.
 No effect under `--dry-run`, which never executes children.
 
+A raw command's `timeout_secs` stops only the process `ops` started, not
+what it launched: a raw `sh -c "cargo build"` that times out has its shell
+killed while `cargo` and `rustc` keep running on the terminal (and holding
+the cargo lock) after `ops` reports the step failed. Captured commands do
+not leak this way, because each runs in its own process group that a
+timeout tears down whole; a raw command cannot, because it has to share the
+terminal's foreground group for Ctrl-C to reach it. Prefer a captured
+command where a timeout matters, or make the raw command `exec` into its
+final program so there is no tree left behind.
+
 ## Running one command over a matrix
 
 To run one exec command once per value — say `cargo doc` per published crate,
