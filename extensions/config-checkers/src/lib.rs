@@ -7,19 +7,11 @@
 //! each file, and reports a [`CheckerReport`] so the CLI can exit non-zero
 //! when at least one file failed to parse. Files are never modified.
 //!
-//! # Dependency note
+//! # Shared code
 //!
-//! The bounded-read pipeline and the failure vocabulary this crate shares
-//! with the fixers live in [`ops_core::bounded_read`] — not here, not in the
-//! fixers — so the generic file-walking concerns create no
-//! extension-to-extension edge. The one edge that remains is deliberate:
-//! `ops_text_fixers::discovery`. Discovery encodes the *rewriting* tools'
-//! policy (the symlink-never policy, the gitignore rationale tied to the
-//! fixers' exit-code contract), this crate is modelled on the same
-//! pre-commit hooks and wants byte-identical candidate semantics, and moving
-//! it into `ops-core` would drag the `ignore` crate into the core for one
-//! consumer. If a third extension ever needs it, extraction to its own crate
-//! is the move; two consumers do not justify it.
+//! Candidate discovery is [`ops_text_fixers::discovery`], shared with the
+//! text fixers so both see the same candidate set; the bounded read and the
+//! failure vocabulary are [`ops_core::bounded_read`].
 
 // `src/tests.rs` relies on `unwrap()`; the crate performs no numeric casts,
 // in tests or otherwise, so no cast lint is suppressed here.
@@ -65,11 +57,19 @@ pub const SHORTNAME: &str = "config-checkers";
 ///
 /// It bounds *input* size only, which is the wrong unit for the two `DoS`
 /// classes that do not need a large file. Those are bounded where they
-/// happen, not here: [`json::MAX_NESTING_DEPTH`] caps nesting for both JSON
-/// modes (40 KB of `[[[…]]]` otherwise overflows the stack under
-/// `--allow-json5`), and [`yaml::MAX_EXPANDED_NODES`] caps alias expansion
-/// (a 324-byte anchor bomb otherwise exhausts memory).
+/// happen, not here: [`MAX_NESTING_DEPTH`] caps nesting for both checkers
+/// (40 KB of `[[[…]]]` otherwise overflows the stack under `--allow-json5`),
+/// and [`yaml::MAX_EXPANDED_NODES`] caps alias expansion (a 324-byte anchor
+/// bomb otherwise exhausts memory).
 pub use ops_core::bounded_read::DEFAULT_MAX_BYTES;
+
+/// Maximum bracket, brace or collection nesting accepted by both checkers —
+/// either JSON mode and YAML alike.
+///
+/// Matches `serde_json`'s own `RECURSION_LIMIT`, so the strict and lenient
+/// JSON branches agree on the same input. One definition serves both
+/// checkers, so raising it for one raises it for both.
+pub const MAX_NESTING_DEPTH: u64 = 128;
 
 /// Command extension registering the `check-json` and `check-yaml`
 /// subcommands.
