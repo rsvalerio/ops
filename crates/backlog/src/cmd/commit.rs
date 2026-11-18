@@ -20,7 +20,7 @@ use anyhow::Context as _;
 
 use super::git;
 use crate::model::TaskDoc;
-use crate::store::{task_id_key, Store};
+use crate::store::{same_task_id, Store};
 
 /// Arguments of `commit`.
 #[derive(Debug, Clone)]
@@ -213,20 +213,6 @@ fn resolve_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
     Ok(paths)
 }
 
-/// A task id as supplied to `commit`, held for deleted-file matching in
-/// both forms [`Store::find`] accepts: the exact (lowercased) spelling and
-/// the [`task_id_key`] shape.
-struct WantedId(String, Option<(u32, Option<u32>)>);
-
-impl WantedId {
-    /// Does a deleted file's stored id resolve to this wanted id — by
-    /// exact spelling or by [`task_id_key`] shape, like `Store::find`?
-    fn matches(&self, stored: &str) -> bool {
-        self.0 == stored.to_ascii_lowercase()
-            || self.1.is_some_and(|k| task_id_key(stored) == Some(k))
-    }
-}
-
 /// Tracked backlog files that are gone from the working tree (or whose
 /// deletion is already staged) and whose `HEAD` content carries one of
 /// `ids` — matched the same way [`Store::find`] resolves ids, so the bare
@@ -272,13 +258,11 @@ fn deleted_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
         ],
     )?));
     // Match a deleted file's stored id the same way `Store::find` resolves
-    // the live one: exact (case-insensitive) or through `task_id_key`, so
+    // the live one ([`same_task_id`]): exact (case-insensitive) or by id key, so
     // the bare/differently-padded forms (`12` for `TASK-0012`) also pick up
     // the old path a rename left behind. Spellings only would drop it, and
     // the commit would record the new path while `HEAD` keeps the old one —
     // two files carrying one id.
-    let wanted: Vec<WantedId> =
-        ids.iter().map(|id| WantedId(id.to_ascii_lowercase(), task_id_key(id))).collect();
     let mut found: Vec<String> = Vec::new();
     for path in candidates {
         if found.contains(&path)
@@ -295,7 +279,7 @@ fn deleted_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
             continue;
         };
         let stored = &doc.frontmatter.id;
-        if wanted.iter().any(|wanted| wanted.matches(stored)) {
+        if ids.iter().any(|wanted| same_task_id(wanted, stored)) {
             found.push(path);
         }
     }
