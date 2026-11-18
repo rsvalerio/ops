@@ -12,7 +12,7 @@ use crate::model::{
     render_body, validate_list_item, validate_priority, AcItem, Body, Frontmatter, TaskDoc,
     DEDUP_KEY,
 };
-use crate::store::{format_task_id, main_task_file_name, Store};
+use crate::store::{format_task_id, main_task_file_name, AllocationLock, Store};
 
 /// Everything `task create` can set; clap fills this in the CLI crate.
 #[derive(Debug, Clone, Default)]
@@ -70,7 +70,7 @@ pub fn run_create<W: Write>(
     opts: &CreateOptions,
     out: &mut W,
 ) -> anyhow::Result<()> {
-    match create_task(store, cfg, opts)? {
+    match create_task(store, cfg, opts, &UtcStamp::now()?)? {
         Created::New(id) => writeln!(out, "Created {id}").context("printing the created task id"),
         Created::Exists(id) => {
             if opts.parent.is_some() {
@@ -93,17 +93,43 @@ pub enum Created {
 }
 
 /// The core of [`run_create`], returning the id instead of printing it so
-/// composite commands (`wave create`) can act on the new task.
+/// composite commands can act on the new task. `created_date` comes from
+/// `stamp`, read once at the command edge.
 ///
 /// # Errors
 ///
-/// As [`run_create`].
+/// As [`run_create`], except the clock, which the caller already read.
 pub fn create_task(
     store: &Store,
     cfg: &BacklogConfig,
     opts: &CreateOptions,
+    stamp: &UtcStamp,
 ) -> anyhow::Result<Created> {
-    let stamp = UtcStamp::now()?;
+    // Held until this function returns: the number scan and the publish
+    // must be one critical section for every create, not just keyed ones.
+    // The filename carries the title slug, so two unlocked creates with
+    // different titles derive different paths for the same number and the
+    // no-clobber publish cannot tell them apart. Keyed creates also need it
+    // around the key check, or two runs both see "no task" and both file.
+    let lock = store.lock_allocation()?;
+    create_task_locked(store, cfg, opts, stamp, &lock)
+}
+
+/// [`create_task`] for a caller already holding the store's allocation
+/// lock — `wave create`, which must check and link its members in the same
+/// critical section. The `_held` guard is the proof: taking the lock a
+/// second time from one process would block on itself.
+///
+/// # Errors
+///
+/// As [`create_task`], except the lock, which the caller already holds.
+pub(crate) fn create_task_locked(
+    store: &Store,
+    cfg: &BacklogConfig,
+    opts: &CreateOptions,
+    stamp: &UtcStamp,
+    _held: &AllocationLock,
+) -> anyhow::Result<Created> {
     validate_frontmatter_inputs(opts)?;
     // Resolve --parent before anything is written (the dedup check
     // included): the link must name an existing task, stored in the
@@ -124,13 +150,6 @@ pub fn create_task(
     if let Some(key) = opts.unless_exists.as_deref() {
         anyhow::ensure!(!key.trim().is_empty(), "--unless-exists needs a non-blank key");
     }
-    // Held until this function returns: the number scan and the publish
-    // must be one critical section for every create, not just keyed ones.
-    // The filename carries the title slug, so two unlocked creates with
-    // different titles derive different paths for the same number and the
-    // no-clobber publish cannot tell them apart. Keyed creates also need it
-    // around the key check, or two runs both see "no task" and both file.
-    let _lock = store.lock_allocation()?;
     if let Some(key) = opts.unless_exists.as_deref() {
         if let Some(id) = open_task_with_key(store, cfg, key)? {
             return Ok(Created::Exists(id));
@@ -146,7 +165,7 @@ pub fn create_task(
         let id = format_task_id(&cfg.task_prefix, number, cfg.zero_padded_ids);
         let file_name = main_task_file_name(number, cfg.zero_padded_ids, &opts.title);
         let path = store.task_path(&file_name);
-        let rendered = render_new_task(opts, cfg, &id, &stamp, parent_id.as_deref());
+        let rendered = render_new_task(opts, cfg, &id, stamp, parent_id.as_deref());
 
         match atomic_write_noclobber(&path, &rendered) {
             Ok(()) => return Ok(Created::New(id)),
@@ -288,6 +307,20 @@ mod tests {
         assert!(written.contains("- [ ] #1 criterion one"));
     }
 
+    /// `created_date` is the injected stamp, exactly.
+    #[test]
+    fn create_stamps_created_date_from_the_injected_clock() {
+        let (_dir, store, cfg) = scratch();
+        // 2026-03-04 05:06 UTC.
+        let stamp = UtcStamp::from_unix_secs(1_772_600_760).expect("stamp");
+        let opts = CreateOptions { title: "stamped".to_string(), ..CreateOptions::default() };
+        let Created::New(id) = create_task(&store, &cfg, &opts, &stamp).expect("create") else {
+            panic!("an unkeyed create always files");
+        };
+        let entry = store.find(&id).expect("find").expect("created");
+        assert_eq!(entry.doc.frontmatter.created_date, "2026-03-04 05:06");
+    }
+
     #[test]
     fn create_allocates_past_existing_ids_and_defaults_status() {
         let (dir, store, cfg) = scratch();
@@ -408,7 +441,8 @@ mod tests {
                             title: format!("title {i}"),
                             ..CreateOptions::default()
                         };
-                        match create_task(store, cfg, &opts).expect("create") {
+                        let stamp = UtcStamp::now().expect("clock");
+                        match create_task(store, cfg, &opts, &stamp).expect("create") {
                             Created::New(id) => id,
                             Created::Exists(id) => panic!("unkeyed create reported {id}"),
                         }

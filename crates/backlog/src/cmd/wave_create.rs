@@ -11,10 +11,11 @@ use std::io::Write;
 use anyhow::Context as _;
 
 use super::atomic_write;
-use super::create::{create_task, CreateOptions, Created};
+use super::create::{create_task_locked, CreateOptions, Created};
+use super::wave::{is_member, is_wave};
 use crate::clock::UtcStamp;
 use crate::config::BacklogConfig;
-use crate::store::{Store, TaskEntry};
+use crate::store::{same_task_id, Store, TaskEntry};
 
 /// The status a new wave parent takes when none is given: a wave is
 /// created ready to be claimed.
@@ -44,20 +45,44 @@ pub struct WaveCreateOptions {
 /// `Created TASK-NNNN` and one `Linked TASK-MMMM` line per member.
 ///
 /// Every check runs before the first write: each member must be a task in
-/// `tasks/`, must not already belong to another wave, and must not itself be
-/// a wave. A failure there writes nothing and names every offending id. Only
-/// an I/O failure after that point can leave a partial result, and its error
-/// says which members were linked and which were not.
+/// `tasks/` (resolved with [`same_task_id`], so bare and padded forms work),
+/// must not already belong to another wave — a `parent_task_id`, or any
+/// link [`is_member`] honours to an open wave — and must not itself be a
+/// wave ([`is_wave`]). A failure there writes nothing and names every
+/// offending id. Only an I/O failure after that point can leave a partial
+/// result, and its error says which members were linked and which were not.
+///
+/// The check, the parent's creation and the member rewrites run under the
+/// store's allocation lock — the one `task edit` holds — so two concurrent
+/// wave creates cannot both claim one member, and a member edited
+/// meanwhile is rewritten from its current content, never a stale copy.
 ///
 /// # Errors
 ///
-/// No members were given, a member is missing / already parented / itself a
-/// wave, a task file in `tasks/` does not parse, the clock is unreadable, or
-/// a file cannot be written — errors name the ids or paths involved.
+/// No members were given, a member is missing / already in a wave / itself
+/// a wave, a task file in `tasks/` does not parse, the clock is unreadable,
+/// the lock cannot be taken, or a file cannot be written — errors name the
+/// ids or paths involved.
 pub fn run_wave_create<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
     opts: &WaveCreateOptions,
+    out: &mut W,
+) -> anyhow::Result<()> {
+    wave_create_with(store, cfg, opts, &UtcStamp::now()?, out)
+}
+
+/// [`run_wave_create`] stamping every write from `stamp`, read once at the
+/// command edge.
+///
+/// # Errors
+///
+/// As [`run_wave_create`], except the clock, which the caller already read.
+fn wave_create_with<W: Write>(
+    store: &Store,
+    cfg: &BacklogConfig,
+    opts: &WaveCreateOptions,
+    stamp: &UtcStamp,
     out: &mut W,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(!opts.title.trim().is_empty(), "wave create needs a non-blank title");
@@ -68,9 +93,12 @@ pub fn run_wave_create<W: Write>(
     let wanted = dedup_ids(&opts.members);
     anyhow::ensure!(!wanted.is_empty(), "wave create needs at least one member");
 
+    // Held across check → create → link: the snapshot the members are
+    // checked and rewritten from stays current until the last write.
+    let lock = store.lock_allocation()?;
     let entries = store.scan_tasks()?;
-    let members = resolve_members(entries, &wanted, &opts.marker)?;
-    let stamp = UtcStamp::now()?;
+    let terminal = super::cleanup::terminal_status(&cfg.statuses);
+    let members = resolve_members(entries, &wanted, &opts.marker, terminal)?;
 
     let member_ids: Vec<String> = members.iter().map(|m| m.doc.frontmatter.id.clone()).collect();
     let parent = CreateOptions {
@@ -85,7 +113,7 @@ pub fn run_wave_create<W: Write>(
         dependencies: member_ids.clone(),
         ..CreateOptions::default()
     };
-    let wave_id = match create_task(store, cfg, &parent)? {
+    let wave_id = match create_task_locked(store, cfg, &parent, stamp, &lock)? {
         Created::New(id) => id,
         // `unless_exists` is never set above, so no existing task can match.
         Created::Exists(id) => anyhow::bail!("wave create unexpectedly matched {id}"),
@@ -112,12 +140,12 @@ pub fn run_wave_create<W: Write>(
     Ok(())
 }
 
-/// `ids` trimmed, blank entries dropped, case-insensitive duplicates
+/// `ids` trimmed, blank entries dropped, duplicates ([`same_task_id`])
 /// collapsed to their first spelling, order kept.
 fn dedup_ids(ids: &[String]) -> Vec<String> {
     let mut kept: Vec<String> = Vec::new();
     for id in ids.iter().map(|id| id.trim()).filter(|id| !id.is_empty()) {
-        if !kept.iter().any(|k| k.eq_ignore_ascii_case(id)) {
+        if !kept.iter().any(|k| same_task_id(k, id)) {
             kept.push(id.to_string());
         }
     }
@@ -127,19 +155,30 @@ fn dedup_ids(ids: &[String]) -> Vec<String> {
 /// Resolve every wanted id to its entry in `tasks/`, or fail naming every
 /// id that is missing, already in a wave, or a wave itself — all problems at
 /// once, so one retry fixes them.
+///
+/// "Already in a wave" is a `parent_task_id`, or membership of an open wave
+/// (any status but `terminal`) by the same links `wave members` reads
+/// ([`is_member`]); "a wave" is [`is_wave`]. Sharing both predicates keeps
+/// this check identical to what `wave list` / `wave members` report.
 fn resolve_members(
     entries: Vec<TaskEntry>,
     wanted: &[String],
     marker: &str,
+    terminal: Option<&str>,
 ) -> anyhow::Result<Vec<TaskEntry>> {
-    let mut pool: Vec<Option<TaskEntry>> = entries.into_iter().map(Some).collect();
-    let mut found = Vec::with_capacity(wanted.len());
+    let open_waves: Vec<&TaskEntry> = entries
+        .iter()
+        .filter(|entry| is_wave(entry, marker))
+        .filter(|entry| {
+            terminal.is_none_or(|t| !entry.doc.frontmatter.status.eq_ignore_ascii_case(t))
+        })
+        .collect();
+    let mut found: Vec<usize> = Vec::with_capacity(wanted.len());
     let mut problems = Vec::new();
     for id in wanted {
-        let slot = pool.iter_mut().find(|slot| {
-            slot.as_ref().is_some_and(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(id))
-        });
-        let Some(entry) = slot.and_then(Option::take) else {
+        let Some((index, entry)) =
+            entries.iter().enumerate().find(|(_, e)| same_task_id(&e.doc.frontmatter.id, id))
+        else {
             problems.push(format!("{id}: not found in tasks/"));
             continue;
         };
@@ -148,16 +187,23 @@ fn resolve_members(
             problems.push(format!("{}: already a member of {parent}", fm.id));
             continue;
         }
-        if fm.labels.iter().any(|l| l == marker) || fm.assignees.iter().any(|a| a == marker) {
+        if let Some(wave) = open_waves.iter().find(|wave| is_member(entry, &wave.doc)) {
+            problems.push(format!("{}: already a member of {}", fm.id, wave.doc.frontmatter.id));
+            continue;
+        }
+        if is_wave(entry, marker) {
             problems.push(format!("{}: is itself a wave", fm.id));
             continue;
         }
-        found.push(entry);
+        if !found.contains(&index) {
+            found.push(index);
+        }
     }
     if !problems.is_empty() {
         anyhow::bail!("wave create refused, nothing written:\n  {}", problems.join("\n  "));
     }
-    Ok(found)
+    let mut pool: Vec<Option<TaskEntry>> = entries.into_iter().map(Some).collect();
+    Ok(found.into_iter().filter_map(|index| pool.get_mut(index).and_then(Option::take)).collect())
 }
 
 #[cfg(test)]
@@ -281,5 +327,66 @@ mod tests {
                 .expect_err("must refuse");
         assert!(format!("{err:#}").contains("at least one member"));
         assert!(file_names(&dir).is_empty());
+    }
+
+    /// The shared predicates: a marker label in another case is still a
+    /// wave, a task listed in an open wave's `dependencies:` is already a
+    /// member (no `parent_task_id` needed), and members resolve by the bare
+    /// and padded forms `Store::find` accepts.
+    #[test]
+    fn membership_and_wave_checks_match_wave_list_and_members() {
+        let seeded = [
+            ("task-0001 - a.md", member("TASK-0001", "")),
+            ("task-0002 - b.md", member("TASK-0002", "")),
+            (
+                "task-0003 - w.md",
+                member("TASK-0003", "").replace("labels: []", "labels:\n  - Code-Review-Wave"),
+            ),
+            (
+                "task-0004 - open-wave.md",
+                member("TASK-0004", "")
+                    .replace("labels: []", "labels:\n  - code-review-wave")
+                    .replace("dependencies: []", "dependencies:\n  - TASK-0002"),
+            ),
+        ];
+        let (dir, store) = scratch(&seeded);
+        let before = file_names(&dir);
+        let err = run_wave_create(
+            &store,
+            &BacklogConfig::default(),
+            &opts(&["1", "task-2", "TASK-3"]),
+            &mut Vec::new(),
+        )
+        .expect_err("must refuse");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("TASK-0002: already a member of TASK-0004"), "{msg}");
+        assert!(msg.contains("TASK-0003: is itself a wave"), "{msg}");
+        assert!(!msg.contains("not found"), "bare/padded ids resolve: {msg}");
+        assert_eq!(file_names(&dir), before, "nothing written");
+
+        let mut out = Vec::new();
+        run_wave_create(&store, &BacklogConfig::default(), &opts(&["1"]), &mut out)
+            .expect("bare id resolves");
+        assert_eq!(String::from_utf8(out).expect("utf8"), "Created TASK-0005\nLinked TASK-0001\n");
+    }
+
+    /// Every write is stamped from the clock read once at the edge.
+    #[test]
+    fn parent_and_members_carry_the_injected_stamp() {
+        let (dir, store) = scratch(&[("task-0001 - a.md", member("TASK-0001", ""))]);
+        // 2026-03-04 05:06 UTC.
+        let stamp = UtcStamp::from_unix_secs(1_772_600_760).expect("stamp");
+        wave_create_with(
+            &store,
+            &BacklogConfig::default(),
+            &opts(&["TASK-0001"]),
+            &stamp,
+            &mut Vec::new(),
+        )
+        .expect("wave create");
+        let wave = doc_of(&dir, "task-0002 - code-review-plan-wave1.md");
+        assert_eq!(wave.frontmatter.created_date, "2026-03-04 05:06");
+        let linked = doc_of(&dir, "task-0001 - a.md");
+        assert_eq!(linked.frontmatter.updated_date.as_deref(), Some("2026-03-04 05:06"));
     }
 }

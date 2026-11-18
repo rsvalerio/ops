@@ -24,7 +24,7 @@ use crate::clock::UtcStamp;
 use crate::config::BacklogConfig;
 use crate::model::TaskDoc;
 use crate::render;
-use crate::store::{Store, TaskEntry};
+use crate::store::{same_task_id, task_id_key, Store, TaskEntry};
 
 /// The label (and, before migration, the assignee) that marks a wave parent.
 pub const DEFAULT_WAVE_MARKER: &str = "code-review-wave";
@@ -144,7 +144,7 @@ pub fn run_wave_members<W: Write>(
     let deps = &wave.doc.frontmatter.dependencies;
     let missing: Vec<String> = deps
         .iter()
-        .filter(|dep| !entries.iter().any(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(dep)))
+        .filter(|dep| !entries.iter().any(|e| same_task_id(&e.doc.frontmatter.id, dep)))
         .cloned()
         .collect();
     let members: Vec<TaskEntry> =
@@ -167,15 +167,16 @@ pub fn run_wave_members<W: Write>(
 /// Is `entry` a member of the wave `wave`? Any of the three links counts:
 /// listed in the wave's `dependencies:`, a `parent_task_id` naming the wave,
 /// or — the pre-migration link — the wave's id as an assignee.
-fn is_member(entry: &TaskEntry, wave: &TaskDoc) -> bool {
+///
+/// Ids compare with [`same_task_id`], so a link written in a bare or
+/// differently padded form still counts.
+pub(crate) fn is_member(entry: &TaskEntry, wave: &TaskDoc) -> bool {
     let fm = &entry.doc.frontmatter;
     let wave_id = &wave.frontmatter.id;
-    let is_dependency =
-        wave.frontmatter.dependencies.iter().any(|dep| dep.eq_ignore_ascii_case(&fm.id));
-    let links_here = fm
-        .extra_scalar("parent_task_id")
-        .is_some_and(|parent| parent.eq_ignore_ascii_case(wave_id));
-    let assigned_here = has_assignee(&entry.doc, wave_id);
+    let is_dependency = wave.frontmatter.dependencies.iter().any(|dep| same_task_id(dep, &fm.id));
+    let links_here =
+        fm.extra_scalar("parent_task_id").is_some_and(|parent| same_task_id(parent, wave_id));
+    let assigned_here = assigned_to_task(&entry.doc, wave_id);
     is_dependency || links_here || assigned_here
 }
 
@@ -242,7 +243,7 @@ fn select_waves<'a>(
     for id in wave_ids {
         let wave = entries
             .iter()
-            .find(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(id))
+            .find(|e| same_task_id(&e.doc.frontmatter.id, id))
             .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
         if !selected.iter().any(|w| std::ptr::eq(*w, wave)) {
             selected.push(wave);
@@ -327,18 +328,20 @@ fn file_scope<'a>(entries: &'a [TaskEntry], wave: &TaskDoc) -> std::collections:
         .collect()
 }
 
-/// Task ids in numeric order (the number, so 999 before 1000), falling back
-/// to a case-insensitive string order for ids without a numeric suffix.
+/// Task ids in numeric order (the number, so 999 before 1000, then the
+/// dotted subtask), by the [`task_id_key`] shape; ids without one sort
+/// after every numeric id, case-insensitively.
 fn id_order(a: &str, b: &str) -> std::cmp::Ordering {
-    fn key(id: &str) -> (String, Option<u64>, String) {
-        match id.rsplit_once('-') {
-            Some((prefix, number)) => {
-                (prefix.to_ascii_lowercase(), number.parse::<u64>().ok(), id.to_ascii_lowercase())
-            }
-            None => (id.to_ascii_lowercase(), None, id.to_ascii_lowercase()),
-        }
+    fn key(id: &str) -> (Option<(u32, Option<u32>)>, String) {
+        (task_id_key(id), id.to_ascii_lowercase())
     }
-    key(a).cmp(&key(b))
+    // `None` sorts before `Some`; flip it so the odd ids go last.
+    let (ka, kb) = (key(a), key(b));
+    match (ka.0, kb.0) {
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        _ => ka.cmp(&kb),
+    }
 }
 
 /// One task the migration rewrites.
@@ -376,22 +379,25 @@ pub fn run_wave_migrate<W: Write>(
     opts: &WaveMigrateOptions,
     out: &mut W,
 ) -> anyhow::Result<()> {
+    let stamp = UtcStamp::now()?;
     let mut input = std::io::stdin().lock();
-    let result = migrate_with(store, opts, &mut input, out);
+    let result = migrate_with(store, opts, &stamp, &mut input, out);
     // Release the stdin lock before returning, as cleanup does.
     drop(input);
     result
 }
 
-/// [`run_wave_migrate`] against an explicit input stream; the seam the
-/// confirmation tests drive.
+/// [`run_wave_migrate`] against an explicit input stream and a clock
+/// `stamp` read once at the command edge; the seam the confirmation and
+/// fixed-clock tests drive.
 ///
 /// # Errors
 ///
-/// As [`run_wave_migrate`].
+/// As [`run_wave_migrate`], except the clock, which the caller already read.
 fn migrate_with<W: Write>(
     store: &Store,
     opts: &WaveMigrateOptions,
+    stamp: &UtcStamp,
     input: &mut dyn std::io::BufRead,
     out: &mut W,
 ) -> anyhow::Result<()> {
@@ -421,7 +427,6 @@ fn migrate_with<W: Write>(
         return Ok(());
     }
 
-    let stamp = UtcStamp::now()?;
     let updated = format!("{} {}", stamp.date, stamp.minutes);
     write_migrations(&mut writes, &updated)?;
     writeln!(out, "Migrated {} waves and {member_count} members.", plans.len())
@@ -512,8 +517,7 @@ fn plan_migration(
     let mut plans: Vec<WavePlan> = Vec::new();
     let mut writes: Vec<PendingWrite> = Vec::new();
     for wave_id in wave_ids {
-        let Some(wave) =
-            entries.iter().find(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(wave_id))
+        let Some(wave) = entries.iter().find(|e| same_task_id(&e.doc.frontmatter.id, wave_id))
         else {
             continue;
         };
@@ -528,16 +532,16 @@ fn plan_migration(
         }
 
         let mut member_ids: Vec<String> = Vec::new();
-        for entry in entries.iter().filter(|e| has_assignee(&e.doc, wave_id)) {
+        for entry in entries.iter().filter(|e| assigned_to_task(&e.doc, wave_id)) {
             let member_id = &entry.doc.frontmatter.id;
             let mut member_doc = entry.doc.clone();
             member_doc.frontmatter.set_extra_scalar("parent_task_id", wave_id);
-            retain_assignees_except(&mut member_doc, wave_id);
+            member_doc.frontmatter.assignees.retain(|assignee| !same_task_id(assignee, wave_id));
             // Keep both directions in agreement: a member discovered through
             // the assignee overload but absent from the wave's dependency
             // list would vanish from `wave members` once the assignee goes.
             let deps = &mut wave_doc.frontmatter.dependencies;
-            if !deps.iter().any(|dep| dep.eq_ignore_ascii_case(member_id)) {
+            if !deps.iter().any(|dep| same_task_id(dep, member_id)) {
                 deps.push(member_id.clone());
             }
             member_ids.push(member_id.clone());
@@ -596,7 +600,7 @@ fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow
             if assignee.eq_ignore_ascii_case(marker) || !looks_like_task_id(assignee) {
                 continue;
             }
-            let Some(wave_id) = wave_ids.iter().find(|id| id.eq_ignore_ascii_case(assignee)) else {
+            let Some(wave_id) = wave_ids.iter().find(|id| same_task_id(id, assignee)) else {
                 anyhow::bail!(
                     "{} is assigned to {assignee}, which is not a wave in this tree — \
                      fix that assignee by hand, then re-run",
@@ -604,7 +608,7 @@ fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow
                 );
             };
             if let Some(parent) = fm.extra_scalar("parent_task_id") {
-                if !parent.eq_ignore_ascii_case(wave_id) {
+                if !same_task_id(parent, wave_id) {
                     anyhow::bail!(
                         "{} is assigned to wave {wave_id} but already has parent_task_id {parent} \
                          — resolve the conflict by hand, then re-run",
@@ -631,12 +635,10 @@ fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow
     Ok(())
 }
 
-/// Does this look like a task id rather than a person?
+/// Does this look like a task id rather than a person? A `<prefix>-`
+/// form carrying a [`task_id_key`] — dotted subtask ids included.
 fn looks_like_task_id(value: &str) -> bool {
-    let Some((_, number)) = value.rsplit_once('-') else {
-        return false;
-    };
-    !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())
+    value.contains('-') && task_id_key(value).is_some()
 }
 
 /// A wave carries the marker as a label (migrated) or as an assignee (the
@@ -647,6 +649,12 @@ pub(crate) fn is_wave(entry: &TaskEntry, marker: &str) -> bool {
 
 fn has_label(doc: &TaskDoc, marker: &str) -> bool {
     doc.frontmatter.labels.iter().any(|label| label.eq_ignore_ascii_case(marker))
+}
+
+/// Does `doc` carry the task id `task_id` as an assignee — the
+/// pre-migration member → wave link? Compared with [`same_task_id`].
+fn assigned_to_task(doc: &TaskDoc, task_id: &str) -> bool {
+    doc.frontmatter.assignees.iter().any(|assignee| same_task_id(assignee, task_id))
 }
 
 fn has_assignee(doc: &TaskDoc, wanted: &str) -> bool {
@@ -712,12 +720,18 @@ mod tests {
         TaskDoc::parse(&std::fs::read_to_string(path).expect("read")).expect("parse")
     }
 
+    /// 2026-03-04 05:06 UTC: every migration test runs on this fixed clock.
+    fn fixed_stamp() -> UtcStamp {
+        UtcStamp::from_unix_secs(1_772_600_760).expect("stamp")
+    }
+
     fn migrate(store: &Store, dry_run: bool, answer: &str) -> anyhow::Result<String> {
         let mut out = Vec::new();
         let mut input = answer.as_bytes();
         migrate_with(
             store,
             &WaveMigrateOptions { marker: DEFAULT_WAVE_MARKER.to_string(), dry_run },
+            &fixed_stamp(),
             &mut input,
             &mut out,
         )?;
@@ -756,7 +770,9 @@ mod tests {
             let member = doc_of(&dir, name);
             assert!(member.frontmatter.assignees.is_empty());
             assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
+            assert_eq!(member.frontmatter.updated_date.as_deref(), Some("2026-03-04 05:06"));
         }
+        assert_eq!(wave.frontmatter.updated_date.as_deref(), Some("2026-03-04 05:06"));
     }
 
     #[test]
@@ -1016,9 +1032,44 @@ mod tests {
         assert!(err.to_string().contains("TASK-9999"));
     }
 
+    /// Membership links and named waves match by `same_task_id`: a wave
+    /// listing a member lowercase and padded differently still has that
+    /// member and reports nothing missing, and `wave
+    /// overlap` resolves a bare wave id.
+    #[test]
+    fn members_and_overlap_match_padded_and_bare_ids() {
+        let tasks = vec![
+            ("task-0119 - wave.md", task("TASK-0119", &[], &["code-review-wave"], &["task-120"])),
+            ("task-0120 - member.md", task("TASK-0120", &[], &[], &[])),
+        ];
+        let (_dir, store) = scratch(&tasks);
+        let mut out = Vec::new();
+        run_wave_members(
+            &store,
+            &cfg(),
+            &WaveMembersOptions { wave_id: "119".to_string(), json: false },
+            &mut out,
+        )
+        .expect("members");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("TASK-0120"), "{text}");
+        assert!(!text.contains("Missing dependencies"), "{text}");
+        let text = overlap(&store, &["119"], false);
+        assert!(text.contains("TASK-0119"), "{text}");
+    }
+
+    /// Ids order numerically, subtasks after their parent, odd ids last.
+    #[test]
+    fn id_order_is_numeric_with_subtasks_and_odd_ids_last() {
+        let mut ids = vec!["TASK-1000", "foo", "TASK-999", "TASK-999.02", "TASK-999.1"];
+        ids.sort_by(|a, b| id_order(a, b));
+        assert_eq!(ids, vec!["TASK-999", "TASK-999.1", "TASK-999.02", "TASK-1000", "foo"]);
+    }
+
     #[test]
     fn task_id_shape_is_told_apart_from_a_person() {
         assert!(looks_like_task_id("TASK-0119"));
+        assert!(looks_like_task_id("TASK-12.03"), "dotted subtask ids are ids too");
         assert!(!looks_like_task_id("code-review-wave"));
         assert!(!looks_like_task_id("rodrigo"));
     }

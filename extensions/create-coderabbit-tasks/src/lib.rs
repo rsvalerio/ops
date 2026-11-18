@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context as _;
+use ops_backlog::clock::UtcStamp;
 use ops_backlog::cmd::{CommitOptions, Created, create_task, git, run_commit};
 use ops_backlog::config::BacklogConfig;
 use ops_backlog::store::Store;
@@ -281,10 +282,12 @@ impl TargetRun<'_> {
         let root = worktree.path().to_string_lossy().into_owned();
         let mut filed = Vec::new();
         let mut existing = 0usize;
+        // One clock read per review: every finding it files shares the stamp.
+        let stamp = UtcStamp::now()?;
         for item in &findings {
             let file = finding::repo_relative_file(&item.file_name, &root)?;
             let opts = finding::task_options(&target.name, &file, item);
-            match create_task(self.backlog.store, self.backlog.cfg, &opts)? {
+            match create_task(self.backlog.store, self.backlog.cfg, &opts, &stamp)? {
                 Created::New(id) => {
                     writeln!(out, "created {id} {}", opts.title)?;
                     filed.push(id);

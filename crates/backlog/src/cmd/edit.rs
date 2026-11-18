@@ -7,7 +7,7 @@ use anyhow::Context as _;
 
 use super::{atomic_write, link_noclobber};
 use crate::clock::UtcStamp;
-use crate::store::Store;
+use crate::store::{same_task_id, Store, TaskFileName};
 
 /// Everything `task edit` can change. `assignees: None` leaves the list
 /// untouched; `Some(vec![""])` (from `-a ""`) clears it.
@@ -54,6 +54,22 @@ pub struct EditOptions {
 /// acceptance-criterion or definition-of-done index is out of range, or the
 /// file cannot be written — write errors name the path.
 pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> anyhow::Result<()> {
+    edit_with(store, opts, &UtcStamp::now()?, out)
+}
+
+/// [`run_edit`] stamping `updated_date` from `stamp`, read once at the
+/// command edge — the seam composite commands (`wave claim`/`park`) and the
+/// fixed-clock tests drive.
+///
+/// # Errors
+///
+/// As [`run_edit`], except the clock, which the caller already read.
+pub(crate) fn edit_with<W: Write>(
+    store: &Store,
+    opts: &EditOptions,
+    stamp: &UtcStamp,
+    out: &mut W,
+) -> anyhow::Result<()> {
     validate_frontmatter_inputs(opts)?;
     let _lock = store.lock_allocation()?;
     let entry = store
@@ -77,14 +93,13 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     apply_frontmatter_edits(&mut doc.frontmatter, opts, parent_id.as_deref());
     apply_body_edits(&mut doc, opts)?;
 
-    let stamp = UtcStamp::now()?;
     doc.frontmatter.updated_date = Some(format!("{} {}", stamp.date, stamp.minutes));
     let rendered = doc.render();
 
     if opts.title.is_some() {
         // A title change moves the slug: write the new file and remove the
         // old one so only one task owns the id.
-        rename_to_new_slug(store, &entry.path, &doc.frontmatter.title, &rendered)?;
+        rename_to_new_slug(&entry.path, &doc.frontmatter.title, &rendered)?;
     } else {
         atomic_write(&entry.path, &rendered)?;
     }
@@ -151,13 +166,13 @@ fn apply_frontmatter_edits(
     for dep in &opts.add_dep {
         // Same case rule as the remove below: a dep differing only by case
         // must not slip past the duplicate check and then be removed twice.
-        let already = fm.dependencies.iter().any(|existing| existing.eq_ignore_ascii_case(dep));
+        let already = fm.dependencies.iter().any(|existing| same_task_id(existing, dep));
         if !dep.trim().is_empty() && !already {
             fm.dependencies.push(dep.clone());
         }
     }
     for dep in &opts.remove_dep {
-        fm.dependencies.retain(|d| !d.eq_ignore_ascii_case(dep));
+        fm.dependencies.retain(|d| !same_task_id(d, dep));
     }
     if let Some(priority) = &opts.priority {
         fm.priority = Some(priority.clone());
@@ -198,7 +213,10 @@ fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyh
     Ok(())
 }
 
-/// Write the task under its new title slug and drop the old file. The id
+/// Write the task under its new title slug, in the directory the task
+/// already lives in (`completed/` and `archive/tasks/` included — a rename
+/// must never resurrect a cleaned-up task into `tasks/`), and drop the old
+/// file. The id
 /// portion of the old filename is carried over verbatim — re-deriving it
 /// from the bare number would drop a dotted subtask suffix (`task-0042.03`)
 /// and aim the write at the parent task's file, truncating it.
@@ -218,7 +236,6 @@ fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyh
 /// path), the new slug is already taken by another file (the error names
 /// it), or the write/remove fails — each error names its path.
 fn rename_to_new_slug(
-    store: &Store,
     old_path: &std::path::Path,
     title: &str,
     rendered: &str,
@@ -226,10 +243,11 @@ fn rename_to_new_slug(
     let file_id = old_path
         .file_name()
         .and_then(|n| n.to_str())
-        .and_then(extract_file_id)
+        .and_then(TaskFileName::parse)
+        .map(|parsed| parsed.id)
         .ok_or_else(|| anyhow::anyhow!("cannot derive task id from {}", old_path.display()))?;
     let file_name = format!("{file_id} - {}.md", crate::model::file_slug(title));
-    let new_path = store.task_path(&file_name);
+    let new_path = old_path.with_file_name(&file_name);
     if new_path != old_path {
         link_noclobber(old_path, &new_path)?;
     }
@@ -257,15 +275,6 @@ fn rename_to_new_slug(
             .with_context(|| format!("removing {}", old_path.display()))?;
     }
     Ok(())
-}
-
-/// The `task-<n>[.<mm>]` id portion of a task filename, verbatim — the
-/// dotted subtask suffix included, so a rename can never retarget the
-/// parent task's file.
-fn extract_file_id(file_name: &str) -> Option<&str> {
-    let stem = file_name.strip_suffix(".md")?;
-    let (id, _) = stem.split_once(" - ").unwrap_or((stem, ""));
-    Some(id)
 }
 
 #[cfg(test)]
@@ -410,6 +419,49 @@ body text
         let tasks = dir.path().join(".backlog").join("tasks");
         assert!(tasks.join("task-0001 - renamed-title.md").is_file(), "new slug file must exist");
         assert!(!tasks.join("task-0001 - original.md").exists(), "old file must be gone");
+    }
+
+    /// A title edit of a task living in `completed/` renames it there: the
+    /// cleaned-up task must not be resurrected into `tasks/`.
+    #[test]
+    fn title_change_keeps_a_completed_task_in_completed() {
+        let (dir, store) = scratch_with(TASK);
+        let backlog = dir.path().join(".backlog");
+        let completed = backlog.join("completed");
+        std::fs::create_dir_all(&completed).expect("completed dir");
+        std::fs::rename(
+            backlog.join("tasks").join("task-0001 - original.md"),
+            completed.join("task-0001 - original.md"),
+        )
+        .expect("move to completed");
+        run_edit(
+            &store,
+            &EditOptions { title: Some("renamed title".to_string()), ..opts() },
+            &mut Vec::new(),
+        )
+        .expect("edit");
+        assert!(completed.join("task-0001 - renamed-title.md").is_file(), "renamed in place");
+        assert!(!completed.join("task-0001 - original.md").exists(), "old name gone");
+        let live: Vec<_> = std::fs::read_dir(backlog.join("tasks")).expect("read tasks").collect();
+        assert!(live.is_empty(), "nothing may appear in tasks/, found {live:?}");
+    }
+
+    /// `updated_date` is the injected stamp, exactly.
+    #[test]
+    fn edit_stamps_updated_date_from_the_injected_clock() {
+        let (dir, store) = scratch_with(TASK);
+        // 2026-03-04 05:06 UTC.
+        let stamp = UtcStamp::from_unix_secs(1_772_600_760).expect("stamp");
+        edit_with(
+            &store,
+            &EditOptions { status: Some("Done".to_string()), ..opts() },
+            &stamp,
+            &mut Vec::new(),
+        )
+        .expect("edit");
+        let path = dir.path().join(".backlog/tasks/task-0001 - original.md");
+        let doc = TaskDoc::parse(&std::fs::read_to_string(path).expect("read")).expect("parse");
+        assert_eq!(doc.frontmatter.updated_date.as_deref(), Some("2026-03-04 05:06"));
     }
 
     /// The rewrite is staged and renamed into place: no `.tmp` staging file
