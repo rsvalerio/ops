@@ -1,10 +1,10 @@
 ---
 id: TASK-2815
 title: 'TEST-29: Use assert_matches! instead of assert!(matches!(..)) in run-before-commit tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -29,11 +29,15 @@ dedup_key: 'TEST-29:extensions/run-before-commit/src/lib.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three assert!(matches!(..)) sites use std assert_matches! (imported via use std::assert_matches;)
+- [x] #1 The three assert!(matches!(..)) sites use std assert_matches! (imported via use std::assert_matches;)
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.28 (code-review-rust run, 2026-11-18).
+
+The three sites moved to extensions/hook-common/tests/git_state.rs with TASK-2804; they use std assert_matches! there.
+
 <!-- SECTION:NOTES:END -->

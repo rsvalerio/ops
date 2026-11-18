@@ -1,10 +1,10 @@
 ---
 id: TASK-2808
 title: 'SEC-33: git diff stderr drain reads the child''s stderr with no size cap'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - SEC
@@ -29,9 +29,10 @@ dedup_key: 'SEC-33:extensions/hook-common/src/git_state.rs:spawn_stderr_drain'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The drain thread keeps at most a named MAX_* number of stderr bytes (remaining bytes are discarded, not buffered)
-- [ ] #2 The NonZeroExit stderr field indicates when output was truncated
-- [ ] #3 A test drives a child that writes more than the cap to stderr and asserts the captured stderr length is bounded
+- [x] #1 The drain thread keeps at most a named MAX_* number of stderr bytes (remaining bytes are discarded, not buffered)
+- [x] #2 The NonZeroExit stderr field indicates when output was truncated
+- [x] #3 A test drives a child that writes more than the cap to stderr and asserts the captured stderr length is bounded
+
 <!-- AC:END -->
 
 ## Implementation Notes

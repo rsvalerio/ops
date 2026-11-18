@@ -1,10 +1,10 @@
 ---
 id: TASK-2807
 title: 'TEST-12: git_timeout_from_env tests re-run ops_hook_common''s parser cases through a one-line wrapper'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-12:extensions/run-before-commit/src/lib.rs:tests::git_timeout_f
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The four redundant parser-case tests are removed (or reduced to one test that pins TIMEOUT_ENV_VAR wiring)
-- [ ] #2 The clamp-to-ceiling, clamp-warn and env-timeout-applied tests remain
+- [x] #1 The four redundant parser-case tests are removed (or reduced to one test that pins TIMEOUT_ENV_VAR wiring)
+- [x] #2 The clamp-to-ceiling, clamp-warn and env-timeout-applied tests remain
+
 <!-- AC:END -->
 
 ## Implementation Notes

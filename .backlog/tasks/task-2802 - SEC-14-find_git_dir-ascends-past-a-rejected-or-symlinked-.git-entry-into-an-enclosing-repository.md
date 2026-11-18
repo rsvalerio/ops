@@ -1,10 +1,10 @@
 ---
 id: TASK-2802
 title: 'SEC-14: find_git_dir ascends past a rejected or symlinked .git entry into an enclosing repository'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:21'
 labels:
   - code-review-rust
   - SEC
@@ -34,9 +34,10 @@ Git itself stops at the first `.git` entry it finds and reports an error; it nev
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A .git entry that exists at a level but is refused (symlink, unreadable/malformed pointer, containment rejection) terminates the walk with None (or a typed error) instead of ascending to the parent
-- [ ] #2 A test places a real .git in an outer directory and a refused .git (symlink, and a rejected pointer file) in a nested directory, and asserts find_git_dir on the nested directory does not return the outer gitdir
-- [ ] #3 The doc comment on find_git_dir states the stop-at-first-.git-entry contract
+- [x] #1 A .git entry that exists at a level but is refused (symlink, unreadable/malformed pointer, containment rejection) terminates the walk with None (or a typed error) instead of ascending to the parent
+- [x] #2 A test places a real .git in an outer directory and a refused .git (symlink, and a rejected pointer file) in a nested directory, and asserts find_git_dir on the nested directory does not return the outer gitdir
+- [x] #3 The doc comment on find_git_dir states the stop-at-first-.git-entry contract
+
 <!-- AC:END -->
 
 ## Implementation Notes
