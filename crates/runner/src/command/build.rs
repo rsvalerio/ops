@@ -59,9 +59,11 @@ pub struct WorkspaceCanonicalCache {
     /// A `Mutex` (rather than an `RwLock`) is sufficient: the hot path is
     /// dominated by lock-free reads downstream of the canonicalize syscall,
     /// and the per-spawn cost of the mutex acquisition is negligible against
-    /// the work it guards. `Mutex` also matches `ArcTextCache`'s pattern,
-    /// keeping the poison-recovery shape consistent across caches in this
-    /// codebase.
+    /// the work it guards. Poison propagates through `ops_core::sync::lock`:
+    /// `get_or_compute` evicts, computes and inserts under one guard, so a
+    /// panic mid-section can leave the map torn. The panic
+    /// surfaces through `build_command_async`'s `JoinError` path as a step
+    /// failure.
     inner: Mutex<HashMap<PathBuf, WorkspaceCacheEntry>>,
     cap: usize,
 }
@@ -87,7 +89,7 @@ impl WorkspaceCanonicalCache {
     /// entry but every joined-path entry underneath it, so both shapes are
     /// dropped in one pass and callers retain a single invalidate API.
     pub(crate) fn invalidate(&self, workspace: &Path) {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = ops_core::sync::lock(&self.inner, "workspace canonicalize cache");
         guard.remove(workspace);
         guard.retain(|k, _| !k.starts_with(workspace));
     }
@@ -95,7 +97,7 @@ impl WorkspaceCanonicalCache {
     /// Drop every cached entry. Useful for tests and for embedders that
     /// know the workspace layout has changed wholesale.
     pub(crate) fn clear(&self) {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = ops_core::sync::lock(&self.inner, "workspace canonicalize cache");
         guard.clear();
     }
 
@@ -134,7 +136,7 @@ impl WorkspaceCanonicalCache {
     where
         F: FnOnce(&Path) -> std::io::Result<PathBuf>,
     {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = ops_core::sync::lock(&self.inner, "workspace canonicalize cache");
         if let Some(entry) = guard.get_mut(workspace) {
             // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
             // accessed workspaces survive eviction.
@@ -179,19 +181,6 @@ impl Default for WorkspaceCanonicalCache {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Recover a poisoned cache guard instead of propagating the panic.
-///
-/// The cached value is the pure result of `canonicalize`, not authoritative
-/// state, so a panic in a lock holder cannot leave a torn invariant; treating
-/// poison as fatal would brick the cache for every other caller in the
-/// process.
-fn recover_workspace_cache<T>(
-    err: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>,
-) -> std::sync::MutexGuard<'_, T> {
-    tracing::warn!("workspace canonicalize cache mutex was poisoned by a prior panic; recovered");
-    err.into_inner()
 }
 
 /// Return the canonical form of `workspace`, cached by raw path.
@@ -747,6 +736,45 @@ mod tests {
     use ops_core::test_utils::{exec_spec, exec_spec_with_cwd};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    /// A poisoned workspace cache is propagated, not recovered. The
+    /// next spawn that consults the cache panics on the blocking pool, and
+    /// `build_command_async` turns that `JoinError` into a failed step
+    /// instead of continuing with possibly torn cache state.
+    #[tokio::test]
+    async fn poisoned_workspace_cache_surfaces_as_a_step_failure() {
+        let cache = Arc::new(WorkspaceCanonicalCache::new());
+        let joined = std::thread::scope(|s| {
+            s.spawn(|| {
+                let _guard = cache.inner.lock().expect("uncontended lock");
+                panic!("poison the workspace cache");
+            })
+            .join()
+        });
+        assert!(joined.is_err(), "the poisoning thread must have panicked");
+        assert!(cache.inner.is_poisoned());
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(tmp.path().join("sub")).expect("mkdir sub");
+        let env = crate::command::exec::ExecEnv {
+            cwd: Arc::new(tmp.path().to_path_buf()),
+            vars: Arc::new(Variables::from_env(tmp.path()).expect("UTF-8 path")),
+            policy: CwdEscapePolicy::WarnAndAllow,
+            workspace_cache: Arc::clone(&cache),
+        };
+        // A spec cwd routes the spawn through `detect_workspace_escape`,
+        // which reads the cache under `WarnAndAllow`.
+        let spec = Arc::new(exec_spec_with_cwd("true", &[], Some(PathBuf::from("sub"))));
+        let result = crate::command::exec::exec_command("poisoned", &spec, &env, &mut |_| {}).await;
+
+        assert!(!result.success, "a poisoned cache must fail the step, not continue");
+        let message = result.message.unwrap_or_default();
+        assert!(
+            message.contains("building the command failed unexpectedly"),
+            "the failure must come from the build-task path, got: {message}"
+        );
+        assert!(cache.inner.is_poisoned(), "poison must not be cleared");
+    }
 
     /// `wrap` spawns first, with the wrapped command after it as plain argv.
     #[test]

@@ -358,9 +358,9 @@ async fn spawn_capped_with_graces(
     // cancellation can address the tree it forks, not just the leader.
     configure_process_group(cmd);
     let mut child = {
-        // A poisoned lock guards nothing but `()`: the spawn it serializes
-        // is just as safe to run.
-        let _serialized = SPAWN_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Poison propagates via the shared `ops_core::sync` policy (CONC-16);
+        // the panic surfaces as this step's task failure.
+        let _serialized = ops_core::sync::lock(&SPAWN_LOCK, "spawn serialization lock");
         cmd.spawn()?
     };
     // Armed for the whole body: every early return and every drop of this
