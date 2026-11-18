@@ -1671,6 +1671,7 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "ops-core",
+ "ops-hook-common",
  "serial_test",
  "tempfile",
  "thiserror 2.0.21",

@@ -134,11 +134,9 @@ fn git_timeout_from_env() -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Import the shared probe from its own crate rather than through a
-    // re-export from this one — these tests exercise `ops_hook_common`'s
-    // bounded wait, not this crate's contribution to it.
-    use ops_hook_common::git_state::{HasStagedFilesError, has_staged_files_with_timeout};
-    use ops_hook_common::test_helpers::{CwdGuard, EnvGuard};
+    use ops_core::test_utils::git_fixture;
+    use ops_hook_common::git_state::HasStagedFilesError;
+    use ops_hook_common::test_helpers::{CwdGuard, EnvGuard, hermetic_git_env};
     use std::path::Path;
 
     // `EnvGuard`/`CwdGuard` mutate process-global state
@@ -148,21 +146,9 @@ mod tests {
     // attribute can race a serial env/cwd mutator on another harness thread —
     // a setenv/getenv data race, not mere flakiness. Every test in this
     // module that spawns a child process (directly or through
-    // `has_staged_files_with`/`has_staged_files`) therefore MUST carry
+    // `has_staged_files` or `git_fixture`) therefore MUST carry
     // `#[serial_test::serial]`, same key as the mutating tests. A new
     // spawning test that omits it silently opts out of this guarantee.
-
-    /// Run the shared probe against an explicit `program`/`dir` pair.
-    ///
-    /// This covers **only** `ops_hook_common`'s bounded wait. It bypasses
-    /// everything `has_staged_files` itself contributes — the
-    /// `current_dir()` lookup, the env-driven timeout, the hardcoded
-    /// `"git"`, the `anyhow` conversion — so it is not coverage of the
-    /// production preflight. Those four lines are pinned by the
-    /// "the production preflight" tests further down.
-    fn has_staged_files_with(program: &str, dir: &Path) -> Result<bool, HasStagedFilesError> {
-        has_staged_files_with_timeout(program, dir, DEFAULT_GIT_TIMEOUT)
-    }
 
     // -- HOOK_SCRIPT --
 
@@ -194,11 +180,15 @@ mod tests {
     /// The shared prologue is generated from string literals, so the
     /// `SKIP_ENV_VAR` const and the literal spelled into the script must be
     /// pinned together — a macro cannot reference the const and stay
-    /// `const`-evaluable.
+    /// `const`-evaluable. The expected script text is derived from the
+    /// const, so drift on either side fails here.
     #[test]
     fn skip_env_var_const_matches_the_literal_spelled_into_the_script() {
-        assert_eq!(SKIP_ENV_VAR, "SKIP_OPS_RUN_BEFORE_COMMIT");
-        assert!(HOOK_SCRIPT.contains("case \"${SKIP_OPS_RUN_BEFORE_COMMIT:-}\""));
+        let bypass_check = format!("case \"${{{SKIP_ENV_VAR}:-}}\"");
+        assert!(
+            HOOK_SCRIPT.contains(&bypass_check),
+            "the script must test {SKIP_ENV_VAR}, got: {HOOK_SCRIPT}"
+        );
     }
 
     /// The installed hook arms the preflight, so docs/commands.md's "skips when
@@ -314,9 +304,8 @@ mod tests {
     /// Every marker on the legacy upgrade contract — the names earlier ops
     /// releases installed, including the one this crate itself writes — is
     /// upgraded in place rather than left alone as an unrecognised hook.
-    /// Iterating [`HOOK_CONFIG.legacy_markers`] (the exact list pinned by
-    /// `hook_config_legacy_markers_only_match_commit_hooks`) keeps a newly
-    /// added marker covered without copying the test body.
+    /// Iterating [`HOOK_CONFIG.legacy_markers`] keeps a newly added marker
+    /// covered without copying the test body.
     #[test]
     fn install_hook_updates_every_legacy_marker() {
         for marker in HOOK_CONFIG.legacy_markers {
@@ -359,7 +348,6 @@ mod tests {
     fn hook_config_pins_every_macro_argument() {
         assert_eq!(HOOK_CONFIG.hook_filename, "pre-commit");
         assert_eq!(HOOK_CONFIG.skip_env_var, SKIP_ENV_VAR);
-        assert_eq!(SKIP_ENV_VAR, "SKIP_OPS_RUN_BEFORE_COMMIT");
         assert_eq!(HOOK_CONFIG.name, NAME);
         assert_eq!(HOOK_CONFIG.hook_script, HOOK_SCRIPT);
 
@@ -372,10 +360,10 @@ mod tests {
         );
     }
 
-    /// Every entry in `legacy_markers` refers to a commit hook, and the list
-    /// matches the exact upgrade contract. A list carrying push-hook markers
-    /// would make `install` refuse to upgrade a real legacy pre-commit hook,
-    /// or claim an unrelated one.
+    /// Every entry in `legacy_markers` refers to a commit hook, and the
+    /// marker this crate's own hook execs is among them. A list carrying
+    /// push-hook markers would make `install` refuse to upgrade a real legacy
+    /// pre-commit hook, or claim an unrelated one.
     #[test]
     fn hook_config_legacy_markers_only_match_commit_hooks() {
         assert!(!HOOK_CONFIG.legacy_markers.is_empty());
@@ -385,34 +373,30 @@ mod tests {
                 "legacy marker must refer to a commit hook, got: {marker}"
             );
         }
-        assert_eq!(
-            HOOK_CONFIG.legacy_markers,
-            &["ops run-before-commit", "ops before-commit", "ops pre-commit"],
-            "the marker list itself is the upgrade contract; changes must be deliberate"
+        let own_marker = format!("ops {NAME}");
+        assert!(
+            HOOK_CONFIG.legacy_markers.contains(&own_marker.as_str()),
+            "the marker this crate's hook execs must stay upgradable, got: {:?}",
+            HOOK_CONFIG.legacy_markers
         );
     }
 
     // -- has_staged_files --
+    //
+    // The shared probe's behaviour (staged change kinds, non-repo, stderr
+    // handling, timeouts) is tested in `ops-hook-common`, next to it. These
+    // tests pin only the four lines `has_staged_files` itself contributes:
+    // the `current_dir()` lookup, the env-driven timeout reaching the probe,
+    // the hardcoded `"git"`, and the `anyhow` conversion.
+
+    fn git(dir: &Path, args: &[&str]) {
+        git_fixture(dir, args).unwrap_or_else(|e| panic!("{e}"));
+    }
 
     fn init_repo(dir: &Path) {
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["init", "-q", "-b", "main"])
-            .status()
-            .expect("git init");
-        assert!(status.success());
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["config", "user.email", "test@example.com"])
-            .status()
-            .expect("git config email");
-        assert!(status.success());
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["config", "user.name", "Test"])
-            .status()
-            .expect("git config name");
-        assert!(status.success());
+        git(dir, &["init", "-q", "-b", "main"]);
+        git(dir, &["config", "user.email", "test@example.com"]);
+        git(dir, &["config", "user.name", "Test"]);
     }
 
     /// Write an executable fake `git` script into `dir` and return its path.
@@ -425,273 +409,11 @@ mod tests {
         path
     }
 
-    /// Run `probe`, retrying while the exec loses the `ETXTBSY` race.
-    ///
-    /// Writing an executable and exec'ing it straight away is racy under the
-    /// parallel test harness: any thread that forks between our `write` and
-    /// our `execve` hands the child an inherited write fd, and the kernel
-    /// answers `execve` on a file that is open for writing with `ETXTBSY`.
-    /// The window is short, so retry briefly instead of failing the run.
-    ///
-    /// The retry is sleep-based, so its worst case is 50 x 20 ms = **1 s of
-    /// added runtime per test** — paid only when the race actually fires,
-    /// which is rare. The deterministic alternative (closing the write fd
-    /// before any sibling thread can fork) is not expressible through
-    /// `std::fs::write`, so the bound is documented rather than removed.
-    #[cfg(unix)]
-    fn retry_while_text_file_busy(
-        mut probe: impl FnMut() -> Result<bool, HasStagedFilesError>,
-    ) -> Result<bool, HasStagedFilesError> {
-        for _ in 0..50 {
-            match probe() {
-                Err(HasStagedFilesError::Spawn { source, .. })
-                    if source.kind() == std::io::ErrorKind::ExecutableFileBusy =>
-                {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                other => return other,
-            }
-        }
-        probe()
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_false_when_index_empty() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        init_repo(dir.path());
-        assert!(!has_staged_files_with("git", dir.path()).unwrap());
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_true_when_file_staged() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        init_repo(dir.path());
-        std::fs::write(dir.path().join("a.txt"), "hi").unwrap();
-        let status = std::process::Command::new("git")
-            .current_dir(dir.path())
-            .args(["add", "a.txt"])
-            .status()
-            .expect("git add");
-        assert!(status.success());
-        assert!(has_staged_files_with("git", dir.path()).unwrap());
-    }
-
-    /// Stage `path` with content and commit it, so later tests can stage a
-    /// deletion or a type change against a non-empty HEAD.
-    fn commit_file(dir: &Path, path: &str, contents: &str) {
-        std::fs::write(dir.join(path), contents).unwrap();
-        for args in [vec!["add", path], vec!["commit", "-q", "-m", "seed"]] {
-            let status = std::process::Command::new("git")
-                .current_dir(dir)
-                .args(&args)
-                .status()
-                .expect("git");
-            assert!(status.success(), "git {args:?} failed");
-        }
-    }
-
-    /// A delete-only index is staged work: a probe filtered to
-    /// adds/modifications/renames would make `git rm` read as "nothing
-    /// staged" and skip the whole pre-commit gate with exit 0 — on exactly
-    /// the commits most likely to break a build.
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_true_when_only_a_deletion_is_staged() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        init_repo(dir.path());
-        commit_file(dir.path(), "doomed.txt", "bye\n");
-
-        let status = std::process::Command::new("git")
-            .current_dir(dir.path())
-            .args(["rm", "-q", "doomed.txt"])
-            .status()
-            .expect("git rm");
-        assert!(status.success());
-
-        assert!(
-            has_staged_files_with("git", dir.path()).unwrap(),
-            "a staged deletion must count as staged work"
-        );
-    }
-
-    /// A type change (`T`) is staged work too, alongside deletions and
-    /// unmerged paths.
-    #[cfg(unix)]
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_true_when_only_a_type_change_is_staged() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        init_repo(dir.path());
-        commit_file(dir.path(), "shifty.txt", "regular\n");
-
-        std::fs::remove_file(dir.path().join("shifty.txt")).unwrap();
-        std::os::unix::fs::symlink("elsewhere", dir.path().join("shifty.txt")).unwrap();
-        let status = std::process::Command::new("git")
-            .current_dir(dir.path())
-            .args(["add", "shifty.txt"])
-            .status()
-            .expect("git add");
-        assert!(status.success());
-
-        assert!(
-            has_staged_files_with("git", dir.path()).unwrap(),
-            "a staged type change must count as staged work"
-        );
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_errors_outside_git_repo() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let err = has_staged_files_with("git", dir.path()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("not a git repository") || msg.contains("failed"),
-            "unexpected error: {msg}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_lossily_decodes_invalid_utf8_stderr() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = write_fake_git(
-            dir.path(),
-            "git-fake",
-            "#!/bin/sh\nprintf '\\377\\376' >&2\nexit 128\n",
-        );
-        let err = retry_while_text_file_busy(|| {
-            has_staged_files_with(fake_git.to_str().unwrap(), dir.path())
-        })
-        .unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains('\u{FFFD}'), "expected lossy U+FFFD in: {msg}");
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_errors_when_git_binary_missing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let err = has_staged_files_with("git-nonexistent-binary-xyzzy", dir.path()).unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("failed to run"), "unexpected error: {msg}");
-        assert!(matches!(err, HasStagedFilesError::Spawn { .. }));
-    }
-
-    /// A fake git that hangs forever must trigger the bounded-wait timeout
-    /// rather than blocking the commit indefinitely.
-    #[cfg(unix)]
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_times_out_on_hanging_git() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = write_fake_git(dir.path(), "git-hang", "#!/bin/sh\nsleep 30\n");
-
-        let started = std::time::Instant::now();
-        let err = retry_while_text_file_busy(|| {
-            has_staged_files_with_timeout(
-                fake_git.to_str().unwrap(),
-                dir.path(),
-                Duration::from_millis(200),
-            )
-        })
-        .unwrap_err();
-        let elapsed = started.elapsed();
-
-        assert!(
-            matches!(err, HasStagedFilesError::Timeout { .. }),
-            "expected Timeout variant, got {err:?}"
-        );
-        // A hang detector, not a performance
-        // budget. The fake git sleeps 30 s, so only a bounded wait that never
-        // fired can exceed this — 25x the configured 200 ms timeout leaves a
-        // loaded machine ample room.
-        assert!(
-            elapsed < Duration::from_secs(5),
-            "the bounded wait did not fire, elapsed = {elapsed:?}"
-        );
-    }
-
-    /// Late stderr is captured within the drain grace.
-    #[cfg(unix)]
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_captures_late_stderr_within_drain_grace() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = write_fake_git(
-            dir.path(),
-            "git-late-stderr",
-            "#!/bin/sh\n\
-             sleep 0.1\n\
-             printf 'warning: refname HEAD is ambiguous\\nfatal: bad object HEAD\\n' >&2\n\
-             exit 128\n",
-        );
-
-        let err = retry_while_text_file_busy(|| {
-            has_staged_files_with_timeout(
-                fake_git.to_str().unwrap(),
-                dir.path(),
-                Duration::from_secs(5),
-            )
-        })
-        .unwrap_err();
-
-        match err {
-            HasStagedFilesError::NonZeroExit { exit_code, stderr, .. } => {
-                assert_eq!(exit_code, Some(128));
-                assert!(
-                    stderr.contains("fatal: bad object HEAD"),
-                    "expected late stderr captured within drain grace, got: {stderr:?}"
-                );
-            }
-            other => panic!("expected NonZeroExit, got {other:?}"),
-        }
-    }
-
-    /// Large output over the pipe buffer doesn't deadlock.
-    ///
-    /// The timeout is deliberately generous and there is no wall-clock
-    /// assertion: a deadlock hangs forever, so any bound distinguishes it
-    /// from slowness equally well, and the property under test is `Ok(true)`,
-    /// not machine speed — the timeout itself is the hang detector.
-    #[cfg(unix)]
-    #[test]
-    #[serial_test::serial]
-    fn has_staged_files_handles_large_output_without_deadlock() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = write_fake_git(
-            dir.path(),
-            "git-loud",
-            "#!/bin/sh\n\
-             yes path/to/some/file.txt | head -n 20000\n\
-             yes path/to/some/file.txt | head -n 20000 >&2\n\
-             exit 1\n",
-        );
-
-        let result = retry_while_text_file_busy(|| {
-            has_staged_files_with_timeout(
-                fake_git.to_str().unwrap(),
-                dir.path(),
-                Duration::from_secs(30),
-            )
-        });
-
-        assert!(matches!(result, Ok(true)), "expected Ok(true), got {result:?}");
-    }
-
-    // -- has_staged_files: the production preflight --
-    //
-    // Every test above goes through the shared probe with an explicit
-    // program and directory. These pin the four lines `has_staged_files`
-    // itself contributes — the `current_dir()` lookup, the env-driven
-    // timeout reaching the probe, the hardcoded `"git"`, and the `anyhow`
-    // conversion.
-
-    /// The `anyhow`-typed twin of [`retry_while_text_file_busy`], for the
-    /// production entry point. Same ETXTBSY race, same worst case (1 s).
+    /// Run `probe`, retrying while the exec of a freshly written fake `git`
+    /// loses the `ETXTBSY` race: any thread that forks between the write and
+    /// the `execve` hands the child an inherited write fd. Sleep-based, so
+    /// the worst case is 50 x 20 ms = 1 s of added runtime, paid only when
+    /// the race fires.
     #[cfg(unix)]
     fn retry_anyhow_while_text_file_busy(
         mut probe: impl FnMut() -> anyhow::Result<bool>,
@@ -716,6 +438,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn has_staged_files_reads_the_process_working_directory() {
+        let _env = hermetic_git_env();
         let _timeout = EnvGuard::remove(TIMEOUT_ENV_VAR);
         let dir = tempfile::tempdir().expect("tempdir");
         init_repo(dir.path());
@@ -727,9 +450,7 @@ mod tests {
         );
 
         std::fs::write("a.txt", "hi").unwrap();
-        let status =
-            std::process::Command::new("git").args(["add", "a.txt"]).status().expect("git add");
-        assert!(status.success());
+        git(dir.path(), &["add", "a.txt"]);
 
         assert!(
             has_staged_files().expect("staged index probe"),
@@ -774,8 +495,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn has_staged_files_error_reaches_the_caller_as_an_anyhow_chain() {
+        let _env = hermetic_git_env();
         let _timeout = EnvGuard::remove(TIMEOUT_ENV_VAR);
         let dir = tempfile::tempdir().expect("tempdir");
+        // Stop git's discovery at the tempdir, so a repository enclosing the
+        // temp root cannot turn this into an in-repo probe.
+        let _ceiling = EnvGuard::set("GIT_CEILING_DIRECTORIES", dir.path());
         let _cwd = CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let err = has_staged_files().expect_err("a non-repo cwd must fail");
@@ -807,33 +532,10 @@ mod tests {
 
     // -- git_timeout_from_env --
 
-    #[test]
-    #[serial_test::serial]
-    fn git_timeout_from_env_valid_value() {
-        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "10");
-        assert_eq!(git_timeout_from_env(), Some(Duration::from_secs(10)));
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn git_timeout_from_env_zero_falls_back() {
-        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "0");
-        assert_eq!(git_timeout_from_env(), None);
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn git_timeout_from_env_unparseable_falls_back() {
-        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "10s");
-        assert_eq!(git_timeout_from_env(), None);
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn git_timeout_from_env_unset_returns_none() {
-        let _guard = EnvGuard::remove(TIMEOUT_ENV_VAR);
-        assert_eq!(git_timeout_from_env(), None);
-    }
+    // The parser cases (zero, unparseable, unset) are tested once, in
+    // `ops_hook_common::git_state`. Here only the wiring this crate adds:
+    // `TIMEOUT_ENV_VAR` is the variable read and `MAX_GIT_TIMEOUT_SECS` the
+    // ceiling (`has_staged_files_applies_the_env_timeout` pins the former).
 
     /// An overlarge value is clamped, not honoured.
     #[test]

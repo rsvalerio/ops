@@ -29,3 +29,28 @@ pub use ops_core::test_utils::EnvGuard;
 /// `std::env::current_dir()` rather than only their `dir`-parameterised inner
 /// helpers.
 pub use ops_core::test_utils::CwdGuard;
+
+/// Env guards that make every `git` child the process spawns hermetic, for
+/// as long as they are held.
+///
+/// Points `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` at `/dev/null`, so a
+/// developer's `commit.gpgsign`, `core.hooksPath` or `init.templateDir`
+/// cannot reach a fixture repository, and removes `GIT_DIR`,
+/// `GIT_WORK_TREE` and `GIT_INDEX_FILE`, which git exports to the hooks it
+/// runs: a test suite launched from inside a hook would otherwise probe or
+/// mutate the outer repository instead of its tempdir.
+///
+/// This is the process-environment twin of
+/// [`ops_core::test_utils::git_fixture`], for code under test that spawns
+/// `git` itself and so cannot be handed a scrubbed `Command`. It mutates the
+/// process environment, so the caller must carry `#[serial_test::serial]`.
+#[must_use = "the environment is restored as soon as the guards drop"]
+pub fn hermetic_git_env() -> [EnvGuard; 5] {
+    [
+        EnvGuard::set("GIT_CONFIG_GLOBAL", "/dev/null"),
+        EnvGuard::set("GIT_CONFIG_SYSTEM", "/dev/null"),
+        EnvGuard::remove("GIT_DIR"),
+        EnvGuard::remove("GIT_WORK_TREE"),
+        EnvGuard::remove("GIT_INDEX_FILE"),
+    ]
+}
