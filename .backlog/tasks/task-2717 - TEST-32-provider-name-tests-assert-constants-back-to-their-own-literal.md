@@ -1,10 +1,10 @@
 ---
 id: TASK-2717
 title: 'TEST-32: provider-name tests assert constants back to their own literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - TEST
@@ -30,8 +30,9 @@ dedup_key: 'review-2667.07-7'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 units_provider_name and provider_name are removed, or replaced by an assertion of behaviour not already covered by extension_registers_identity_and_units_providers
-- [ ] #2 The registry-level test remains the single pin for the cross-stack provider keys
+- [x] #1 units_provider_name and provider_name are removed, or replaced by an assertion of behaviour not already covered by extension_registers_identity_and_units_providers
+- [x] #2 The registry-level test remains the single pin for the cross-stack provider keys
+
 <!-- AC:END -->
 
 ## Implementation Notes

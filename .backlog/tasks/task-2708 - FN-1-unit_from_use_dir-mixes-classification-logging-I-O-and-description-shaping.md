@@ -1,10 +1,10 @@
 ---
 id: TASK-2708
 title: 'FN-1: unit_from_use_dir mixes classification, logging, I/O and description shaping'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - FN
@@ -29,13 +29,17 @@ dedup_key: 'review-2667.07-2'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Directive classification is extracted into one function returning an enum (e.g. InTree / OutOfTreeReadable / OutOfTreeUnreadable) that drives the go.mod read, the single warn, and the description suffix
-- [ ] #2 unit_from_use_dir is ≤50 lines and operates at one abstraction level
-- [ ] #3 Existing modules.rs tests (absolute, embedded .., leading .., ..staging) pass unchanged
+- [x] #1 Directive classification is extracted into one function returning an enum (e.g. InTree / OutOfTreeReadable / OutOfTreeUnreadable) that drives the go.mod read, the single warn, and the description suffix
+- [x] #2 unit_from_use_dir is ≤50 lines and operates at one abstraction level
+- [x] #3 Existing modules.rs tests (absolute, embedded .., leading .., ..staging) pass unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.07 (code-review-rust run, 2026-11-18).
+
+DirectivePlacement enum (InTree / OutOfTreeReadable / OutOfTreeAbsolute / EmbeddedTraversal) with classify, reads_go_mod, warn and describe; unit_from_use_dir is now ~17 lines. Absolute is split from embedded traversal to keep their distinct warn messages.
+
 <!-- SECTION:NOTES:END -->

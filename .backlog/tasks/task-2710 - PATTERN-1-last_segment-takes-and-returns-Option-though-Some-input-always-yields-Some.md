@@ -1,10 +1,10 @@
 ---
 id: TASK-2710
 title: 'PATTERN-1: last_segment takes and returns Option though Some input always yields Some'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - PATTERN
@@ -30,13 +30,17 @@ dedup_key: 'review-2667.07-3'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 last_segment takes &str; callers use Option::map / and_then directly and the dead unwrap_or_else at modules.rs:47 is removed
-- [ ] #2 Empty trailing segments are ignored (or yield None explicitly) so example.com/m/ does not produce an empty name; covered by a test
-- [ ] #3 No intermediate Vec allocation
+- [x] #1 last_segment takes &str; callers use Option::map / and_then directly and the dead unwrap_or_else at modules.rs:47 is removed
+- [x] #2 Empty trailing segments are ignored (or yield None explicitly) so example.com/m/ does not produce an empty name; covered by a test
+- [x] #3 No intermediate Vec allocation
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.07 (code-review-rust run, 2026-11-18).
+
+last_segment(&str) -> Option<&str> via rsplit + empty filter; None only for a path with no non-empty segment (e.g. '/'). collect_units keeps a non-dead unwrap_or(&module) fallback for that case; the old dead unwrap_or_else is gone. Test last_segment_ignores_empty_trailing_segments.
+
 <!-- SECTION:NOTES:END -->

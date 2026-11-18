@@ -1,10 +1,10 @@
 ---
 id: TASK-2706
 title: 'ERR-14: go.mod/go.work parse warnings do not name which manifest file'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - ERR
@@ -30,13 +30,17 @@ dedup_key: 'review-2667.07-1'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 go_mod::parse warnings include the manifest path as a structured Debug-formatted field (e.g. path = ?path)
-- [ ] #2 go_work::parse_use_dirs warnings include the go.work path and the 1-based line number of the offending/unterminated opener
-- [ ] #3 A test asserts the rendered warn for a nested use-dir go.mod names that subdirectory's path
+- [x] #1 go_mod::parse warnings include the manifest path as a structured Debug-formatted field (e.g. path = ?path)
+- [x] #2 go_work::parse_use_dirs warnings include the go.work path and the 1-based line number of the offending/unterminated opener
+- [x] #3 A test asserts the rendered warn for a nested use-dir go.mod names that subdirectory's path
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.07 (code-review-rust run, 2026-11-18).
+
+go_mod::parse_content and go_work::parse_use_dirs_content warn with path = ?path; go.work warns also carry line_number (nested opener line / unterminated opener line). modules::tests::nested_use_dir_go_mod_warn_names_its_path asserts the api/go.mod path.
+
 <!-- SECTION:NOTES:END -->
