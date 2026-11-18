@@ -1,10 +1,10 @@
 ---
 id: TASK-2700
 title: 'PATTERN-9: raw-mode step timeout kills only the direct child, leaving its process tree running on the terminal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:31'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:27'
 labels:
   - code-review-rust
   - PATTERN
@@ -30,12 +30,16 @@ dedup_key: 'PATTERN-9:crates/runner/src/command/exec.rs:exec_command_raw'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A raw-mode step that exceeds timeout_secs no longer leaves descendants running (e.g. raw children get their own process group made foreground with tcsetpgrp, or the timeout path signals the descendant tree), or the limitation is documented on exec_command_raw and in user-facing timeout docs as a deliberate decision
-- [ ] #2 A unix test runs a raw step 'sh -c "sleep 30 & wait"' (or equivalent) with a short timeout and asserts the grandchild is gone after the step returns, or the decision is recorded
+- [x] #1 A raw-mode step that exceeds timeout_secs no longer leaves descendants running (e.g. raw children get their own process group made foreground with tcsetpgrp, or the timeout path signals the descendant tree), or the limitation is documented on exec_command_raw and in user-facing timeout docs as a deliberate decision
+- [x] #2 A unix test runs a raw step 'sh -c "sleep 30 & wait"' (or equivalent) with a short timeout and asserts the grandchild is gone after the step returns, or the decision is recorded
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.05 (code-review-rust run, 2026-11-18).
+
+Resolved in TASK-2840 by the AC's documented-decision branch: limitation documented on exec_command_raw and in docs/configuration.md (Raw commands). The real tree teardown (tcsetpgrp hand-off + Ctrl-C relay) is filed as TASK-2866 (Triage).
+
 <!-- SECTION:NOTES:END -->

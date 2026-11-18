@@ -1,10 +1,10 @@
 ---
 id: TASK-2840
 title: 'code-review-plan-wave4'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:30'
 labels:
   - code-review-wave
 dependencies:
@@ -44,4 +44,8 @@ Grouping: child process lifecycle: pipe drain, process groups, signal forwarding
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2842 (crates/runner/src/command/exec.rs)
+
+Branch: code-review/TASK-2840
+Worktree: /home/rsvalerio/projects/.wave-TASK-2840
+
 <!-- SECTION:NOTES:END -->

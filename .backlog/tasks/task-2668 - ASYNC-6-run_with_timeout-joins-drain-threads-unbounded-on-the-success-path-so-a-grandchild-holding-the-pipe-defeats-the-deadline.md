@@ -1,10 +1,10 @@
 ---
 id: TASK-2668
 title: 'ASYNC-6: run_with_timeout joins drain threads unbounded on the success path, so a grandchild holding the pipe defeats the deadline'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:27'
 labels:
   - code-review-rust
   - ASYNC
@@ -32,13 +32,17 @@ The timeout path already knows about this exact hazard: `drain_after_timeout` bo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After the child exits, joining the drain threads is bounded by the remaining deadline (or a documented grace), never unbounded
-- [ ] #2 A drain still blocked after that bound is abandoned with a tracing::warn naming label and stream, matching drain_after_timeout
-- [ ] #3 A test spawns a child that leaves a grandchild holding stdout open and exits 0, and asserts run_with_timeout returns within the timeout
+- [x] #1 After the child exits, joining the drain threads is bounded by the remaining deadline (or a documented grace), never unbounded
+- [x] #2 A drain still blocked after that bound is abandoned with a tracing::warn naming label and stream, matching drain_after_timeout
+- [x] #3 A test spawns a child that leaves a grandchild holding stdout open and exits 0, and asserts run_with_timeout returns within the timeout
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.03 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2840: after exit, drains are awaited until the original deadline (floored at DRAIN_GRACE) via await_drain; an abandoned drain warns with label/stream and returns RunError::Timeout. Test: success_returns_within_timeout_when_a_grandchild_holds_the_pipes.
+
 <!-- SECTION:NOTES:END -->

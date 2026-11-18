@@ -1,10 +1,10 @@
 ---
 id: TASK-2671
 title: 'CONC-14: ops lock forwards a terminal SIGINT the child already received'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:27'
 labels:
   - code-review-rust
   - CONC
@@ -31,13 +31,17 @@ Fix options: put the child in its own process group (`CommandExt::process_group(
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single Ctrl-C at the terminal delivers exactly one SIGINT to the locked command
-- [ ] #2 SIGTERM sent to ops (not the group) is still forwarded to the child
-- [ ] #3 A test covers a nested child that counts the SIGINTs it receives
+- [x] #1 A single Ctrl-C at the terminal delivers exactly one SIGINT to the locked command
+- [x] #2 SIGTERM sent to ops (not the group) is still forwarded to the child
+- [x] #3 A test covers a nested child that counts the SIGINTs it receives
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.02 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2840: run_child skips forwarding SIGINT while ops's pgrp is the controlling tty's foreground group (tty already delivered it); SIGTERM always forwarded. Pty test one_ctrl_c_at_the_terminal_reaches_the_locked_command_once counts SIGINT/SIGTERM in a nested sh (fails with 2 SIGINTs without the fix). Documented trade-off: kill -INT to ops's pid alone while foreground is not forwarded.
+
 <!-- SECTION:NOTES:END -->

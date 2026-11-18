@@ -1,10 +1,10 @@
 ---
 id: TASK-2686
 title: 'API-14: run_with_timeout # Errors misstates the spawn-failure variant'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:27'
 labels:
   - code-review-rust
   - API
@@ -30,12 +30,16 @@ dedup_key: 'API-14:crates/core/src/subprocess/mod.rs:run_with_timeout'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_with_timeout's # Errors lists RunError::Spawn for spawn failure, RunError::Io for wait and drain failures, and RunError::Timeout
-- [ ] #2 The read_capped comment cites the actual default cap (DEFAULT_OUTPUT_BYTE_CAP)
+- [x] #1 run_with_timeout's # Errors lists RunError::Spawn for spawn failure, RunError::Io for wait and drain failures, and RunError::Timeout
+- [x] #2 The read_capped comment cites the actual default cap (DEFAULT_OUTPUT_BYTE_CAP)
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.03 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2840: # Errors now lists Spawn / Io (wait, drain panic, zero-byte drain) / Timeout; read_capped comment cites DEFAULT_OUTPUT_BYTE_CAP (4 MiB).
+
 <!-- SECTION:NOTES:END -->
