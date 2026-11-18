@@ -239,9 +239,14 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
         }
         let leading_ws = line.chars().take_while(|c| c.is_whitespace()).count();
         let trimmed_start = line.trim_start();
-        if in_packages && leading_ws <= packages_indent {
+        if in_packages
+            && leading_ws <= packages_indent
+            && !(leading_ws == packages_indent && is_block_sequence_item(trimmed_start))
+        {
             // A key at or above the `packages:` key's own level ends the
-            // block — the file has moved on to a sibling section.
+            // block — the file has moved on to a sibling section. A `- item`
+            // at the key's own column does not: YAML lets a block sequence
+            // sit at the same indentation as the key that owns it.
             in_packages = false;
         }
         // Only a **top-level** `packages:` key is the workspace list.
@@ -254,7 +259,9 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
             let rest = trimmed_start.strip_prefix("packages:").unwrap_or_default();
             saw_packages_key = true;
             packages_indent = leading_ws;
-            let rest = rest.trim();
+            // A trailing `# comment` after a flow list must not hide the
+            // closing `]`.
+            let rest = strip_trailing_yaml_comment(rest.trim()).trim();
             if let Some(inner) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                 for item in split_inline_list(inner) {
                     let item = item.trim();
@@ -283,6 +290,15 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
         }
     }
     PnpmParse { items: out, saw_packages_key }
+}
+
+/// Whether a line (leading whitespace already trimmed) is a YAML block
+/// sequence entry: a `-` followed by whitespace or ending the line. A plain
+/// scalar such as `-foo` is not an entry.
+fn is_block_sequence_item(trimmed_start: &str) -> bool {
+    trimmed_start
+        .strip_prefix('-')
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t']))
 }
 
 /// Split a YAML flow-sequence body on `,` while
@@ -573,6 +589,32 @@ mod tests {
         let r = parse_pnpm_workspace_yaml(yaml);
         assert_eq!(r.items, vec!["apps/*".to_string()]);
         assert!(r.saw_packages_key);
+    }
+
+    /// A block sequence written at the same column as its `packages:` key is
+    /// valid YAML and yields every item.
+    #[test]
+    fn packages_block_sequence_at_key_column_yields_every_item() {
+        let yaml = "packages:\n- 'apps/*'\n- libs/*\n";
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["apps/*".to_string(), "libs/*".to_string()]);
+    }
+
+    /// A sibling top-level key still ends a column-0 sequence, so its own
+    /// column-0 entries stay out of the workspace globs.
+    #[test]
+    fn column_zero_packages_block_ends_at_sibling_key() {
+        let yaml = "packages:\n- apps/*\nignoredBuiltDependencies:\n- esbuild\n";
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["apps/*".to_string()]);
+    }
+
+    /// A flow list followed by a trailing comment yields its items.
+    #[test]
+    fn packages_flow_list_with_trailing_comment_yields_items() {
+        let yaml = "packages: [apps/*, libs/*] # members\n";
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["apps/*".to_string(), "libs/*".to_string()]);
     }
 
     /// A nested `packages:` must not shadow or
