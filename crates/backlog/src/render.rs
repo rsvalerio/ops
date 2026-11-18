@@ -12,8 +12,10 @@
 use std::io::Write;
 use std::path::Path;
 
+use std::collections::HashMap;
+
 use crate::model::TaskDoc;
-use crate::store::TaskEntry;
+use crate::store::{task_id_lookup_key, TaskEntry};
 
 /// `=` × 50, the fixed rule under the view header.
 const HEAVY_RULE: &str = "==================================================";
@@ -86,32 +88,75 @@ fn relative_path(entry: &TaskEntry, root: &Path) -> String {
 
 /// Readiness over the dependency list.
 ///
-/// A task is ready when it is not itself Done and every dependency resolved
-/// in `tasks/` is Done (vacuously ready with no dependencies — except a Done
-/// task, which is finished, not ready); unresolved dependencies are reported
-/// missing, not blocking.
+/// A task is ready when it is not itself complete (in the terminal status)
+/// and every dependency resolved in the scanned set is complete (vacuously
+/// ready with no dependencies — except a complete task, which is finished,
+/// not ready); unresolved dependencies are reported missing, not blocking.
 pub struct Readiness {
     pub is_ready: bool,
+    /// The task itself is in the terminal status.
+    pub is_complete: bool,
     pub blocking: Vec<String>,
     pub missing: Vec<String>,
 }
 
-/// Compute readiness for `doc` against the other scanned tasks (id → status).
-pub fn readiness_of(doc: &TaskDoc, statuses: &dyn Fn(&str) -> Option<String>) -> Readiness {
+/// The id → status lookup readiness is answered against, plus the
+/// configured terminal status — the one builder `task view`, `task list
+/// --json` and `about backlog` share, so they agree on readiness.
+///
+/// Ids resolve with [`crate::store::same_task_id`]'s rule (case, padding
+/// and bare forms), via [`task_id_lookup_key`]: a dependency written in
+/// lowercase must find its live upper-case task, or it would count as missing —
+/// non-blocking — and flip a blocked task to ready. Statuses compare with
+/// the terminal one case-insensitively, as `cleanup` and `about` do.
+pub struct StatusIndex<'a> {
+    by_id: HashMap<String, &'a str>,
+    terminal: Option<&'a str>,
+}
+
+impl<'a> StatusIndex<'a> {
+    /// Index `docs` by id. On a duplicate id the first document wins.
+    /// `terminal` is the configured terminal status
+    /// ([`crate::cmd::cleanup::terminal_status`]); `None` means nothing is
+    /// ever complete.
+    #[must_use = "the index exists to answer lookups"]
+    pub fn new(docs: impl IntoIterator<Item = &'a TaskDoc>, terminal: Option<&'a str>) -> Self {
+        let mut by_id = HashMap::new();
+        for doc in docs {
+            by_id
+                .entry(task_id_lookup_key(&doc.frontmatter.id))
+                .or_insert(doc.frontmatter.status.as_str());
+        }
+        Self { by_id, terminal }
+    }
+
+    /// The status of the task `id` names, if it is in the index.
+    #[must_use]
+    pub fn status_of(&self, id: &str) -> Option<&'a str> {
+        self.by_id.get(&task_id_lookup_key(id)).copied()
+    }
+
+    /// Is `status` the terminal one (case-insensitive)?
+    #[must_use]
+    pub fn is_terminal(&self, status: &str) -> bool {
+        self.terminal.is_some_and(|t| status.eq_ignore_ascii_case(t))
+    }
+}
+
+/// Compute readiness for `doc` against the other scanned tasks.
+#[must_use]
+pub fn readiness_of(doc: &TaskDoc, index: &StatusIndex<'_>) -> Readiness {
     let mut blocking = Vec::new();
     let mut missing = Vec::new();
     for dep in &doc.frontmatter.dependencies {
-        match statuses(dep) {
-            Some(status) if status != "Done" => blocking.push(dep.clone()),
+        match index.status_of(dep) {
+            Some(status) if !index.is_terminal(status) => blocking.push(dep.clone()),
             Some(_) => {}
             None => missing.push(dep.clone()),
         }
     }
-    Readiness {
-        is_ready: blocking.is_empty() && doc.frontmatter.status != "Done",
-        blocking,
-        missing,
-    }
+    let is_complete = index.is_terminal(&doc.frontmatter.status);
+    Readiness { is_ready: blocking.is_empty() && !is_complete, is_complete, blocking, missing }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +180,7 @@ pub fn view_plain<W: Write>(
     writeln!(w, "Task {} - {}", fm.id, fm.title)?;
     writeln!(w, "{HEAVY_RULE}")?;
     writeln!(w)?;
-    let mark = if fm.status.eq_ignore_ascii_case("Done") { "✔" } else { "○" };
+    let mark = if readiness.is_complete { "✔" } else { "○" };
     writeln!(w, "Status: {mark} {}", fm.status)?;
     if let Some(priority) = &fm.priority {
         writeln!(w, "Priority: {}", priority_capitalized(priority))?;
@@ -218,7 +263,7 @@ pub fn view_json<W: Write>(
     entry: &TaskEntry,
     root: &Path,
     readiness: &Readiness,
-    resolved: &dyn Fn(&str) -> Option<String>,
+    index: &StatusIndex<'_>,
 ) -> std::io::Result<()> {
     let fm = &entry.doc.frontmatter;
     let parent = fm.extras.iter().find(|(k, _)| k == "parent_task_id").map(|(_, v)| match v {
@@ -241,7 +286,7 @@ pub fn view_json<W: Write>(
         &ExtrasScalars { task_type: task_type.as_deref(), parent: parent.as_deref(), ordinal },
     );
     push_field(&mut s, "dependencies", &str_list(&fm.dependencies), false);
-    push_dependency_graph(&mut s, entry, resolved);
+    push_dependency_graph(&mut s, entry, index);
     s.push_str("    ");
     s.push_str(&jstr("readiness"));
     s.push_str(": {\n");
@@ -340,11 +385,7 @@ fn push_scalar_fields(
 }
 
 /// Append the `dependencyGraph` sub-object to a hand-rendered task JSON.
-fn push_dependency_graph(
-    s: &mut String,
-    entry: &TaskEntry,
-    resolved: &dyn Fn(&str) -> Option<String>,
-) {
+fn push_dependency_graph(s: &mut String, entry: &TaskEntry, index: &StatusIndex<'_>) {
     let fm = &entry.doc.frontmatter;
     s.push_str("    ");
     s.push_str(&jstr("dependencyGraph"));
@@ -352,7 +393,7 @@ fn push_dependency_graph(
     s.push_str(&jstr(&fm.id));
     s.push_str(",\n      \"nodes\": [\n");
     let mut push_node = |id: &str, title: &str, status: &str, last: bool| {
-        let completed = status.eq_ignore_ascii_case("Done");
+        let completed = index.is_terminal(status);
         let state = if completed { "resolved" } else { "pending" };
         s.push_str("        {\n          \"id\": ");
         s.push_str(&jstr(id));
@@ -375,8 +416,8 @@ fn push_dependency_graph(
     push_node(&fm.id, &fm.title, &fm.status, fm.dependencies.is_empty());
     let last_dep = fm.dependencies.len().saturating_sub(1);
     for (idx, dep) in fm.dependencies.iter().enumerate() {
-        let status = resolved(dep).unwrap_or_default();
-        push_node(dep, "", &status, idx == last_dep);
+        let status = index.status_of(dep).unwrap_or_default();
+        push_node(dep, "", status, idx == last_dep);
     }
     s.push_str("      ],\n");
     if fm.dependencies.is_empty() {
@@ -535,12 +576,10 @@ pub fn list_json<W: Write>(
     // agree: a dependency missing from the scanned set (moved to
     // `completed/` or archived) does not block, only an unresolved non-Done
     // dependency does.
-    let status_of = |id: &str| -> Option<String> {
-        entries
-            .iter()
-            .find(|e| e.doc.frontmatter.id == id)
-            .map(|e| e.doc.frontmatter.status.clone())
-    };
+    let index = StatusIndex::new(
+        entries.iter().map(|e| &e.doc),
+        crate::cmd::cleanup::terminal_status(statuses),
+    );
     let mut s = String::with_capacity(256usize.saturating_mul(ordered.len().saturating_add(1)));
     s.push_str("{\n  \"schemaVersion\": 1,\n  \"kind\": \"task-list\",\n  \"tasks\": [\n");
     for (idx, entry) in ordered.iter().enumerate() {
@@ -549,7 +588,7 @@ pub fn list_json<W: Write>(
         let ac = entry.doc.body.ac_items();
         let done = ac.iter().filter(|item| item.checked).count();
         let ordinal = fm.ordinal.as_deref().and_then(|o| o.parse::<u64>().ok());
-        let ready = readiness_of(&entry.doc, &status_of).is_ready;
+        let ready = readiness_of(&entry.doc, &index).is_ready;
         s.push_str("    {\n");
         fn push_row_field(s: &mut String, name: &str, value: &str, last: bool) {
             s.push_str("      ");
@@ -875,7 +914,8 @@ priority: low
     fn view_plain_first_line_is_the_absolute_path() {
         let entry = doc_from(VIEW_SAMPLE);
         let mut out = Vec::new();
-        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
+        let readiness =
+            Readiness { is_ready: false, is_complete: true, blocking: vec![], missing: vec![] };
         view_plain(&mut out, &entry, &readiness).expect("render");
         let text = String::from_utf8(out).expect("utf8");
         let mut lines = text.lines();
@@ -901,7 +941,8 @@ priority: low
             "{VIEW_SAMPLE}\n## Definition of Done\n<!-- DOD:BEGIN -->\n- [x] #1 gate one\n- [ ] #2 gate two\n<!-- DOD:END -->\n"
         );
         let entry = doc_from(&src);
-        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
+        let readiness =
+            Readiness { is_ready: false, is_complete: true, blocking: vec![], missing: vec![] };
 
         let mut out = Vec::new();
         view_plain(&mut out, &entry, &readiness).expect("render");
@@ -912,7 +953,14 @@ priority: low
         assert!(!text.contains("No Definition of Done items defined"));
 
         let mut out = Vec::new();
-        view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
+        view_json(
+            &mut out,
+            &entry,
+            Path::new("/ws"),
+            &readiness,
+            &StatusIndex::new([], Some("Done")),
+        )
+        .expect("render");
         let text = String::from_utf8(out).expect("utf8");
         let value: serde_json::Value = serde_json::from_str(&text).expect("valid json");
         assert_eq!(
@@ -927,7 +975,8 @@ priority: low
     #[test]
     fn dod_placeholder_stands_for_a_task_without_items() {
         let entry = doc_from(VIEW_SAMPLE);
-        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
+        let readiness =
+            Readiness { is_ready: false, is_complete: true, blocking: vec![], missing: vec![] };
         let mut out = Vec::new();
         view_plain(&mut out, &entry, &readiness).expect("render");
         let text = String::from_utf8(out).expect("utf8");
@@ -939,7 +988,8 @@ priority: low
         let src = VIEW_SAMPLE.replacen("status: Done", "status: In Progress", 1);
         let entry = doc_from(&src);
         let mut out = Vec::new();
-        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
+        let readiness =
+            Readiness { is_ready: true, is_complete: false, blocking: vec![], missing: vec![] };
         view_plain(&mut out, &entry, &readiness).expect("render");
         let text = String::from_utf8(out).expect("utf8");
         assert!(text.contains("Status: ○ In Progress"));
@@ -948,9 +998,17 @@ priority: low
     #[test]
     fn view_json_envelope_field_order() {
         let entry = doc_from(VIEW_SAMPLE);
-        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
+        let readiness =
+            Readiness { is_ready: false, is_complete: true, blocking: vec![], missing: vec![] };
         let mut out = Vec::new();
-        view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
+        view_json(
+            &mut out,
+            &entry,
+            Path::new("/ws"),
+            &readiness,
+            &StatusIndex::new([], Some("Done")),
+        )
+        .expect("render");
         let text = String::from_utf8(out).expect("utf8");
         let value: serde_json::Value = serde_json::from_str(&text).expect("valid json");
         assert_eq!(value["schemaVersion"], 1);
@@ -974,9 +1032,17 @@ priority: low
     fn view_json_dependency_graph_with_edges_parses() {
         let src = VIEW_SAMPLE.replacen("dependencies: []", "dependencies:\n  - TASK-0001", 1);
         let entry = doc_from(&src);
-        let readiness = Readiness { is_ready: true, blocking: vec![], missing: vec![] };
+        let readiness =
+            Readiness { is_ready: false, is_complete: true, blocking: vec![], missing: vec![] };
         let mut out = Vec::new();
-        view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
+        view_json(
+            &mut out,
+            &entry,
+            Path::new("/ws"),
+            &readiness,
+            &StatusIndex::new([], Some("Done")),
+        )
+        .expect("render");
         let text = String::from_utf8(out).expect("utf8");
         let value: serde_json::Value =
             serde_json::from_str(&text).unwrap_or_else(|e| panic!("must be valid json: {e}"));

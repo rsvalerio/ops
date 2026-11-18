@@ -660,7 +660,7 @@ fn run_task_action(
         BacklogTaskAction::View { task_id, plain: _, json } => {
             let opts =
                 cmd::ViewOptions { task_id, format: cmd::OutputFormat::from_json_flag(json) };
-            cmd::run_view(store, &opts, cwd, &mut std::io::stdout())
+            cmd::run_view(store, cfg, &opts, cwd, &mut std::io::stdout())
         }
     }
 }
