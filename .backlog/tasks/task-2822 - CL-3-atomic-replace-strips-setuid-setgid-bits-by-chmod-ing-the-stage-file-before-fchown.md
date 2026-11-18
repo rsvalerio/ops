@@ -1,10 +1,10 @@
 ---
 id: TASK-2822
 title: 'CL-3: atomic::replace strips setuid/setgid bits by chmod-ing the stage file before fchown'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:38'
 labels:
   - code-review-rust
   - CL
@@ -31,8 +31,9 @@ The module doc (`atomic.rs:55-56`) and `replace`'s doc promise "Mode, uid and gi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 preserve_attributes performs fchown before set_permissions so the final mode equals the original mode, including S_ISUID/S_ISGID
-- [ ] #2 A unix test rewrites a file with mode 02755 (or 04755) owned by the running user and asserts the mode survives
+- [x] #1 preserve_attributes performs fchown before set_permissions so the final mode equals the original mode, including S_ISUID/S_ISGID
+- [x] #2 A unix test rewrites a file with mode 02755 (or 04755) owned by the running user and asserts the mode survives
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2824
 title: 'ERR-2: atomic::replace signals ''changed since read'' only through an io::Error message string'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:39'
 labels:
   - code-review-rust
   - ERR
@@ -30,9 +30,10 @@ dedup_key: 'ERR-2:extensions/text-fixers/src/atomic.rs:replace'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 replace returns a typed error (or an io::Error wrapping a typed inner error retrievable via get_ref/downcast) with distinct variants for changed-since-read and symlinked-directory refusals
-- [ ] #2 Tests and runner identify the changed-since-read case by variant, not by comparing the message string
-- [ ] #3 replace's # Errors section names each variant
+- [x] #1 replace returns a typed error (or an io::Error wrapping a typed inner error retrievable via get_ref/downcast) with distinct variants for changed-since-read and symlinked-directory refusals
+- [x] #2 Tests and runner identify the changed-since-read case by variant, not by comparing the message string
+- [x] #3 replace's # Errors section names each variant
+
 <!-- AC:END -->
 
 ## Implementation Notes

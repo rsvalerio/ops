@@ -1,10 +1,10 @@
 ---
 id: TASK-2859
 title: 'code-review-plan-wave23'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:54'
 labels:
   - code-review-wave
 dependencies:
@@ -54,4 +54,8 @@ Grouping: config-checkers and text-fixers: shared discovery, atomic replace, opt
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2847 (extensions/config-checkers/src/lib.rs); TASK-2858 (crates/cli/src/subcommands.rs)
+
+Branch: code-review/TASK-2859
+Worktree: /home/rsvalerio/projects/.wave-TASK-2859
+
 <!-- SECTION:NOTES:END -->

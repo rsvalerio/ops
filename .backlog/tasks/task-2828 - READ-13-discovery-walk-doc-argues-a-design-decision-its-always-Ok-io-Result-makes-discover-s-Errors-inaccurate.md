@@ -1,10 +1,10 @@
 ---
 id: TASK-2828
 title: 'READ-13: discovery::walk doc argues a design decision; its always-Ok io::Result makes discover''s # Errors inaccurate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:42'
 labels:
   - code-review-rust
   - READ
@@ -31,8 +31,9 @@ dedup_key: 'READ-13:extensions/text-fixers/src/discovery.rs:walk'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 walk's doc describes what it returns and its error-collection behaviour; the no-deadline rationale moves to an ADR or is reduced to a one-line note
-- [ ] #2 walk/walked either return plain values (dropping the allow(clippy::unnecessary_wraps)) or the dead Result is otherwise justified, and discover's # Errors lists only the git ls-files failure cases
+- [x] #1 walk's doc describes what it returns and its error-collection behaviour; the no-deadline rationale moves to an ADR or is reduced to a one-line note
+- [x] #2 walk/walked either return plain values (dropping the allow(clippy::unnecessary_wraps)) or the dead Result is otherwise justified, and discover's # Errors lists only the git ls-files failure cases
+
 <!-- AC:END -->
 
 ## Implementation Notes

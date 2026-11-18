@@ -1,10 +1,10 @@
 ---
 id: TASK-2773
 title: 'DUP-5: config-checkers discovery reporting drifts from the fixers'' copy and drops undecodable_paths'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:37'
 labels:
   - code-review-rust
   - duplication
@@ -30,9 +30,10 @@ dedup_key: 'DUP-5:extensions/config-checkers/src/runner.rs:discover_candidates'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The config checkers surface Discovery::undecodable_paths (a notice on the writer and a count in the report, e.g. folded into files_skipped or its own field) instead of dropping it
-- [ ] #2 The discovery-notice sequence (fallback, walk errors, undecodable paths) lives in one shared helper used by both the fixers and the checkers, or a test pins that both consumers handle every Discovery field
-- [ ] #3 A test (cfg-gated or via a constructed Discovery) proves a non-zero undecodable count is reported by the checkers
+- [x] #1 The config checkers surface Discovery::undecodable_paths (a notice on the writer and a count in the report, e.g. folded into files_skipped or its own field) instead of dropping it
+- [x] #2 The discovery-notice sequence (fallback, walk errors, undecodable paths) lives in one shared helper used by both the fixers and the checkers, or a test pins that both consumers handle every Discovery field
+- [x] #3 A test (cfg-gated or via a constructed Discovery) proves a non-zero undecodable count is reported by the checkers
+
 <!-- AC:END -->
 
 ## Implementation Notes

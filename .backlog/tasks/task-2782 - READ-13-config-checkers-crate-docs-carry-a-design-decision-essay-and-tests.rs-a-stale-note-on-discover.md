@@ -1,10 +1,10 @@
 ---
 id: TASK-2782
 title: 'READ-13: config-checkers crate docs carry a design-decision essay and tests.rs a stale note on discover'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:37'
 labels:
   - code-review-rust
   - readability
@@ -32,9 +32,10 @@ dedup_key: 'READ-13:extensions/config-checkers/src/lib.rs:crate-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The lib.rs Dependency note is reduced to the enduring fact (discovery is shared with ops_text_fixers) or moved to an ADR/PR description
-- [ ] #2 The stale tests.rs note about discover swallowing errors is removed or corrected
-- [ ] #3 If a discover Err is reachable from a test (e.g. tracked_only against a root git cannot enter), a test asserts the error carries the check-json label and root context
+- [x] #1 The lib.rs Dependency note is reduced to the enduring fact (discovery is shared with ops_text_fixers) or moved to an ADR/PR description
+- [x] #2 The stale tests.rs note about discover swallowing errors is removed or corrected
+- [x] #3 If a discover Err is reachable from a test (e.g. tracked_only against a root git cannot enter), a test asserts the error carries the check-json label and root context
+
 <!-- AC:END -->
 
 ## Implementation Notes

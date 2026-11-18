@@ -1,10 +1,10 @@
 ---
 id: TASK-2826
 title: 'API-23: tracked_only bool in FixerOptions::new and discovery::discover is opaque at call sites'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - API
@@ -33,8 +33,9 @@ dedup_key: 'API-23:extensions/text-fixers/src/options.rs:FixerOptions::new'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FixerOptions::new and discovery::discover take a two-variant enum (e.g. Scope::Walk / Scope::Tracked) instead of tracked_only: bool
-- [ ] #2 All call sites in the workspace (cli, config-checkers, tests) pass the named variant
+- [x] #1 FixerOptions::new and discovery::discover take a two-variant enum (e.g. Scope::Walk / Scope::Tracked) instead of tracked_only: bool
+- [x] #2 All call sites in the workspace (cli, config-checkers, tests) pass the named variant
+
 <!-- AC:END -->
 
 ## Implementation Notes

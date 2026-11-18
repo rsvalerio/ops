@@ -1,10 +1,10 @@
 ---
 id: TASK-2776
 title: 'API-13: yaml::MAX_NESTING_DEPTH duplicates the public path json::MAX_NESTING_DEPTH'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:37'
 labels:
   - code-review-rust
   - api
@@ -33,8 +33,9 @@ Related candidates, lower confidence (deliberate per lib.rs docs, workspace tech
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 MAX_NESTING_DEPTH has exactly one public path, defined in a place that is not JSON-specific (e.g. the crate root or a shared limits module), and both checkers refer to it
-- [ ] #2 Intra-doc links in json.rs, yaml.rs and lib.rs point at the single path and cargo doc stays warning-free
+- [x] #1 MAX_NESTING_DEPTH has exactly one public path, defined in a place that is not JSON-specific (e.g. the crate root or a shared limits module), and both checkers refer to it
+- [x] #2 Intra-doc links in json.rs, yaml.rs and lib.rs point at the single path and cargo doc stays warning-free
+
 <!-- AC:END -->
 
 ## Implementation Notes
