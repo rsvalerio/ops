@@ -106,10 +106,16 @@ fn snapshot(path: &Path) -> anyhow::Result<String> {
     anyhow::bail!("{}: changed under every read (is a cargo command running?)", path.display());
 }
 
+/// Parse `text`, read from `path`, as a TOML table; a parse error names `path`.
+fn parse_toml(text: &str, path: &Path) -> anyhow::Result<toml::Table> {
+    text.parse().with_context(|| format!("parsing {}", path.display()))
+}
+
 /// Parse a lockfile's `[[package]]` records. Lockfile v4 is TOML; a record's
-/// `dependencies` entries are plain strings.
-fn parse_lock(text: &str) -> anyhow::Result<Vec<LockPkg>> {
-    let table: toml::Table = text.parse().context("parsing a Cargo.lock")?;
+/// `dependencies` entries are plain strings. `path` names the lockfile in
+/// every error.
+fn parse_lock(text: &str, path: &Path) -> anyhow::Result<Vec<LockPkg>> {
+    let table = parse_toml(text, path)?;
     let Some(packages) = table.get("package").and_then(toml::Value::as_array) else {
         return Ok(Vec::new());
     };
@@ -120,7 +126,7 @@ fn parse_lock(text: &str) -> anyhow::Result<Vec<LockPkg>> {
             pkg.get("name").and_then(toml::Value::as_str),
             pkg.get("version").and_then(toml::Value::as_str),
         ) else {
-            anyhow::bail!("a Cargo.lock package record without a name or version");
+            anyhow::bail!("{}: a package record without a name or version", path.display());
         };
         let deps = pkg
             .get("dependencies")
@@ -292,9 +298,12 @@ fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, Vec<PathBuf>>> {
         skip: &[&'static str],
         out: &mut BTreeMap<String, Vec<PathBuf>>,
     ) -> anyhow::Result<()> {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let file_type = entry.file_type()?;
+        let reading = || format!("reading {}", dir.display());
+        for entry in std::fs::read_dir(dir).with_context(reading)? {
+            let entry = entry.with_context(reading)?;
+            let path = entry.path();
+            let file_type =
+                entry.file_type().with_context(|| format!("reading {}", path.display()))?;
             if file_type.is_symlink() {
                 continue;
             }
@@ -304,12 +313,13 @@ fn manifests_in(root: &Path) -> anyhow::Result<BTreeMap<String, Vec<PathBuf>>> {
                 if name.starts_with('.') || skip.contains(&name.as_ref()) {
                     continue;
                 }
-                walk(&entry.path(), skip, out)?;
+                walk(&path, skip, out)?;
             } else if name == "Cargo.toml" {
-                let text = std::fs::read_to_string(entry.path())?;
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
                 if let Ok(manifest) = text.parse::<toml::Table>() {
                     if let Some(name) = package_name(&manifest) {
-                        out.entry(name.to_owned()).or_default().push(entry.path());
+                        out.entry(name.to_owned()).or_default().push(path);
                     }
                 }
             }
@@ -344,7 +354,7 @@ fn check_lock(
     out: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let nested_path = root.join(entry).join("Cargo.lock");
-    let nested_pkgs = parse_lock(&snapshot(&nested_path)?)?;
+    let nested_pkgs = parse_lock(&snapshot(&nested_path)?, &nested_path)?;
 
     let root_triples = &ctx.root_triples;
     let root_by_triple = &ctx.root_by_triple;
@@ -404,9 +414,9 @@ fn check_lock(
         else {
             continue;
         };
-        let manifest: toml::Table = std::fs::read_to_string(manifest_path)?
-            .parse()
-            .with_context(|| format!("parsing {}", manifest_path.display()))?;
+        let text = std::fs::read_to_string(manifest_path)
+            .with_context(|| format!("reading {}", manifest_path.display()))?;
+        let manifest = parse_toml(&text, manifest_path)?;
         for dep in required_deps(&manifest, ctx.workspace_deps) {
             let Some(root_record) = root_by_triple.get(&pkg.triple()) else { continue };
             if !root_record.deps.contains(&dep) {
@@ -438,7 +448,8 @@ fn check_lints(
     exemptions: &BTreeMap<String, String>,
     out: &mut Vec<String>,
 ) -> anyhow::Result<()> {
-    let nested_manifest: toml::Table = snapshot(&root.join(entry).join("Cargo.toml"))?.parse()?;
+    let nested_path = root.join(entry).join("Cargo.toml");
+    let nested_manifest = parse_toml(&snapshot(&nested_path)?, &nested_path)?;
     let nested_lints = lints_of(nested_manifest.get("lints"));
 
     // Root → nested: missing, or set to a different value. An exempt key must
@@ -496,10 +507,15 @@ pub fn run_workspace_check(
         return Ok(ExitCode::SUCCESS);
     }
     let mut findings = Vec::new();
-    let root_pkgs = parse_lock(&snapshot(&root.join("Cargo.lock")).context(
-        "the root Cargo.lock is the baseline every nested lockfile is checked against",
-    )?)?;
-    let root_manifest: toml::Table = snapshot(&root.join("Cargo.toml"))?.parse()?;
+    let root_lock = root.join("Cargo.lock");
+    let root_pkgs = parse_lock(
+        &snapshot(&root_lock).context(
+            "the root Cargo.lock is the baseline every nested lockfile is checked against",
+        )?,
+        &root_lock,
+    )?;
+    let root_manifest_path = root.join("Cargo.toml");
+    let root_manifest = parse_toml(&snapshot(&root_manifest_path)?, &root_manifest_path)?;
     let workspace_deps = root_manifest
         .get("workspace")
         .and_then(|w| w.get("dependencies"))
@@ -645,6 +661,29 @@ mod tests {
         let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
         assert_eq!(code, ExitCode::SUCCESS, "{out}");
         assert!(out.contains("fuzz/Cargo.lock agrees"), "{out}");
+    }
+
+    #[test]
+    fn an_unparsable_nested_manifest_names_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        repo(dir.path(), &root_lock(), &agreeing_nested_lock(), &agreeing_nested_lints());
+        std::fs::write(dir.path().join("fuzz/Cargo.toml"), "[workspace\n").unwrap();
+        let mut out = Vec::new();
+        let err =
+            run_workspace_check(dir.path(), &section(&[".", "fuzz"], &[]), &mut out).unwrap_err();
+        let expected = dir.path().join("fuzz").join("Cargo.toml");
+        assert!(format!("{err:#}").contains(&expected.display().to_string()), "{err:#}");
+    }
+
+    #[test]
+    fn an_unparsable_nested_lockfile_names_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        repo(dir.path(), &root_lock(), "[[package]\n", &agreeing_nested_lints());
+        let mut out = Vec::new();
+        let err =
+            run_workspace_check(dir.path(), &section(&[".", "fuzz"], &[]), &mut out).unwrap_err();
+        let expected = dir.path().join("fuzz").join("Cargo.lock");
+        assert!(format!("{err:#}").contains(&expected.display().to_string()), "{err:#}");
     }
 
     #[test]
