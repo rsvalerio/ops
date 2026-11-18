@@ -16,8 +16,12 @@
 //!
 //! The grammar covers:
 //!
-//! - **CSI** (`ESC [ … final`): any final byte in `0x40..=0x7E`, not just `m`.
+//! - **CSI** (`ESC [ … final`): parameter and intermediate bytes in
+//!   `0x20..=0x3F`, then any final byte in `0x40..=0x7E`, not just `m`.
 //!   Covers SGR (`m`), cursor moves (`H`/`A`/etc.), and other CSI commands.
+//!   Any other character ends the sequence as unterminated and is left for
+//!   the main loop, so a stray `ESC [` before non-ASCII text or punctuation
+//!   cannot swallow the visible text up to the next ASCII letter.
 //! - **OSC / DCS / SOS / PM / APC** (`ESC ]`/`ESC P`/`ESC X`/`ESC ^`/`ESC _`):
 //!   string-introducer sequences terminated by `BEL` (0x07) or the two-byte
 //!   ST `ESC \`. Required so terminal hyperlinks (`ESC ]8;;url ESC \\`) and
@@ -39,12 +43,15 @@
 //!   terminates a string sequence just like `ESC \`.
 //! - **Unterminated escapes**: a sequence cut off by end of input, a scan
 //!   that hits its
-//!   cap ([`CSI_SCAN_CAP`] / [`STRING_SCAN_CAP`]), or a stray introducer
+//!   cap ([`CSI_SCAN_CAP`] / [`STRING_SCAN_CAP`]), a CSI or nF scan that
+//!   meets a character outside its grammar, or a stray introducer
 //!   that begins nothing recognised yields its consumed bytes as a
 //!   [`Raw`](AnsiPiece::Raw) piece instead of draining the iterator to
 //!   end-of-string. Policy decides what happens to those bytes:
-//!   [`strip_ansi`] drops them, [`strip_ansi_preserving_raw`] keeps them
-//!   verbatim so a downstream validator can reject the line.
+//!   [`strip_ansi`] and [`truncate_to_width`] drop them (they measure as
+//!   zero columns, so keeping them would print text no width budget paid
+//!   for), [`strip_ansi_preserving_raw`] keeps them verbatim so a
+//!   downstream validator can reject the line.
 //!
 //! What the iterator does *not* decide, because the two policies disagree:
 //! bare control characters and tab. They are yielded verbatim as
@@ -193,17 +200,24 @@ impl<'a> AnsiPieces<'a> {
         }
     }
 
-    /// Consume a CSI body: parameter/intermediate bytes followed by a final
-    /// byte in `0x40..=0x7E`. The lead-in (`ESC [` or `U+009B`) is already
-    /// consumed.
+    /// Consume a CSI body: parameter bytes (`0x30..=0x3F`) and intermediate
+    /// bytes (`0x20..=0x2F`) followed by a final byte in `0x40..=0x7E`. The
+    /// lead-in (`ESC [` or `U+009B`) is already consumed.
+    ///
+    /// Any other character proves the sequence malformed: it ends the scan
+    /// as a [`Raw`](AnsiPiece::Raw) piece *without* being consumed, so the
+    /// main loop re-emits it and whatever visible text follows.
     fn consume_csi(&mut self, rest: &'a str) -> AnsiPiece<'a> {
         for _ in 0..CSI_SCAN_CAP {
-            match self.chars.next() {
+            match self.chars.clone().next() {
                 Some(c) if ('\u{40}'..='\u{7e}').contains(&c) => {
+                    self.chars.next();
                     return AnsiPiece::Escape(self.consumed_from(rest));
                 }
-                Some(_) => {}
-                None => break,
+                Some(c) if ('\u{20}'..='\u{3f}').contains(&c) => {
+                    self.chars.next();
+                }
+                Some(_) | None => break,
             }
         }
         AnsiPiece::Raw(self.consumed_from(rest))
@@ -234,16 +248,19 @@ impl<'a> AnsiPieces<'a> {
 
     /// Consume an nF-class body: the first intermediate is already consumed;
     /// further intermediates in `0x21..=0x2F` may follow before the final
-    /// byte in `0x30..=0x7E`. A byte outside both ranges means this was
-    /// never an escape — everything consumed becomes a Raw piece, including
-    /// that byte.
+    /// byte in `0x30..=0x7E`. A character outside both ranges means this was
+    /// never an escape: everything consumed so far becomes a Raw piece, and
+    /// that character is left unconsumed for the main loop to re-emit.
     fn consume_nf(&mut self, rest: &'a str) -> AnsiPiece<'a> {
         for _ in 0..CSI_SCAN_CAP {
-            match self.chars.next() {
+            match self.chars.clone().next() {
                 Some(c) if ('\u{30}'..='\u{7e}').contains(&c) => {
+                    self.chars.next();
                     return AnsiPiece::Escape(self.consumed_from(rest));
                 }
-                Some(c) if ('\u{21}'..='\u{2f}').contains(&c) => {}
+                Some(c) if ('\u{21}'..='\u{2f}').contains(&c) => {
+                    self.chars.next();
+                }
                 Some(_) | None => break,
             }
         }
@@ -341,8 +358,10 @@ const RESET: &str = "\x1b[0m";
 ///   mid-string would change the styling of what survives); a `\x1b[0m` reset
 ///   is appended whenever a truncated string carried an escape, so the cut
 ///   cannot leave the terminal in a styled state.
-/// - Control characters are dropped and tab is rewritten to
-///   [`TAB_REPLACEMENT`], exactly as [`strip_ansi`] treats them.
+/// - Unterminated escapes (see the module docs) and control characters
+///   are dropped and tab is rewritten to [`TAB_REPLACEMENT`], exactly as
+///   [`strip_ansi`] treats them, so `visible_width(&out) <= max_cols` holds
+///   for every input.
 /// - When content is dropped, the last visible column is spent on
 ///   [`ELLIPSIS`] so the reader can see the line was cut. `max_cols == 0`
 ///   therefore yields an empty visible string.
@@ -366,12 +385,10 @@ pub fn truncate_to_width(s: &str, max_cols: usize) -> Cow<'_, str> {
                 out.push_str(seq);
                 continue;
             }
-            // Raw pieces are escape-shaped *runs*; see [`push_filtered_run`].
-            AnsiPiece::Raw(seq) => {
-                had_escape = true;
-                push_filtered_run(&mut out, seq);
-                continue;
-            }
+            // An unterminated escape is dropped whole, as `strip_ansi` drops
+            // it: `visible_width` scores it zero columns, so any byte of it
+            // that survived would be visible text the budget never paid for.
+            AnsiPiece::Raw(_) => continue,
             AnsiPiece::Char('\t') => TAB_REPLACEMENT,
             AnsiPiece::Char(c) if is_droppable_control(c) => continue,
             AnsiPiece::Char(c) => c,
@@ -382,28 +399,6 @@ pub fn truncate_to_width(s: &str, max_cols: usize) -> Cow<'_, str> {
         out.push_str(RESET);
     }
     Cow::Owned(out)
-}
-
-/// Append an escape-shaped raw run to `out`, character-filtered.
-///
-/// Raw pieces are escape-shaped *runs*: an introducer whose
-/// sequence never terminated plus whatever the bounded scan
-/// consumed chasing it — and those consumed bytes can include
-/// C0 controls (`"\x1b(\r"` swallows the CR into the run).
-/// Pushing the run verbatim would push the controls too, so the
-/// run gets the same per-character treatment the Char arm
-/// applies: droppable controls dropped, tab rewritten,
-/// everything else (the introducer included, cost-free)
-/// preserved — keeping the truncated bytes observable, the same
-/// reasoning as `strip_ansi_preserving_raw`.
-fn push_filtered_run(out: &mut String, seq: &str) {
-    for rc in seq.chars() {
-        match rc {
-            '\t' => out.push(TAB_REPLACEMENT),
-            rc if is_droppable_control(rc) => {}
-            rc => out.push(rc),
-        }
-    }
 }
 
 /// Visible-column budget for [`truncate_to_width`]'s emission loop.
