@@ -1,10 +1,10 @@
 ---
 id: TASK-2793
 title: 'API-14: layout_cards_in_grid_with_width''s doc comment is attached to the private row_parts helper'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - API
@@ -29,8 +29,9 @@ dedup_key: 'API-14:extensions/about/src/cards.rs:layout_cards_in_grid_with_width
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 row_parts is moved (or its doc split) so the grid-layout doc block sits directly on layout_cards_in_grid_with_width
-- [ ] #2 row_parts keeps only its own short doc
+- [x] #1 row_parts is moved (or its doc split) so the grid-layout doc block sits directly on layout_cards_in_grid_with_width
+- [x] #2 row_parts keeps only its own short doc
+
 <!-- AC:END -->
 
 ## Implementation Notes

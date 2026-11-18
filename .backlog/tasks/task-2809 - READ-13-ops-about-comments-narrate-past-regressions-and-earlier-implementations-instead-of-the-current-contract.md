@@ -1,10 +1,10 @@
 ---
 id: TASK-2809
 title: 'READ-13: ops-about comments narrate past regressions and earlier implementations instead of the current contract'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - READ
@@ -32,12 +32,16 @@ dedup_key: 'READ-13:extensions/about/src/text_util.rs:module-comments'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed comment states the current invariant only; historical/comparative narration is removed
-- [ ] #2 The duplicated SPACING comment in cards.rs is reduced to one line
+- [x] #1 Each listed comment states the current invariant only; historical/comparative narration is removed
+- [x] #2 The duplicated SPACING comment in cards.rs is reduced to one line
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+identity.rs narration removed by moving the check into project_root_str (TASK-2806).
+
 <!-- SECTION:NOTES:END -->

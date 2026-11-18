@@ -1,10 +1,10 @@
 ---
 id: TASK-2795
 title: 'API-23: AboutOptions::new takes two positional bools (refresh, is_tty)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - API
@@ -30,12 +30,16 @@ dedup_key: 'API-23:extensions/about/src/lib.rs:AboutOptions::new'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutOptions can no longer be built from two adjacent positional bools; refresh and tty-ness are named at each call site
-- [ ] #2 All call sites updated
+- [x] #1 AboutOptions can no longer be built from two adjacent positional bools; refresh and tty-ness are named at each call site
+- [x] #2 All call sites updated
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+AboutOptions::new(visible_fields) plus with_refresh/with_tty single-flag setters (API-23 allows setters named for the flag).
+
 <!-- SECTION:NOTES:END -->

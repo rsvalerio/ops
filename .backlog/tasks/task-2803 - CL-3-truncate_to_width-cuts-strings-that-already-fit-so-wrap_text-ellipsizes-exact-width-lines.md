@@ -1,10 +1,10 @@
 ---
 id: TASK-2803
 title: 'CL-3: truncate_to_width cuts strings that already fit, so wrap_text ellipsizes exact-width lines'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - CL
@@ -29,9 +29,10 @@ dedup_key: 'CL-3:extensions/about/src/text_util.rs:truncate_to_width'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 truncate_to_width returns its input unchanged when display_width(s) <= max_width (or the precondition is made explicit and every caller guards with > max_width)
-- [ ] #2 enforce_line_width_limit only truncates lines wider than max_width
-- [ ] #3 A test asserts wrap_text("hello", 5, 1) == ["hello"]; truncate_to_width_exact_fit is updated to the corrected contract
+- [x] #1 truncate_to_width returns its input unchanged when display_width(s) <= max_width (or the precondition is made explicit and every caller guards with > max_width)
+- [x] #2 enforce_line_width_limit only truncates lines wider than max_width
+- [x] #3 A test asserts wrap_text("hello", 5, 1) == ["hello"]; truncate_to_width_exact_fit is updated to the corrected contract
+
 <!-- AC:END -->
 
 ## Implementation Notes

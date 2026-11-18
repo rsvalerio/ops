@@ -1,10 +1,10 @@
 ---
 id: TASK-2794
 title: 'API-14: public about subpage entry points and document fields lack summary docs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - API
@@ -34,12 +34,16 @@ dedup_key: 'API-14:extensions/about/src/units.rs:run_about_units'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed run_about_* fn has a one-sentence summary paragraph before its # Errors section
-- [ ] #2 Each listed public field has a doc comment
+- [x] #1 Each listed run_about_* fn has a one-sentence summary paragraph before its # Errors section
+- [x] #2 Each listed public field has a doc comment
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+machine.rs fields applied to machine/mod.rs (MachineReport::cargo) and machine/settings.rs (CargoSettings fields) after the TASK-2857 split; 2857 had not documented them.
+
 <!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2858
 title: 'code-review-plan-wave22'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-wave
 dependencies:
@@ -56,4 +56,8 @@ Grouping: ops-about remaining: docs, dedup, truncation, logging
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2857 (extensions/about/src/machine.rs); TASK-2859 (crates/cli/src/subcommands.rs)
+
+Branch: code-review/TASK-2858
+Worktree: /home/rsvalerio/projects/.wave-TASK-2858
+
 <!-- SECTION:NOTES:END -->

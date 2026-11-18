@@ -1,10 +1,10 @@
 ---
 id: TASK-2792
 title: 'READ-12: about units partial-frame warning is a preformatted string with counts and errors baked in'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - READ
@@ -29,7 +29,8 @@ dedup_key: 'READ-12:extensions/about/src/units.rs:enrich_from_db'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The warning has a constant message and records unit_count, the failed query names and their errors as named fields
+- [x] #1 The warning has a constant message and records unit_count, the failed query names and their errors as named fields
+
 <!-- AC:END -->
 
 ## Implementation Notes

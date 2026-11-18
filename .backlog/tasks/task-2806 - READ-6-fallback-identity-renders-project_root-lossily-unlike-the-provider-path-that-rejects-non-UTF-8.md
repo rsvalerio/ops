@@ -1,10 +1,10 @@
 ---
 id: TASK-2806
 title: 'READ-6: fallback identity renders project_root lossily, unlike the provider path that rejects non-UTF-8'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - READ
@@ -29,12 +29,16 @@ dedup_key: 'READ-6:extensions/about/src/lib.rs:build_fallback_identity'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 build_fallback_identity applies the same non-UTF-8 policy as build_identity_value (shared helper or documented deliberate difference)
-- [ ] #2 A unix test covers a non-UTF-8 cwd on the fallback path
+- [x] #1 build_fallback_identity applies the same non-UTF-8 policy as build_identity_value (shared helper or documented deliberate difference)
+- [x] #2 A unix test covers a non-UTF-8 cwd on the fallback path
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+Shared identity::project_root_str; build_fallback_identity now returns Result.
+
 <!-- SECTION:NOTES:END -->

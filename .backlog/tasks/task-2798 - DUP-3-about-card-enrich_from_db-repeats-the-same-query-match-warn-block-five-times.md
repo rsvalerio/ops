@@ -1,10 +1,10 @@
 ---
 id: TASK-2798
 title: 'DUP-3: about card enrich_from_db repeats the same query/match/warn block five times'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - DUP
@@ -29,12 +29,16 @@ dedup_key: 'DUP-3:extensions/about/src/lib.rs:enrich_from_db'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The repeated query/match/warn shape is expressed once in a helper used by every enrichment
-- [ ] #2 enrich_from_db is under 50 lines and existing lib.rs tests pass with the sqlite feature on
+- [x] #1 The repeated query/match/warn shape is expressed once in a helper used by every enrichment
+- [x] #2 enrich_from_db is under 50 lines and existing lib.rs tests pass with the sqlite feature on
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+query_kept helper + fill_rust_regions split; enrich_from_db is now 35 lines.
+
 <!-- SECTION:NOTES:END -->

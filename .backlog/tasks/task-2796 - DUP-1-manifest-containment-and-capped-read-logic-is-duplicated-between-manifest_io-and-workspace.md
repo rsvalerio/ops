@@ -1,10 +1,10 @@
 ---
 id: TASK-2796
 title: 'DUP-1: manifest containment-and-capped-read logic is duplicated between manifest_io and workspace'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:36'
 labels:
   - code-review-rust
   - DUP
@@ -30,8 +30,9 @@ dedup_key: 'DUP-1:extensions/about/src/manifest_io.rs:read_optional_text'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single helper (e.g. manifest_io::read_contained(path, canonical_root, kind)) implements canonicalize + containment + capped read, and both call sites use it
-- [ ] #2 Existing containment, FIFO and NotFound tests in both modules still pass
+- [x] #1 A single helper (e.g. manifest_io::read_contained(path, canonical_root, kind)) implements canonicalize + containment + capped read, and both call sites use it
+- [x] #2 Existing containment, FIFO and NotFound tests in both modules still pass
+
 <!-- AC:END -->
 
 ## Implementation Notes
