@@ -18,6 +18,8 @@ use crate::text_util::tty_style;
 /// available."
 pub const PROJECT_DEPENDENCIES_PROVIDER: &str = "project_dependencies";
 
+/// Render `ops about dependencies`: each unit's dependency tree, to stdout.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider
@@ -27,6 +29,8 @@ pub fn run_about_deps(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_deps_with(data_registry, &mut std::io::stdout(), is_tty)
 }
 
+/// Render the dependency trees to `writer`.
+///
 /// `is_tty` reflects the `writer` the caller hands in.
 /// See [`crate::units::run_about_units_with`] for the rationale.
 ///
@@ -185,7 +189,9 @@ pub struct OlderVersion {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullingDependency {
+    /// Name of the direct workspace dependency.
     pub name: String,
+    /// Version of that dependency as locked.
     pub version: String,
     /// Whether a semver-compatible update of this dependency (`cargo update
     /// --dry-run -p`, which never writes `Cargo.lock`) drops the older
@@ -343,11 +349,8 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
         lines.push(String::new());
         lines.push(format!("  {}", tty_style(&unit.unit_name, cyan, is_tty)));
 
-        // Use `split_last` so the connector choice never
-        // depends on `len() - 1` over a possibly-zero-length slice. The
-        // outer filter already rejects empty deps today, but a future
-        // refactor that adds another filter and lets an empty slice through
-        // would otherwise panic on `0usize - 1`.
+        // `split_last` picks the last connector without `len() - 1`, so an
+        // empty dependency list is skipped rather than underflowing.
         let Some((last, rest)) = unit.deps.split_last() else {
             continue;
         };

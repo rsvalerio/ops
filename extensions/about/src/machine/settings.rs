@@ -23,10 +23,15 @@ pub struct Setting {
 pub struct CargoSettings {
     /// Host triple from `rustc -vV`; the key for `target.<triple>.*`.
     pub host: Option<String>,
+    /// Parallel build jobs (`CARGO_BUILD_JOBS` / `build.jobs`), when set.
     pub jobs: Option<Setting>,
+    /// Compiler wrapper such as `sccache` (`RUSTC_WRAPPER` / `build.rustc-wrapper`), when set.
     pub rustc_wrapper: Option<Setting>,
+    /// Effective target directory; `<workspace root>/target` when unset.
     pub target_dir: Setting,
+    /// Linker from the host's matching `target.*` tables, when set.
     pub linker: Option<Setting>,
+    /// Extra `rustc` flags (`RUSTFLAGS` and friends), when set.
     pub rustflags: Option<Setting>,
     /// Incremental compilation: `CARGO_INCREMENTAL`, then
     /// `CARGO_BUILD_INCREMENTAL` / `build.incremental`, each overriding every

@@ -52,6 +52,8 @@ pub(crate) fn coverage_color(pct: f64) -> Color {
     }
 }
 
+/// Render `ops about coverage`: per-unit test coverage, to stdout.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider
@@ -61,6 +63,8 @@ pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_coverage_with(data_registry, &mut std::io::stdout(), is_tty)
 }
 
+/// Render the coverage page to `writer`.
+///
 /// `is_tty` reflects the `writer` the caller hands in.
 /// See [`crate::units::run_about_units_with`] for the rationale.
 ///

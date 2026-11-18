@@ -65,6 +65,7 @@ pub struct MachineReport {
     /// Other `cargo` / `rustc` / `cargo-nextest` processes (this process
     /// and its parent excluded).
     pub build_processes: Vec<BuildProcess>,
+    /// Effective cargo settings and where each one came from.
     pub cargo: CargoSettings,
     /// Filesystem behind `TMPDIR` (or the platform temp dir).
     pub tmpdir: Option<FsReport>,

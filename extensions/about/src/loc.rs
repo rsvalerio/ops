@@ -153,6 +153,8 @@ fn format_totals_line(stats: &[&RustLocStat], files: i64) -> String {
     line
 }
 
+/// Render `ops about loc`: Rust lines of code split by region, to stdout.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider
@@ -161,6 +163,8 @@ pub fn run_about_loc(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_loc_with(data_registry, &mut std::io::stdout())
 }
 
+/// Render the Rust LOC page to `writer`.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider
@@ -216,6 +220,7 @@ pub struct LocCrateRecord {
     pub manifest_dir: String,
     /// Distinct `.rs` files owned by the crate.
     pub files: i64,
+    /// The crate's lines split by region.
     pub regions: Vec<LocRegionRecord>,
 }
 
@@ -230,7 +235,9 @@ pub struct LocDocument {
     pub kind: &'static str,
     /// Distinct `.rs` files counted across the workspace.
     pub files: i64,
+    /// Workspace-wide lines split by region.
     pub regions: Vec<LocRegionRecord>,
+    /// The per-crate split, one record per crate.
     pub crates: Vec<LocCrateRecord>,
 }
 

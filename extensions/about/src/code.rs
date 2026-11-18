@@ -62,6 +62,8 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
     lines
 }
 
+/// Render `ops about code`: the per-language code breakdown, to stdout.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider
@@ -70,6 +72,8 @@ pub fn run_about_code(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_code_with(data_registry, &mut std::io::stdout())
 }
 
+/// Render the code breakdown to `writer`.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider

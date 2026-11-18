@@ -19,6 +19,8 @@ use crate::text_util::get_terminal_width;
 /// registered for this stack."
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
+/// Render `ops about units`: the project unit cards, to stdout.
+///
 /// # Errors
 ///
 /// If the current directory cannot be determined, a required data provider
@@ -32,6 +34,8 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_units_with(data_registry, &mut std::io::stdout(), is_tty, get_terminal_width())
 }
 
+/// Render the unit cards to `writer` at `term_width` columns.
+///
 /// `is_tty` is supplied by the caller and reflects the `writer` they hand
 /// in, not stdout.
 ///
@@ -266,16 +270,13 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
         ops_sqlite::sql::query_project_file_count(db),
     );
     if !partial_failures.is_empty() {
-        let fields: Vec<&'static str> = partial_failures.iter().map(|(f, _)| *f).collect();
-        let detail = partial_failures
-            .iter()
-            .map(|(f, e)| format!("{f}: {e}"))
-            .collect::<Vec<_>>()
-            .join("; ");
+        let (fields, errors): (Vec<&'static str>, Vec<String>) =
+            partial_failures.into_iter().unzip();
         tracing::warn!(
-            "about/units: rendered frame is partial across {unit_count} units; \
-             leaving provider-supplied fields untouched for queries [{fields}]: {detail}",
-            fields = fields.join(", "),
+            unit_count,
+            fields = ?fields,
+            errors = ?errors,
+            "about/units: rendered frame is partial; leaving provider-supplied fields untouched"
         );
     }
 
