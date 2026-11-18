@@ -895,7 +895,7 @@ fn read_capped_source_detects_growth_past_the_cap() {
 
     let mut small = Cursor::new(b"fn main() {}".to_vec());
     assert_eq!(
-        crate::read_capped_source(&mut small, 1024).unwrap(),
+        crate::read_capped_source(&mut small, 1024, 12).unwrap(),
         Some("fn main() {}".to_string()),
         "an under-cap source is returned whole"
     );
@@ -904,21 +904,22 @@ fn read_capped_source_detects_growth_past_the_cap() {
     let at_cap = "x".repeat(8);
     let mut cursor = Cursor::new(at_cap.clone().into_bytes());
     assert_eq!(
-        crate::read_capped_source(&mut cursor, 8).unwrap(),
+        crate::read_capped_source(&mut cursor, 8, 8).unwrap(),
         Some(at_cap),
         "a file exactly at the cap stays on the in-memory path"
     );
 
-    // One byte past: detected, not truncated and not read whole.
+    // One byte past, measured at the cap before it grew: detected, not
+    // truncated and not read whole.
     let mut grew = Cursor::new("x".repeat(9).into_bytes());
     assert_eq!(
-        crate::read_capped_source(&mut grew, 8).unwrap(),
+        crate::read_capped_source(&mut grew, 8, 8).unwrap(),
         None,
         "growth past the cap must degrade, not truncate"
     );
 
     let mut binary = Cursor::new(vec![0xff, 0xfe, 0x01]);
-    let err = crate::read_capped_source(&mut binary, 8).unwrap_err();
+    let err = crate::read_capped_source(&mut binary, 8, 3).unwrap_err();
     assert_eq!(
         err.kind(),
         std::io::ErrorKind::InvalidData,
