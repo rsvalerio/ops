@@ -1115,14 +1115,14 @@ mod tests {
         assert!(output.contains("Updating outdated"), "unexpected output: {output}");
     }
 
-    /// Two concurrent `upgrade_legacy_hook`
-    /// calls against the same `hook_path` must not collide on a fixed
-    /// temp-file name. With randomised stages the two writers get
-    /// disjoint files and the rename serialises atomically — exactly
-    /// one wins and writes the new payload, the other observes the
-    /// post-win content and returns the "file changed during install"
-    /// typed error from the recheck step. Neither writer can delete or
-    /// overwrite the other's mid-write stage.
+    /// Concurrent `upgrade_legacy_hook` calls against the same `hook_path`
+    /// must not collide on a fixed temp-file name, and every one of them
+    /// succeeds. With randomised stages the writers get disjoint files and
+    /// each rename is atomic, so a caller's recheck sees either the legacy
+    /// hook (it persists the same payload again) or a winner's ops payload,
+    /// which classifies as `Current` and returns `Ok` without writing. Two
+    /// honest simultaneous installs must never fail one of themselves, and
+    /// no writer can delete or overwrite another's mid-write stage.
     #[test]
     fn upgrade_legacy_hook_concurrent_callers_do_not_corrupt_install() {
         use std::sync::Arc;
@@ -1147,34 +1147,15 @@ mod tests {
             }));
         }
 
-        let mut wins = 0usize;
-        let mut typed_losses = 0usize;
         for h in handles {
-            match h.join().expect("thread panicked") {
-                Ok(()) => wins += 1,
-                Err(e) => {
-                    let msg = e.to_string();
-                    // The loser of the rename race re-reads the file
-                    // (by then the new ops payload) and surfaces the
-                    // typed "file changed during install" error.
-                    assert!(
-                        msg.contains("file changed during install")
-                            || msg.contains("failed to re-read existing hook"),
-                        "unexpected error from concurrent upgrade: {msg}"
-                    );
-                    typed_losses += 1;
-                }
+            // Whether a caller's recheck saw the legacy hook or a winner's
+            // payload (`Current`), the result is success.
+            if let Err(e) = h.join().expect("thread panicked") {
+                panic!("every concurrent caller must succeed, got: {e:#}");
             }
         }
-        assert_eq!(
-            wins + typed_losses,
-            n,
-            "every caller must return a typed result, no panics or AlreadyExists leaks"
-        );
-        assert!(wins >= 1, "at least one caller must observe a successful upgrade");
 
-        // Final on-disk content is the ops payload (one of the wins
-        // committed it).
+        // Final on-disk content is the ops payload.
         assert_eq!(std::fs::read_to_string(&*hook_path).unwrap(), cfg.hook_script);
 
         // No randomised stage files should remain — every staged file
