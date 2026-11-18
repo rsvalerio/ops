@@ -1,8 +1,10 @@
 //! `CoverageProvider` schema and the `SQLite` readback projection.
 
 use super::setup_loaded_db;
+use crate::ingestor::CoverageIngestor;
 use crate::provider::{provide_from_db, query_coverage_files, CoverageProvider};
 use ops_extension::DataProvider;
+use ops_sqlite::{DataIngestor, Sqlite};
 
 #[test]
 fn coverage_provider_name() {
@@ -52,35 +54,75 @@ fn coverage_provider_schema_fields_match_covered_row_serialization() {
     );
 }
 
+/// Every column read back from `coverage_files` carries the value that was
+/// loaded, in the column it was loaded into.
+///
+/// The shared fixture repeats values across columns (every `*_percent` of
+/// `src/lib.rs` is 95.0), so a swap of two same-typed columns in
+/// `query_coverage_files` would read back unchanged. This test loads a row
+/// whose 15 fields are pairwise distinct, so any swapped or mis-bound column
+/// changes the row and fails the comparison.
 #[test]
 fn query_coverage_files_round_trip() {
+    let expected = serde_json::json!({
+        "filename": "src/distinct.rs",
+        "lines_count": 101,
+        "lines_covered": 102,
+        "lines_percent": 10.5,
+        "functions_count": 103,
+        "functions_covered": 104,
+        "functions_percent": 20.5,
+        "regions_count": 105,
+        "regions_covered": 106,
+        "regions_notcovered": 107,
+        "regions_percent": 30.5,
+        "branches_count": 108,
+        "branches_covered": 109,
+        "branches_notcovered": 110,
+        "branches_percent": 40.5,
+    });
+    let data_dir = tempfile::tempdir().expect("tempdir");
+    let dir = super::ingest_anchor(&data_dir);
+    let staged = serde_json::to_vec(&serde_json::json!([expected])).expect("serialize fixture");
+    dir.write_atomic("coverage_files.json", &staged).expect("write coverage_files.json");
+    dir.write_atomic("coverage_workspace.txt", b"/test/workspace").expect("write workspace");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
+    let _ = CoverageIngestor.load(&dir, &db).expect("load should succeed");
+
+    let rows = query_coverage_files(&db).expect("query");
+    assert_eq!(rows, serde_json::json!([expected]));
+}
+
+/// The shared two-file fixture reads back with its per-file values intact.
+#[test]
+fn query_coverage_files_reads_back_shared_fixture() {
     let (_data_dir, _dir, db) = setup_loaded_db();
     let rows = query_coverage_files(&db).expect("query");
-    let arr = rows.as_array().unwrap();
+    let arr = rows.as_array().expect("rows are an array");
     assert_eq!(arr.len(), 2);
-
-    let filenames: Vec<&str> = arr.iter().map(|r| r["filename"].as_str().unwrap()).collect();
-    assert!(filenames.contains(&"src/main.rs"));
-    assert!(filenames.contains(&"src/lib.rs"));
-
-    // Verify all 15 fields are present in each row
-    for row in arr {
-        assert!(row.get("filename").is_some());
-        assert!(row.get("lines_count").is_some());
-        assert!(row.get("lines_covered").is_some());
-        assert!(row.get("lines_percent").is_some());
-        assert!(row.get("functions_count").is_some());
-        assert!(row.get("functions_covered").is_some());
-        assert!(row.get("functions_percent").is_some());
-        assert!(row.get("regions_count").is_some());
-        assert!(row.get("regions_covered").is_some());
-        assert!(row.get("regions_notcovered").is_some());
-        assert!(row.get("regions_percent").is_some());
-        assert!(row.get("branches_count").is_some());
-        assert!(row.get("branches_covered").is_some());
-        assert!(row.get("branches_notcovered").is_some());
-        assert!(row.get("branches_percent").is_some());
-    }
+    let lib =
+        arr.iter().find(|r| r["filename"] == "src/lib.rs").expect("src/lib.rs row is read back");
+    assert_eq!(
+        *lib,
+        serde_json::json!({
+            "filename": "src/lib.rs",
+            "lines_count": 200,
+            "lines_covered": 190,
+            "lines_percent": 95.0,
+            "functions_count": 20,
+            "functions_covered": 19,
+            "functions_percent": 95.0,
+            "regions_count": 40,
+            "regions_covered": 38,
+            "regions_notcovered": 2,
+            "regions_percent": 95.0,
+            "branches_count": 10,
+            "branches_covered": 9,
+            "branches_notcovered": 1,
+            "branches_percent": 90.0,
+        })
+    );
+    assert!(arr.iter().any(|r| r["filename"] == "src/main.rs"));
 }
 
 /// `CoverageProvider::provide` takes the attached-db branch when a handle
