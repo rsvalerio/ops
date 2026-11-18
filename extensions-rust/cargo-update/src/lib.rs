@@ -503,17 +503,98 @@ enum ActionLineOutcome {
     NoMatch,
 }
 
-/// True when the remaining tokens are empty or exactly cargo's standard
-/// `(available: vX)` annotation, which `cargo update` appends to an
-/// `Updating`/`Downgrading` line whenever a newer semver-incompatible release
-/// exists. Consumes the iterator.
-fn is_available_annotation<'a>(it: &mut impl Iterator<Item = &'a str>) -> bool {
-    match (it.next(), it.next(), it.next()) {
-        (None, _, _) => true,
-        (Some("(available:"), Some(version), None) => {
-            version.strip_suffix(')').is_some_and(is_version_shaped)
+/// How a clause of cargo's trailing note ends: `,` when another clause
+/// follows, `)` when the note closes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClauseEnd {
+    Comma,
+    Paren,
+}
+
+/// Split a clause's last token into its value and terminator.
+fn split_clause_end(tok: &str) -> (&str, Option<ClauseEnd>) {
+    tok.strip_suffix(')')
+        .map(|value| (value, Some(ClauseEnd::Paren)))
+        .or_else(|| tok.strip_suffix(',').map(|value| (value, Some(ClauseEnd::Comma))))
+        .unwrap_or((tok, None))
+}
+
+/// Consume a `requires Rust <msrv>` clause body (the `requires` word already
+/// read) and return how it ends, or `None` when it is not that shape.
+fn requires_rust_clause<'a>(it: &mut impl Iterator<Item = &'a str>) -> Option<ClauseEnd> {
+    if it.next()? != "Rust" {
+        return None;
+    }
+    let (msrv, end) = split_clause_end(it.next()?);
+    if is_version_shaped(msrv) {
+        end
+    } else {
+        None
+    }
+}
+
+/// Consume a `published <age>` clause body (the `published` word already
+/// read). Cargo renders the age as free text (`3 days ago, minimum age 7
+/// days`), so the clause runs to the token that closes the note and must be
+/// the last one.
+fn published_clause_closes<'a>(it: &mut impl Iterator<Item = &'a str>) -> bool {
+    let mut saw_body = false;
+    for tok in it.by_ref() {
+        if tok.ends_with(')') {
+            return saw_body || tok.len() > 1;
         }
-        _ => false,
+        saw_body = true;
+    }
+    false
+}
+
+/// True when the remaining tokens are empty or one of the trailing notes
+/// cargo's lockfile-change printer (`cargo/src/cargo/ops/cargo_update.rs`,
+/// `report_required_rust_version` / `report_too_new` / `report_latest`)
+/// appends to an `Adding`/`Updating`/`Downgrading` line:
+///
+/// - `(requires Rust <msrv>)`
+/// - `(published <age>, minimum age <age>)`
+/// - `(available: v<ver>)`, optionally followed by `, requires Rust <msrv>`
+///   and then `, published <age>`
+///
+/// Both line parsers share it, so a healthy annotation never reads as format
+/// drift on one action and not the other. Consumes the iterator.
+fn is_known_annotation<'a>(it: &mut impl Iterator<Item = &'a str>) -> bool {
+    let closed = match it.next() {
+        None => return true,
+        Some("(requires") => requires_rust_clause(it) == Some(ClauseEnd::Paren),
+        Some("(published") => published_clause_closes(it),
+        Some("(available:") => available_note_closes(it),
+        Some(_) => false,
+    };
+    closed && it.next().is_none()
+}
+
+/// Consume the body of an `(available: v<ver>[, requires Rust <msrv>][,
+/// published <age>])` note, the opening token already read.
+fn available_note_closes<'a>(it: &mut impl Iterator<Item = &'a str>) -> bool {
+    let Some(tok) = it.next() else {
+        return false;
+    };
+    let (version, mut end) = split_clause_end(tok);
+    if !is_version_shaped(version) {
+        return false;
+    }
+    let mut saw_requires = false;
+    loop {
+        match end {
+            Some(ClauseEnd::Paren) => return true,
+            None => return false,
+            Some(ClauseEnd::Comma) => match it.next() {
+                Some("requires") if !saw_requires => {
+                    saw_requires = true;
+                    end = requires_rust_clause(it);
+                }
+                Some("published") => return published_clause_closes(it),
+                _ => return false,
+            },
+        }
     }
 }
 
@@ -581,13 +662,12 @@ fn parse_arrow_line<'a>(
     let (Some(from), Some("->"), Some(to)) = (tokens.next(), tokens.next(), tokens.next()) else {
         return ActionLineOutcome::NoMatch;
     };
-    // Modern cargo appends `(available: vX)` when a newer
-    // semver-incompatible release exists; that annotation is expected on
-    // healthy runs and is accepted silently. Any *other* trailing tokens
-    // (e.g. a future `(yanked)`) are kept out of `to` rather than glued
-    // onto the version, and warn so the format drift is visible instead of
-    // producing wrong-but-plausible output.
-    if !is_available_annotation(&mut tokens) {
+    // Cargo's latest-version and MSRV notes are expected on healthy runs and
+    // are accepted silently. Any *other* trailing tokens (e.g. a future
+    // `(yanked)`) are kept out of `to` rather than glued onto the version,
+    // and warn so the format drift is visible instead of producing
+    // wrong-but-plausible output.
+    if !is_known_annotation(&mut tokens) {
         tracing::warn!(line = ?line, "cargo-update `Updating`/`Downgrading` line has unexpected trailing tokens; annotation discarded");
     }
     if let Err(reason) = validate_fields(name, &[from, to]) {
@@ -611,10 +691,10 @@ fn parse_single_version_line<'a>(
     let Some(version) = tokens.next() else {
         return ActionLineOutcome::NoMatch;
     };
-    // Mirrors the arrow shape: `<name> <version> <extra…>` warns rather than
-    // gluing a future cargo annotation like `Adding new-crate v0.1.0 (locked)`
-    // onto the parsed version.
-    if tokens.next().is_some() {
+    // Same annotation acceptance as the arrow shape: cargo's notes pass
+    // silently, while an unknown annotation like `Adding new-crate v0.1.0
+    // (locked)` warns rather than being glued onto the parsed version.
+    if !is_known_annotation(&mut tokens) {
         tracing::warn!(
             line = ?line,
             "cargo-update `Adding`/`Removing` line has unexpected trailing tokens; annotation discarded"
@@ -690,7 +770,7 @@ fn interpret_output(output: &Output) -> Result<serde_json::Value, DataProviderEr
         // through the Debug formatter (`{:?}`) so embedded ANSI escapes, NULs
         // or newlines cannot forge log records or repaint the operator's
         // terminal, matching the sibling sites in deps
-        // (`interpret_upgrade_output` / `interpret_deny_result`).
+        // (`interpret_upgrade_output` / `interpret_deny_output`).
         return Err(DataProviderError::from(anyhow::anyhow!(
             "cargo update --dry-run exited with status {}: {:?}",
             output.status,
