@@ -3,9 +3,9 @@
 use crate::views;
 use crate::{check_metadata_not_capped, check_metadata_output, run_cargo_metadata};
 use ops_extension::Context;
-use ops_sqlite::sql::external_err;
+use ops_sqlite::sql::{external_err, in_transaction};
 use ops_sqlite::{
-    init_schema, io_context, upsert_data_source, DataIngestor, DbError, DbResult, IngestDir,
+    init_schema, io_context, upsert_data_source_with, DataIngestor, DbError, DbResult, IngestDir,
     LoadResult, Sqlite,
 };
 use std::path::Path;
@@ -77,77 +77,49 @@ impl DataIngestor for MetadataIngestor {
         // certifies.
         let checksum = dir.checksum(METADATA_JSON)?;
         init_schema(db)?;
-        // One guard held across table creation *and* the reads of
-        // that table. Scoping `build_views` in its own block and re-acquiring
-        // the lock on the next line would release nothing useful (nothing runs
-        // in between) while splitting the `metadata_raw` (re)build from the
-        // `count(*)` and `workspace_root` reads whose results are persisted
-        // into the `data_sources` provenance row below. Anything replacing
-        // `metadata_raw` in that gap would leave the recorded provenance
-        // describing data that has been replaced. The orchestrator's
-        // per-table ingest mutex
-        // (`extensions/sqlite/src/sql/ingest/orchestrator.rs`) also closes
-        // the gap, but `DataIngestor::load` is a public trait method and its
-        // signature promises no such caller, so the atomicity is enforced
-        // here instead of depended on from a distance.
+        // One connection guard and one transaction across the `metadata_raw`
+        // (re)build, the `crate_dependencies` view, the invariant checks and
+        // the `data_sources` upsert. The lock keeps anything from replacing
+        // `metadata_raw` between the reads and the provenance row they
+        // produce; `DataIngestor::load` is a public trait method, so this
+        // does not rely on the orchestrator's per-table ingest mutex. The
+        // transaction makes every failure after the table is built roll the
+        // whole publication back, so no `metadata_raw` is ever left without
+        // its view and provenance row for the orchestrator's load probe to
+        // mistake for a completed load.
         let conn = db.lock()?;
-        build_views(&conn, &payload)?;
-        let (record_count, workspace_root) = validate_published(&conn)?;
+        let record_count = in_transaction(&conn, self.name(), |conn| {
+            build_views(conn, &payload)?;
+            let (record_count, workspace_root) = validate_published(conn)?;
+            upsert_data_source_with(
+                conn,
+                &ops_sqlite::DataSourceMetadata::new(
+                    ops_sqlite::SourceName::new(self.name()),
+                    ops_sqlite::WorkspaceRoot::new(std::ffi::OsStr::new(&workspace_root)),
+                    &path,
+                    record_count,
+                    &checksum,
+                ),
+            )?;
+            Ok(record_count)
+        })?;
         drop(conn);
-
-        if let Err(e) = upsert_data_source(
-            db,
-            &ops_sqlite::DataSourceMetadata::new(
-                ops_sqlite::SourceName::new(self.name()),
-                ops_sqlite::WorkspaceRoot::new(std::ffi::OsStr::new(&workspace_root)),
-                &path,
-                record_count,
-                &checksum,
-            ),
-        ) {
-            // The table is published but its provenance row is not. Tear the
-            // table back down so the orchestrator's `table_has_data()` probe
-            // re-ingests on the next run instead of skipping forever over
-            // data no `data_sources` row certifies. The lock failure path is
-            // deliberately swallowed: the caller's error is the one worth
-            // surfacing (mirrors `drop_metadata_tables`' best-effort stance).
-            if let Ok(conn) = db.lock() {
-                drop_metadata_tables(&conn, "a data_sources upsert failure");
-            }
-            return Err(e);
-        }
         Ok(LoadResult::success(self.name(), record_count))
     }
 }
 
-/// Runs every post-publication invariant check inside one connection guard,
-/// dropping the just-published tables on **any** failure.
-///
-/// `reject_non_singleton` and `reject_non_object` tear down on their own
-/// paths; this wrapper extends the same recovery to the failures neither of
-/// them sees — a raw count/shape query error, and a `workspace_root` that is
-/// present but not a string. Without it those failures would leave a
-/// populated `metadata_raw` behind, and because `table_has_data()` then
-/// reports data, the orchestrator would skip re-ingest on every later run
-/// and replay the failure forever. The double teardown on the two reject
-/// paths is harmless: `DROP … IF EXISTS`.
+/// Runs every post-publication invariant check on the freshly built
+/// `metadata_raw`: exactly one row, a JSON object payload, and a string
+/// `workspace_root`. Any failure propagates out of the load transaction,
+/// which rolls the publication back.
 fn validate_published(conn: &rusqlite::Connection) -> DbResult<(u64, String)> {
-    let outcome = (|| {
-        let record_count = query_record_count(conn)?;
-        if record_count != 1 {
-            return Err(reject_non_singleton(conn, record_count));
-        }
-        ensure_object_payload(conn)?;
-        let workspace_root = extract_workspace_root(conn)?;
-        Ok((record_count, workspace_root))
-    })();
-    match outcome {
-        Ok(pair) => Ok(pair),
-        Err(e) => {
-            drop_metadata_tables(conn, "a failed post-publication invariant");
-            Err(e)
-        }
+    let record_count = query_record_count(conn)?;
+    if record_count != 1 {
+        return Err(reject_non_singleton(record_count));
     }
+    ensure_object_payload(conn)?;
+    let workspace_root = extract_workspace_root(conn)?;
+    Ok((record_count, workspace_root))
 }
 
 /// Reads the staged `metadata.json` through the anchor, enforcing the
@@ -218,48 +190,32 @@ fn io_at(op: &str, path: &Path, e: std::io::Error) -> DbError {
     DbError::Io(io_context(format!("{op} {}", path.display()), e))
 }
 
-/// Rejects a `metadata_raw` table that does not hold exactly one row, dropping
-/// it so the next run re-ingests from scratch.
+/// Rejects a `metadata_raw` table that does not hold exactly one row.
 ///
 /// `metadata_raw` is a singleton table and [`crate::query_metadata_raw`] — its
 /// only reader — hard-fails on any other row count. The blob load makes the
 /// invariant structural (drop + create + one insert), so this firing signals
-/// a foreign writer; it is kept as the last point where the bad state can
-/// still be undone: accepting a multi-row table would leave the two halves of
-/// the crate disagreeing, and because the table would then report
-/// `table_has_data()`, every subsequent run would skip re-ingest and replay
-/// the same failure. The dependent view is dropped along with the table.
-fn reject_non_singleton(conn: &rusqlite::Connection, record_count: u64) -> DbError {
-    tracing::warn!(
-        rows = record_count,
-        "metadata_raw must hold exactly one workspace_root row; dropping the table so the \
-         next run re-ingests"
-    );
-    drop_metadata_tables(conn, "a non-singleton ingest");
+/// a foreign writer. The error rolls the load transaction back, so the bad
+/// table is never committed and the next run re-ingests.
+fn reject_non_singleton(record_count: u64) -> DbError {
     external_err(anyhow::anyhow!(
         "metadata_raw must contain exactly one row, found {record_count}; \
-         dropped metadata_raw so the next ingest starts clean"
+         the metadata_raw load was rolled back so the next ingest starts clean"
     ))
 }
 
-/// Rejects a staged payload that is not a single JSON object, dropping
-/// `metadata_raw` so the next run re-ingests from scratch.
+/// Rejects a staged payload that is not a single JSON object.
 ///
 /// The single-blob load stores whatever JSON document was staged, verbatim —
 /// `json(?1)` accepts arrays and scalars too. The `crate_dependencies` view
 /// and the `workspace_root` extract both assume the cargo-metadata document
 /// shape (an object), so anything else is refused with the observed shape
-/// named rather than surfacing later as a confusing NULL-decode failure.
-fn reject_non_object(conn: &rusqlite::Connection, observed: &str) -> DbError {
-    tracing::warn!(
-        shape = observed,
-        "metadata_raw payload must be a single JSON object; dropping the table so the \
-         next run re-ingests"
-    );
-    drop_metadata_tables(conn, "a non-object payload ingest");
+/// named rather than surfacing later as a confusing NULL-decode failure. The
+/// error rolls the load transaction back.
+fn reject_non_object(observed: &str) -> DbError {
     external_err(anyhow::anyhow!(
         "staged metadata payload must be a single JSON object, found {observed}; \
-         dropped metadata_raw so the next ingest starts clean"
+         the metadata_raw load was rolled back so the next ingest starts clean"
     ))
 }
 
@@ -270,26 +226,9 @@ fn ensure_object_payload(conn: &rusqlite::Connection) -> DbResult<()> {
         .query_row("SELECT json_type(json) FROM metadata_raw", [], |row| row.get(0))
         .map_err(|e| DbError::query_failed("metadata_raw payload shape", e))?;
     if shape != "object" {
-        return Err(reject_non_object(conn, &shape));
+        return Err(reject_non_object(&shape));
     }
     Ok(())
-}
-
-/// Best-effort teardown shared by the ingest rejection paths: drop the
-/// `metadata_raw` table and the view that selects from it (view first), so
-/// the next run's `table_has_data()` probe re-ingests instead of replaying
-/// the failure. If the teardown itself fails the caller's error still
-/// surfaces, and the operator sees both the invariant breach and why the
-/// state is sticky.
-fn drop_metadata_tables(conn: &rusqlite::Connection, reason: &'static str) {
-    if let Err(e) = conn
-        .execute_batch("DROP VIEW IF EXISTS crate_dependencies; DROP TABLE IF EXISTS metadata_raw;")
-    {
-        tracing::warn!(
-            error = %e,
-            "failed to drop metadata_raw after {reason}; the next run may replay this failure"
-        );
-    }
 }
 
 /// Counts rows in `metadata_raw`, mapping the raw `i64` to `u64` through the
@@ -327,9 +266,8 @@ fn extract_workspace_root(conn: &rusqlite::Connection) -> DbResult<String> {
 }
 
 /// Owns the staged `metadata.json` for the whole of
-/// [`MetadataIngestor::load`] and unlinks it on `Drop`, so success, `?` and
-/// the explicit `reject_non_singleton` rejection all clean up through one
-/// code path.
+/// [`MetadataIngestor::load`] and unlinks it on `Drop`, so success and
+/// every failure path clean up through one code path.
 ///
 /// Cleanup is unconditional: the file is a staging artifact that `collect`
 /// rewrites from scratch on the next run, so there is no failure mode in
@@ -610,7 +548,8 @@ mod tests {
     /// A staged payload that is not a single JSON object (here: an array of
     /// two cargo-metadata documents) must be rejected at ingest rather than
     /// committed as a state `query_metadata_raw` then refuses to read.
-    /// Asserts both the warn and the error.
+    /// The error is the only report: the rejection propagates, so it emits
+    /// no warn of its own for the caller to log a second time.
     #[test]
     fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
         use ops_core::test_utils::capture_tracing;
@@ -636,22 +575,50 @@ mod tests {
         );
 
         assert!(
-            logs.contains("single JSON object"),
-            "expected warn about the object-shape invariant, got: {logs}"
+            rendered.contains("rolled back"),
+            "error must say the load was undone, got: {rendered}"
         );
+        assert!(logs.is_empty(), "a propagated rejection must not also warn, got: {logs}");
+    }
+
+    /// A failure of the `crate_dependencies` view batch *after* `metadata_raw`
+    /// was built rolls the whole publication back: no populated table is left
+    /// for the orchestrator's load probe to mistake for a completed load.
+    /// Forced by occupying the view's name with a table, which the view
+    /// batch's `DROP VIEW` refuses.
+    #[test]
+    fn metadata_load_view_failure_leaves_no_metadata_raw() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
+        write_metadata_json(&dir, &ingest_metadata().value());
+
+        let db = Sqlite::open_in_memory().unwrap();
+        db.lock().unwrap().execute_batch("CREATE TABLE crate_dependencies (x)").unwrap();
+
+        let err = MetadataIngestor.load(&dir, &db).expect_err("the view batch must fail");
         assert!(
-            logs.contains("shape=\"array\""),
-            // tracing renders a &str field value quoted: shape="array"
-            "warn should include the observed shape field, got: {logs}"
+            format!("{:#}", anyhow::Error::new(err)).contains("crate_dependencies view"),
+            "the failure must come from the view batch"
         );
+        let conn = db.lock().unwrap();
+        let (tables, provenance): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM sqlite_master WHERE name = 'metadata_raw'), \
+                        (SELECT count(*) FROM data_sources)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(tables, 0, "metadata_raw must not survive a failed view build");
+        assert_eq!(provenance, 0, "no provenance row may certify a failed load");
     }
 
     /// The halves of the crate must agree.
     /// Drive `load` and then `query_metadata_raw` against the *same*
     /// `Sqlite`, and assert the combined outcome — a rejected load leaves no
-    /// `metadata_raw` behind, so the orchestrator's `table_has_data()` probe
-    /// re-ingests on the next run instead of replaying the read failure
-    /// forever.
+    /// `metadata_raw` behind, so the orchestrator's load probe re-ingests on
+    /// the next run instead of replaying the read failure forever.
     #[test]
     fn metadata_load_rejection_leaves_no_sticky_metadata_raw() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -691,10 +658,8 @@ mod tests {
 
     /// A payload whose `workspace_root` is not a string fails *after*
     /// `metadata_raw` was published — later than the shape/row-count guards.
-    /// A populated table left behind would make `table_has_data()` report
-    /// data on every later run, the orchestrator would skip re-ingest, and
-    /// the failure would replay forever. The post-publication wrapper must
-    /// tear the table (and its view) back down.
+    /// The load transaction must roll the table and its view back, so no
+    /// half-published state survives for later runs to replay.
     #[test]
     fn metadata_load_rejection_on_non_string_workspace_root_leaves_no_sticky_table() {
         let data_dir = tempfile::tempdir().unwrap();

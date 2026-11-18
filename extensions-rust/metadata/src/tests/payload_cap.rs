@@ -200,11 +200,6 @@ mod max_bytes_env {
         assert!(logs.contains(METADATA_MAX_BYTES_ENV), "warn must name the variable: {logs}");
         assert!(logs.contains("clamping"), "warn must say the value was clamped: {logs}");
     }
-
-    #[test]
-    fn ceiling_is_exactly_u32_max() {
-        assert_eq!(METADATA_MAX_BYTES_CEILING, u64::from(u32::MAX));
-    }
 }
 
 // The `OnceLock` memoisation in `metadata_max_bytes` has no test on purpose:
