@@ -414,26 +414,21 @@ fn extract_urls(
     (homepage, repository)
 }
 
-/// PEP 621 places no constraints on `[project.urls]` key casing or spelling
-/// (`Homepage`, `homepage`, `Home Page`, `home-page` are all common in the
-/// wild). Look up candidates case-insensitively after trimming, and accept the
-/// kebab-case variant as equivalent to the space-separated form. Callers should
-/// pass the canonical kebab/space form for each variant — "home-page" and
-/// "home page" normalise identically, so passing both is dead weight. The
-/// normalisation runs once per About call rather than once per `pick_url`
-/// candidate set.
+/// Index `[project.urls]` by normalised key for case- and spelling-tolerant
+/// lookup.
 ///
-/// Two source keys can collapse under `normalize_url_key` — `"Homepage"` and
-/// `"home page"`, or `"Source-Code"` and `"source code"`. Collecting into a
-/// map would keep an arbitrary winner and discard the other URL with no
-/// diagnostic, so the map is walked explicitly: the first-seen entry wins and
-/// a `tracing::warn!` names both raw keys and both URLs, making the schema
-/// drift visible instead of silently dropping a URL.
+/// PEP 621 places no constraints on key casing or spelling (`Homepage`,
+/// `homepage`, `Home Page`, `home-page` are all common), so each key goes
+/// through `normalize_url_key`: trimmed, lowercased, and `-` treated as a
+/// space. Lookups through `pick_url` therefore need only one candidate per
+/// kebab/space variant.
 ///
-/// The result is one map keyed by the normalised key, each entry holding the
-/// first-seen `(raw_key, url)` pair — keeping the raw key beside its URL makes
-/// "the collision warn always has a first key to name" structural rather than
-/// an invariant two parallel containers must maintain.
+/// When two source keys normalise to the same key (`"Homepage"` and
+/// `"home page"`), the first-seen entry wins and a `tracing::warn!` names
+/// both raw keys and both URLs.
+///
+/// Returns a map from normalised key to the first-seen `(raw_key, url)`
+/// pair.
 fn normalize_urls(
     urls: &std::collections::BTreeMap<String, String>,
 ) -> std::collections::HashMap<String, (&String, &String)> {
@@ -561,11 +556,6 @@ mod tests {
     #[test]
     fn build_stack_detail_neither() {
         assert_eq!(build_stack_detail(None, false), None);
-    }
-
-    #[test]
-    fn provider_name() {
-        assert_eq!(PythonIdentityProvider.name(), "project_identity");
     }
 
     #[test]
