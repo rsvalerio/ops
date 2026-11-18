@@ -5,7 +5,7 @@
 //! hand subsequent callers a shared `Arc<str>` so they parse-without-clone
 //! into their typed projection.
 //!
-//! This module owns the policy — cap, poison recovery, log wording — so the
+//! This module owns the policy — cap, poison propagation, log wording — so the
 //! per-stack wrappers reduce to a one-liner naming a filename.
 //!
 //! # Tests
@@ -121,8 +121,8 @@ pub struct ArcTextCache {
 
 impl ArcTextCache {
     /// Create a new cache that reads `<root>/<filename>` on demand.
-    /// `filename` is also used in log breadcrumbs so a poisoned recovery
-    /// is attributable to the right manifest type.
+    /// `filename` is also used in log breadcrumbs and in the poisoned-lock
+    /// panic so either is attributable to the right manifest type.
     #[must_use = "keep the returned cache; a dropped one loses its memoised manifests"]
     pub const fn new(filename: &'static str) -> Self {
         Self { filename, cache: OnceLock::new() }
@@ -144,18 +144,11 @@ impl ArcTextCache {
         // guard leaves scope — hit branch and miss branch alike — at the
         // end of the block below.
         //
-        // Recover from poisoning by inheriting the inner map. The cache
-        // value is the raw file text, not authoritative state, so a panic
-        // in an earlier holder cannot leave a torn invariant; treating
-        // poison as fatal would let one panic permanently brick the cache
-        // for every other provider in the process.
+        // Poison propagates (CONC-16): `insert_filtered` evicts a victim,
+        // inserts and stamps the victim queue in separate steps, so a panic
+        // in an earlier holder can leave the map and queue out of step.
         let entry_slot: CacheSlot = {
-            let mut guard = ops_core::sync::lock_recover_with(cache, || {
-                tracing::warn!(
-                    filename = self.filename,
-                    "manifest cache mutex was poisoned by a prior panic; recovered"
-                );
-            });
+            let mut guard = ops_core::sync::lock(cache, self.filename);
             // `map_or_else` cannot replace this if/else: the miss branch
             // needs `&mut guard` (insert_filtered) while the scrutinee's
             // `Option<&CacheSlot>` still borrows it, so the closure form
@@ -207,14 +200,13 @@ impl ArcTextCache {
             return false;
         };
         let path = root.join(self.filename);
-        // Recovery (and its filename-tagged breadcrumb) is
-        // `ops_core::sync`'s policy, not this module's.
-        let mut guard = ops_core::sync::lock_recover_warn(cache, self.filename);
+        // Poison propagates, naming the filename (`ops_core::sync` policy).
+        let mut guard = ops_core::sync::lock(cache, self.filename);
         guard.remove(&path).is_some()
     }
 
     /// Return the underlying mutex if it has been initialised. Test-only
-    /// hook used by poison-recovery tests on a local instance.
+    /// hook used by poison-propagation and cap tests on a local instance.
     #[cfg(any(test, feature = "test-support"))]
     pub fn raw_mutex(&self) -> Option<&Mutex<CacheMap>> {
         self.cache.get()
@@ -262,10 +254,8 @@ pub fn for_filename(filename: &'static str) -> &'static ArcTextCache {
     static REGISTRY: OnceLock<Mutex<StdHashMap<&'static str, &'static ArcTextCache>>> =
         OnceLock::new();
     let registry = REGISTRY.get_or_init(|| Mutex::new(StdHashMap::new()));
-    // Silent poison recovery via the shared policy; the registry is plain
-    // data, so a panic in another registrant cannot tear
-    // it. `clear_poison` additionally leaves later callers a healthy lock.
-    let mut guard = ops_core::sync::lock_recover(registry);
+    // Poison propagates via the shared policy (CONC-16).
+    let mut guard = ops_core::sync::lock(registry, "manifest cache registry");
     if let Some(cache) = guard.get(filename) {
         return cache;
     }
@@ -365,7 +355,7 @@ mod tests {
         }
 
         let mutex = cache.raw_mutex().expect("initialised by the reads above");
-        let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = mutex.lock().expect("cache mutex not poisoned");
         let map_len = guard.len();
         let queue_len = guard.victim_queue_len();
         // Release the cache mutex before asserting so a failing
@@ -514,7 +504,7 @@ mod tests {
 
         // The map size never exceeds the cap.
         let mutex = cache.raw_mutex().expect("initialised");
-        let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = mutex.lock().expect("cache mutex not poisoned");
         let cached_len = guard.len();
         // Release the cache mutex before asserting so a failing
         // assert panics without holding it.
@@ -598,33 +588,38 @@ mod tests {
         assert!(!Arc::ptr_eq(&a1, &b1));
     }
 
-    /// A panic while holding the cache lock must not
-    /// permanently brick the cache. Uses a local instance so poisoning
+    /// A panic while holding the cache lock is propagated to the
+    /// next reader, naming the manifest, instead of recovered — the LRU map
+    /// and its victim queue may be torn. Uses a local instance so poisoning
     /// cannot bleed into other tests in the binary.
     #[test]
-    fn poison_recovery_keeps_cache_usable() {
-        // Use Arc to share the cache across the panicking thread while
-        // keeping the static-free isolation guarantee.
-        let cache = Arc::new(ArcTextCache::new("manifest.txt"));
-        // Force the OnceLock to initialise so the spawned thread can
+    fn poisoned_cache_lock_is_propagated() {
+        let cache = ArcTextCache::new("manifest.txt");
+        // Force the OnceLock to initialise so the poisoning thread can
         // acquire the inner mutex.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("manifest.txt"), "warmup").unwrap();
         let _ = cache.read(dir.path());
 
-        let cache_for_panic = Arc::clone(&cache);
-        let h = std::thread::spawn(move || {
-            let mutex = cache_for_panic.raw_mutex().expect("initialised above");
-            let _g = mutex.lock().expect("uncontended");
-            panic!("simulated provider panic while holding the cache lock");
-        });
-        assert!(h.join().is_err(), "spawned thread should have panicked");
         let mutex = cache.raw_mutex().expect("initialised above");
+        let joined = std::thread::scope(|s| {
+            s.spawn(|| {
+                let _g = mutex.lock().expect("uncontended");
+                panic!("simulated provider panic while holding the cache lock");
+            })
+            .join()
+        });
+        assert!(joined.is_err(), "spawned thread should have panicked");
         assert!(mutex.is_poisoned(), "lock must now be poisoned");
 
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("manifest.txt"), "recover").unwrap();
-        let text = cache.read(dir.path()).expect("text after poison recovery");
-        assert!(text.contains("recover"));
+        for (op, outcome) in [
+            ("read", std::panic::catch_unwind(|| cache.read(dir.path()).is_some())),
+            ("invalidate", std::panic::catch_unwind(|| cache.invalidate(dir.path()))),
+        ] {
+            let err = outcome.expect_err("a poisoned lock must not be recovered");
+            let msg = err.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
+            assert!(msg.contains("manifest.txt"), "{op}: panic must name the manifest, got: {msg}");
+        }
+        assert!(mutex.is_poisoned(), "poison must not be cleared");
     }
 }

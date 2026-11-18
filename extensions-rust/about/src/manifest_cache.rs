@@ -48,9 +48,10 @@
 //! threads with no reparse.
 //!
 //! The cache lock is acquired exclusively through
-//! [`lock_typed_manifest_cache`], which recovers from `PoisonError` via
-//! `into_inner` + `clear_poison` and warns on every recovery, so a panic in a
-//! sibling provider cannot silently degrade the cache to "always-miss".
+//! [`lock_typed_manifest_cache`], which propagates a poisoned lock as a panic
+//! naming the cache (`ops_core::sync::lock`): a panic in a sibling
+//! provider while it held the lock may have left the map and its LRU queue
+//! out of step, so no later caller continues with it.
 //!
 //! # Concurrency contract
 //!
@@ -91,14 +92,11 @@
 //! `#[serial_test::serial(typed_manifest_cache)]`** — including the ones that
 //! reach it indirectly through a provider's `provide()` →
 //! `load_workspace_manifest` (the provider tests in `identity/mod.rs` and
-//! `units.rs` do). `lock_typed_manifest_cache` recovers by calling
-//! `clear_poison()`, so a poisoned lock produces exactly one warn and the first
-//! caller to recover consumes it; an unserialised test racing a poison test
-//! can take that warn and fail the assertion that expects it.
+//! `units.rs` do): the cache is process-global, so unserialised tests race
+//! each other's `clear_cache` / `evict` calls and cache-size assertions.
 
 use ops_about::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::SystemTime;
 
@@ -200,40 +198,16 @@ fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
     CACHE.get_or_init(|| Mutex::new(TypedManifestCache::new()))
 }
 
-/// Acquire the typed-manifest cache lock, recovering from a
-/// `PoisonError` rather than silently falling through. A poisoned mutex
-/// (caused by a panic in another provider while it held the lock) would
-/// otherwise degrade the cache to "always-miss" with zero diagnostic.
+/// Acquire the typed-manifest cache lock, propagating poison.
 ///
-/// The cache value type is plain data (`SystemTime` + `LoadedManifest`,
-/// which itself is just `Arc`s); a panic in a sibling provider cannot leave
-/// it in a torn state, so `into_inner()` recovery is safe.
-///
-/// Every observed poisoning emits a warn carrying a monotonic
-/// `recovery_count`, so a second panic in a different provider is as visible
-/// as the first. Recovery clears the sticky poison flag (`clear_poison()`), so
-/// subsequent callers see a healthy mutex; only an *actual* re-poisoning by a
-/// fresh panic increments the counter.
+/// A poisoned mutex means a sibling provider panicked while holding the
+/// lock, possibly between the map insert and the LRU stamp; the shared
+/// `ops_core::sync::lock` policy re-raises that as a panic naming this cache
+/// rather than continuing with possibly torn state.
 fn lock_typed_manifest_cache(
     cache: &'static Mutex<TypedManifestCache>,
 ) -> MutexGuard<'static, TypedManifestCache> {
-    static POISON_RECOVERY_COUNT: AtomicU64 = AtomicU64::new(0);
-    // The recovery scaffold lives in
-    // `ops_core::sync::lock_recover_with`; this closure carries the
-    // cache-specific observable — the monotonic warn.
-    ops_core::sync::lock_recover_with(cache, || {
-        // `saturating_add` is exact here: the counter advances once per
-        // observed poisoning, so reaching `u64::MAX` would take 2^64
-        // panics inside a single process.
-        let recovery_count =
-            POISON_RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed).saturating_add(1);
-        tracing::warn!(
-            recovery_count,
-            "typed_manifest_cache mutex was poisoned by a panic in another provider; \
-             recovering via PoisonError::into_inner — cached entries are plain data \
-             and not torn by the panic"
-        );
-    })
+    ops_core::sync::lock(cache, "typed_manifest_cache")
 }
 
 /// Drop the cached entry for `root` (`ctx.refresh` semantics).
@@ -421,90 +395,6 @@ mod tests {
         assert!(contains(&canonical(root)), "the key must be the root");
 
         clear_cache();
-    }
-
-    /// Shared body for the poison-recovery tests below.
-    /// `n_cycles` poison-and-recover iterations: each cycle panics inside a
-    /// held lock on a sibling thread, then drives `load_workspace_manifest`
-    /// to observe the recovery warn. Returns the captured WARN-level logs
-    /// emitted during the FINAL recovery so each caller can assert against
-    /// its own contract (one-cycle vs. second-cycle wording).
-    fn assert_poison_warn_after(n_cycles: usize, manifest_name: &str) -> String {
-        assert!(n_cycles >= 1, "at least one poison cycle required");
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            format!("[package]\nname=\"{manifest_name}\"\nversion=\"0.1.0\"\n"),
-        )
-        .unwrap();
-        evict(&canonical(dir.path()));
-
-        // Drive the first n-1 poison-recover cycles untraced.
-        // `n_cycles >= 1` is asserted above, so `saturating_sub(1)` equals
-        // `- 1` exactly.
-        for _ in 0..n_cycles.saturating_sub(1) {
-            let _ = std::thread::spawn(|| {
-                let _g = typed_manifest_cache().lock().unwrap();
-                panic!("poison cycle (warmup)");
-            })
-            .join();
-            let mut ctx = Context::test_context(dir.path().to_path_buf());
-            let _ = load_workspace_manifest(&mut ctx).expect("warmup recovery");
-        }
-
-        // Poison once more and capture this cycle's warn.
-        let cache = typed_manifest_cache();
-        let _ = std::thread::spawn(|| {
-            let _g = typed_manifest_cache().lock().unwrap();
-            panic!("intentional poison for test");
-        })
-        .join();
-        assert!(cache.lock().is_err(), "mutex must be poisoned for the test premise");
-
-        let mut ctx = Context::test_context(dir.path().to_path_buf());
-        let (logs, result) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
-            load_workspace_manifest(&mut ctx)
-        });
-        assert!(result.is_ok(), "poisoned cache must recover, not propagate");
-
-        // After recovery the cache itself is no longer poisoned-blocking
-        // (clear_poison + into_inner cleared the sticky flag).
-        assert!(cache.lock().is_ok(), "cache must be unpoisoned after into_inner recovery");
-
-        evict(&canonical(dir.path()));
-        logs
-    }
-
-    /// A poisoned cache mutex (caused by a panic in
-    /// another provider while it held the lock) must NOT silently degrade
-    /// the cache to "always-miss". `load_workspace_manifest` must recover via
-    /// `PoisonError::into_inner` and emit a warn so operators see the signal
-    /// instead of paying a silent perf cliff.
-    #[serial_test::serial(typed_manifest_cache)]
-    #[test]
-    fn typed_manifest_cache_recovers_from_poison_with_warn() {
-        // Poison-recovery logs every cycle (with a monotonic
-        // recovery_count), so the warn is always observable here regardless
-        // of sibling-test ordering.
-        let logs = assert_poison_warn_after(1, "poisoned");
-        assert!(logs.contains("poisoned"), "poison warn must mention poisoning, got: {logs}");
-        assert!(
-            logs.contains("recovery_count"),
-            "poison warn must include monotonic recovery_count, got: {logs}"
-        );
-    }
-
-    /// A *second* poison cycle (panic in a different provider
-    /// after the first recovery) must still produce an observable signal —
-    /// every cycle emits the warn, not just the first.
-    #[serial_test::serial(typed_manifest_cache)]
-    #[test]
-    fn typed_manifest_cache_second_poison_still_logs() {
-        let logs = assert_poison_warn_after(2, "poisoned-twice");
-        assert!(
-            logs.contains("poisoned") && logs.contains("recovery_count"),
-            "second poison cycle must still emit a warn with recovery_count, got: {logs}"
-        );
     }
 
     /// Two writes inside the same mtime tick (HFS+,

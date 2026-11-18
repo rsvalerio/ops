@@ -5,7 +5,7 @@
 //! filename precedence with the silent-shadow warn.
 
 use std::path::{Path, PathBuf};
-use std::sync::{PoisonError, RwLock, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use tracing::debug;
 
@@ -52,33 +52,54 @@ static GLOBAL_CONFIG_PATH: RwLock<CachedGlobalConfigPath> = RwLock::new(None);
 #[allow(clippy::option_option)]
 type CachedGlobalConfigPath = Option<Option<PathBuf>>;
 
-/// Write-lock [`GLOBAL_CONFIG_PATH`], recovering from poisoning.
+/// Write-lock `cache`, propagating poison.
 ///
-/// The guarded value is a memoised resolution: it is either unset or a
-/// fully written result, so a holder that panicked cannot have left it
-/// torn. Recovering the guard and clearing the poison flag keeps one
-/// unrelated panic from failing every later config load in the process.
-fn write_global_config_path() -> RwLockWriteGuard<'static, CachedGlobalConfigPath> {
-    GLOBAL_CONFIG_PATH.write().unwrap_or_else(|poisoned| {
-        GLOBAL_CONFIG_PATH.clear_poison();
-        poisoned.into_inner()
-    })
+/// A poisoned lock means a holder panicked mid-update; continuing with the
+/// guard would hand later config loads whatever half-state it left, so the
+/// panic is re-raised naming the lock instead of recovered.
+#[expect(
+    clippy::expect_used,
+    reason = "CONC-16: a poisoned lock is propagated, never recovered; the panic is the handling"
+)]
+fn write_cache(
+    cache: &RwLock<CachedGlobalConfigPath>,
+) -> RwLockWriteGuard<'_, CachedGlobalConfigPath> {
+    cache.write().expect("GLOBAL_CONFIG_PATH lock poisoned by a panicking holder")
+}
+
+/// Read-lock `cache`, propagating poison; see [`write_cache`].
+#[expect(
+    clippy::expect_used,
+    reason = "CONC-16: a poisoned lock is propagated, never recovered; the panic is the handling"
+)]
+fn read_cache(
+    cache: &RwLock<CachedGlobalConfigPath>,
+) -> RwLockReadGuard<'_, CachedGlobalConfigPath> {
+    cache.read().expect("GLOBAL_CONFIG_PATH lock poisoned by a panicking holder")
 }
 
 fn global_config_path() -> Option<PathBuf> {
+    cached_global_config_path(&GLOBAL_CONFIG_PATH, resolve_global_config_path)
+}
+
+/// Memoise `resolve` in `cache`. Split from [`global_config_path`] so the
+/// poison policy can be tested against a stack-local lock instead of
+/// poisoning the process-global one.
+fn cached_global_config_path(
+    cache: &RwLock<CachedGlobalConfigPath>,
+    resolve: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
     {
-        // A poisoned read still sees a valid cached value; see
-        // `write_global_config_path`.
-        let r = GLOBAL_CONFIG_PATH.read().unwrap_or_else(PoisonError::into_inner);
+        let r = read_cache(cache);
         if let Some(cached) = r.as_ref() {
             return cached.clone();
         }
     }
-    let mut w = write_global_config_path();
+    let mut w = write_cache(cache);
     if let Some(cached) = w.as_ref() {
         return cached.clone();
     }
-    let resolved = resolve_global_config_path();
+    let resolved = resolve();
     *w = Some(resolved.clone());
     resolved
 }
@@ -119,10 +140,10 @@ impl Default for GlobalConfigPathResetToken {
 /// The `_token` parameter is a capability marker: see
 /// [`GlobalConfigPathResetToken`]. Production builds (no `test-support`
 /// feature) cannot construct the token and therefore cannot call the hook.
-/// A lock poisoned by a panic in another test is recovered, not propagated.
+/// A lock poisoned by a panic in another test is propagated, not recovered.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
-    *write_global_config_path() = None;
+    *write_cache(&GLOBAL_CONFIG_PATH) = None;
 }
 
 /// Uncached resolver behind [`global_config_path`], which calls it whenever
@@ -232,28 +253,37 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// A panic while holding the `GLOBAL_CONFIG_PATH` lock poisons it; the
-    /// cache has no invariant such a panic could break, so lookups and the
-    /// reset hook must recover the guard instead of propagating the panic,
-    /// and leave the lock healthy for later callers.
+    /// A panic while holding the config-path lock poisons it; the next
+    /// lookup must propagate that rather than recover the guard,
+    /// and must leave the poison flag in place for later callers. Runs on a
+    /// stack-local lock so no other test can observe the poisoning.
     #[test]
-    #[serial_test::serial]
-    fn global_config_path_recovers_from_a_poisoned_lock() {
-        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
-        let expected = resolve_global_config_path();
-
-        let poisoner = std::thread::spawn(|| {
-            let _guard = GLOBAL_CONFIG_PATH.write();
-            panic!("poison GLOBAL_CONFIG_PATH");
+    fn cached_global_config_path_propagates_a_poisoned_lock() {
+        let cache: RwLock<CachedGlobalConfigPath> = RwLock::new(None);
+        let joined = std::thread::scope(|s| {
+            s.spawn(|| {
+                let _guard = cache.write();
+                panic!("poison the config-path cache");
+            })
+            .join()
         });
-        assert!(poisoner.join().is_err(), "the holder must have panicked");
-        assert!(GLOBAL_CONFIG_PATH.is_poisoned());
+        assert!(joined.is_err(), "the holder must have panicked");
+        assert!(cache.is_poisoned());
 
-        assert_eq!(global_config_path(), expected);
-        assert!(!GLOBAL_CONFIG_PATH.is_poisoned(), "the write path must clear the poison flag");
-        assert_eq!(global_config_path(), expected, "the cached hit agrees");
+        let err = std::panic::catch_unwind(|| cached_global_config_path(&cache, || None))
+            .expect_err("a poisoned lock must not be recovered");
+        let msg = err.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
+        assert!(msg.contains("GLOBAL_CONFIG_PATH"), "panic must name the lock, got: {msg}");
+        assert!(cache.is_poisoned(), "poison must not be cleared");
+    }
 
-        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
+    #[test]
+    fn cached_global_config_path_resolves_once() {
+        let cache: RwLock<CachedGlobalConfigPath> = RwLock::new(None);
+        let first = cached_global_config_path(&cache, || Some(PathBuf::from("/cfg/a")));
+        let second = cached_global_config_path(&cache, || Some(PathBuf::from("/cfg/b")));
+        assert_eq!(first, Some(PathBuf::from("/cfg/a")));
+        assert_eq!(second, first, "the cached value wins over a second resolve");
     }
 
     /// After the `GLOBAL_CONFIG_PATH` cache has been

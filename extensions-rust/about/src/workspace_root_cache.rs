@@ -75,16 +75,12 @@ fn workspace_root_cache() -> &'static Mutex<WorkspaceRootCache> {
     CACHE.get_or_init(|| Mutex::new(WorkspaceRootCache::new()))
 }
 
-/// Acquire the cache lock, recovering from a `PoisonError` instead of
-/// panicking: the value is plain data (two `Arc<PathBuf>`s and a counter), so a
-/// panic in another provider cannot leave it torn, and propagating the poison
-/// would turn one unrelated panic into an `ops about` crash. The sibling
-/// typed-manifest cache warns on recovery because a poisoned lock there
-/// degrades a correctness-relevant freshness check; here the worst outcome is
-/// an extra ancestor walk, so recovery is silent. The
-/// poison-recovery policy lives in `ops_core::sync`.
+/// Acquire the cache lock, propagating poison through the shared
+/// `ops_core::sync` policy: a holder that panicked may have left the
+/// cache mid-update, so the next caller panics naming the lock instead of
+/// continuing with it.
 fn lock() -> std::sync::MutexGuard<'static, WorkspaceRootCache> {
-    ops_core::sync::lock_recover(workspace_root_cache())
+    ops_core::sync::lock(workspace_root_cache(), "workspace root cache")
 }
 
 /// The memoized workspace root for `cwd`, if one has been resolved.

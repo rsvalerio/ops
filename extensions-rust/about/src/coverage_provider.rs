@@ -112,11 +112,9 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// the same time.
 pub fn cached_query_project_coverage(db: &Sqlite) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
-        // The poison-recovery policy lives in
-        // `ops_core::sync::lock_recover`. Recovery is silent here: the
-        // guarded value is the plain-data memoization map, and the worst
-        // outcome of a missed poison is a recomputed query.
-        let mut guard = ops_core::sync::lock_recover(project_coverage_cache());
+        // Poison propagates via the shared `ops_core::sync` policy (CONC-16):
+        // `slot_for` evicts and inserts under this guard.
+        let mut guard = ops_core::sync::lock(project_coverage_cache(), "project coverage cache");
         guard.slot_for(db.id())
     };
 
@@ -251,17 +249,18 @@ mod cache_tests {
         MAX_COVERAGE_CACHE_ENTRIES,
     };
     use ops_about::lru::VICTIM_QUEUE_SLACK;
-    use ops_core::sync::lock_recover;
     use ops_core::test_utils::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
     fn cache_len() -> usize {
-        lock_recover(project_coverage_cache()).cache.len()
+        ops_core::sync::lock(project_coverage_cache(), "project coverage cache").cache.len()
     }
 
     fn contains(key: u64) -> bool {
-        lock_recover(project_coverage_cache()).cache.contains_key(&key)
+        ops_core::sync::lock(project_coverage_cache(), "project coverage cache")
+            .cache
+            .contains_key(&key)
     }
 
     /// The identity-metrics and coverage providers used

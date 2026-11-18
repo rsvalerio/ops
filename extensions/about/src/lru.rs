@@ -568,10 +568,5 @@ mod tests {
             assert!(cache.contains_key(&"y"));
             assert!(!cache.contains_key(&"x"), "the coldest live key is the victim");
         }
-
-        // `lock_recovering`'s hook-once-per-poisoning
-        // test moved to `ops_core::sync` as
-        // `lock_recover_with_runs_the_hook_once_per_poisoning` when the
-        // helper itself was deleted from this module.
     }
 }

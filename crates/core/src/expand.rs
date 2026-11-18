@@ -250,11 +250,9 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // (`run-before-commit`/`run-before-push`) and dry-run that invoke
     // `from_env` repeatedly on the same workspace root.
     let cache = ops_root_cache();
-    // Lock poisoning here is
-    // recoverable — every state of the protected map is valid. Centralised
-    // in `sync::lock_recover` so the policy stays uniform across the four
-    // expand/detect sites that share it.
-    let guard = crate::sync::lock_recover(cache);
+    // Poison propagates (CONC-16): the miss path below updates `map` and
+    // `order` in several steps, so a panic mid-update leaves them torn.
+    let guard = crate::sync::lock(cache, "ops_root_cache");
     if let Some(arc) = guard.map.get(ops_root) {
         return Ok(Arc::clone(arc));
     }
@@ -278,7 +276,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
         var_name: "OPS_ROOT".to_string(),
         cause: std::env::VarError::NotUnicode(key.as_os_str().to_owned()),
     })?;
-    let mut guard = crate::sync::lock_recover(cache);
+    let mut guard = crate::sync::lock(cache, "ops_root_cache");
     // Re-check after the syscall window — another thread may have
     // populated the entry under the same raw key.
     if let Some(existing) = guard.map.get(ops_root) {
@@ -320,20 +318,16 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
 
 #[cfg(test)]
 pub(crate) fn ops_root_cache_len() -> usize {
-    // Test seams must surface mutex poison rather than
-    // silently returning a "successful" count. `lock_recover_warn` clears
-    // the poison and emits a `tracing::warn!` so a flake caused by a
-    // sibling panic shows up at the right level instead of looking like a
-    // later value-mismatch.
+    // A poisoned cache panics naming this seam, so a flake caused by a
+    // sibling panic shows up as such instead of a later value-mismatch.
     let cache = ops_root_cache();
-    crate::sync::lock_recover_warn(cache, "ops_root_cache_len").map.len()
+    crate::sync::lock(cache, "ops_root_cache").map.len()
 }
 
 #[cfg(test)]
 pub(crate) fn reset_ops_root_cache() {
     let cache = ops_root_cache();
-    // Shared poison-recover policy.
-    let mut guard = crate::sync::lock_recover(cache);
+    let mut guard = crate::sync::lock(cache, "ops_root_cache");
     guard.map.clear();
     guard.order.clear();
 }
@@ -367,7 +361,7 @@ fn canonicalize_calls() -> &'static Mutex<std::collections::HashMap<PathBuf, usi
 fn record_canonicalize_call(path: &Path) {
     // Test-only probe counter: one increment per `canonicalize` call inside a
     // single test binary, so the count cannot approach `usize::MAX`.
-    crate::sync::lock_recover(canonicalize_calls())
+    crate::sync::lock(canonicalize_calls(), "canonicalize_calls")
         .entry(path.to_path_buf())
         .and_modify(|n| *n = n.saturating_add(1))
         .or_insert(1);
@@ -375,7 +369,7 @@ fn record_canonicalize_call(path: &Path) {
 
 #[cfg(test)]
 pub(crate) fn canonicalize_call_count(path: &Path) -> usize {
-    crate::sync::lock_recover(canonicalize_calls()).get(path).copied().unwrap_or(0)
+    crate::sync::lock(canonicalize_calls(), "canonicalize_calls").get(path).copied().unwrap_or(0)
 }
 
 /// Maximum number of distinct
@@ -436,29 +430,26 @@ fn expand_warn_seen() -> &'static Mutex<ExpandWarnSeen> {
 
 /// Returns `true` when this `var_name` had not yet emitted a user-facing
 /// warning in this process — the caller should emit `ui::warn` once. A
-/// poisoned mutex is recoverable: the protected state is a deduplication
-/// hint, not a correctness invariant.
+/// poisoned mutex propagates: `insert` updates `set` and `order`
+/// in several steps, so a panic mid-update leaves them torn.
 fn mark_expand_warn_emitted(var_name: &str) -> bool {
     let cache = expand_warn_seen();
-    // Shared poison-recover policy.
-    let mut seen = crate::sync::lock_recover(cache);
+    let mut seen = crate::sync::lock(cache, "expand_warn_seen");
     seen.insert(var_name)
 }
 
 #[cfg(test)]
 pub(crate) fn expand_warn_seen_count() -> usize {
-    // Surface mutex poison via `lock_recover_warn` so a
-    // sibling-panic flake is visible at the recovery site rather than
-    // masquerading as a later count mismatch.
+    // A poisoned set panics naming this seam, so a sibling-panic flake is
+    // visible as such rather than masquerading as a later count mismatch.
     let cache = expand_warn_seen();
-    crate::sync::lock_recover_warn(cache, "expand_warn_seen_count").set.len()
+    crate::sync::lock(cache, "expand_warn_seen").set.len()
 }
 
 #[cfg(test)]
 pub(crate) fn reset_expand_warn_seen() {
     let cache = expand_warn_seen();
-    // Shared poison-recover policy.
-    let mut seen = crate::sync::lock_recover(cache);
+    let mut seen = crate::sync::lock(cache, "expand_warn_seen");
     seen.set.clear();
     seen.order.clear();
 }
