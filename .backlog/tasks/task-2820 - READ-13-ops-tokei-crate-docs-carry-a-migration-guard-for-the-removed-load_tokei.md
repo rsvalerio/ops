@@ -1,10 +1,10 @@
 ---
 id: TASK-2820
 title: 'READ-13: ops-tokei crate docs carry a migration guard for the removed load_tokei'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:48'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - readability
@@ -30,8 +30,9 @@ dedup_key: 'READ-13:extensions/tokei/src/lib.rs:crate-root-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Crate docs describe what the crate provides (TokeiIngestor as the load entry point) without narrating the removed load_tokei function
-- [ ] #2 The compile_fail doctest for load_tokei and the matching tests.rs comment are removed, or replaced by a guard that does not depend on one historical symbol name
+- [x] #1 Crate docs describe what the crate provides (TokeiIngestor as the load entry point) without narrating the removed load_tokei function
+- [x] #2 The compile_fail doctest for load_tokei and the matching tests.rs comment are removed, or replaced by a guard that does not depend on one historical symbol name
+
 <!-- AC:END -->
 
 ## Implementation Notes

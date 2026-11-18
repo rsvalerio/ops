@@ -1,10 +1,10 @@
 ---
 id: TASK-2819
 title: 'SEC-25: tokei byte cap checked on stat, enforced against a later independent open'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:48'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - security
@@ -29,12 +29,16 @@ dedup_key: 'SEC-25:extensions/tokei/src/lib.rs:screen_entry'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The byte cap is enforced on the bytes actually read (e.g. open once, check the handle's metadata / read through a take-limited reader), or the residual race is documented on ScanLimits::file_bytes as an accepted limitation
-- [ ] #2 A test or doc comment records the chosen behaviour
+- [x] #1 The byte cap is enforced on the bytes actually read (e.g. open once, check the handle's metadata / read through a take-limited reader), or the residual race is documented on ScanLimits::file_bytes as an accepted limitation
+- [x] #2 A test or doc comment records the chosen behaviour
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.32 (code-review-rust run, 2026-11-18).
+
+Cap now enforced on the open handle's metadata and via a take(cap+1) reader through tokei's BOM-sniffing decoder (count_capped); the FIFO-swap open block is documented on ScanLimits::file_bytes as the residual. Test: count_capped_enforces_the_cap_on_the_opened_file.
+
 <!-- SECTION:NOTES:END -->

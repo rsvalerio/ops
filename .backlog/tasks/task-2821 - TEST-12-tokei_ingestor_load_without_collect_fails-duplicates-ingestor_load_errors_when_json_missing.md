@@ -1,10 +1,10 @@
 ---
 id: TASK-2821
 title: 'TEST-12: tokei_ingestor_load_without_collect_fails duplicates ingestor_load_errors_when_json_missing'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - test
@@ -29,12 +29,16 @@ dedup_key: 'TEST-12:extensions/tokei/src/tests.rs:tokei_ingestor_load_without_co
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tokei_ingestor_load_without_collect_fails is removed, or changed to cover a distinct scenario (e.g. load on an uninitialised schema) with an assertion on the specific error
-- [ ] #2 cargo test -p ops-tokei passes
+- [x] #1 tokei_ingestor_load_without_collect_fails is removed, or changed to cover a distinct scenario (e.g. load on an uninitialised schema) with an assertion on the specific error
+- [x] #2 cargo test -p ops-tokei passes
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.32 (code-review-rust run, 2026-11-18).
+
+Removed; ingestor_load_errors_when_json_missing covers the path with a specific-error assertion.
+
 <!-- SECTION:NOTES:END -->
