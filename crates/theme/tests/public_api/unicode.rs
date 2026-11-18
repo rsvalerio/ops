@@ -104,7 +104,7 @@ fn boxed_wide_label_at_narrow_width_matches_border_width() {
                     skipped: 0,
                     total: 1,
                     elapsed_secs: 0.0,
-                    success: true,
+                    outcome: RunOutcome::Success,
                     columns,
                     command_ids: &[],
                 })

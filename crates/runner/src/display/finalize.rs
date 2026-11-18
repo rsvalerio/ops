@@ -11,7 +11,7 @@ use super::style::pending_style;
 use super::{write_stderr, ProgressDisplay};
 use indicatif::ProgressBar;
 use ops_core::output::{StepLine, StepStatus};
-use ops_theme::{self as theme, BoxSnapshot};
+use ops_theme::{self as theme, BoxSnapshot, RunOutcome};
 use std::io::{self, Write};
 
 impl ProgressDisplay {
@@ -123,7 +123,7 @@ impl ProgressDisplay {
             skipped: self.skipped_steps,
             total: self.total_steps,
             elapsed_secs: duration_secs,
-            success,
+            outcome: RunOutcome::from_success(success),
             columns: self.render.columns,
             command_ids: &self.state.plan_command_ids,
         }) else {
@@ -177,7 +177,7 @@ impl ProgressDisplay {
                     succeeded, self.skipped_steps, self.failed_steps, self.total_steps, elapsed
                 )
             };
-            let colored = theme::apply_style(&body, self.render.theme.summary_color());
+            let colored = theme::style::apply_style(&body, self.render.theme.summary_color());
             format!(
                 "{}{}{}",
                 self.render.theme.left_pad_str(),
@@ -185,7 +185,7 @@ impl ProgressDisplay {
                 colored
             )
         } else {
-            self.render.theme.render_summary(success, duration_secs)
+            self.render.theme.render_summary(RunOutcome::from_success(success), duration_secs)
         }
     }
 

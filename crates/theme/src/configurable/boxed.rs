@@ -13,7 +13,7 @@ use ops_core::output::ErrorDetail;
 
 use super::ConfigurableTheme;
 use crate::render::render_error_block;
-use crate::step_line_theme::{format_duration, BoxSnapshot};
+use crate::step_line_theme::{format_duration, BoxSnapshot, RunOutcome};
 use crate::style::{apply_with_prefix_gated, color_enabled, truncate_to_width, visible_width};
 
 /// Columns reserved by the boxed frame on a step line: `│ X  … │` = 7 cells.
@@ -146,7 +146,7 @@ impl ConfigurableTheme {
         // terminal-step count and success count are different numbers, and
         // the single label cannot tell a skip from a success.
         let elapsed = format_duration(snap.elapsed_secs);
-        let title = if snap.success {
+        let title = if snap.outcome == RunOutcome::Success {
             format!(" Done {}/{} in {} ", snap.completed, snap.total, elapsed)
         } else {
             let succeeded = snap.completed.saturating_sub(snap.failed).saturating_sub(snap.skipped);

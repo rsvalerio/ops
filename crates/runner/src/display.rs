@@ -25,7 +25,7 @@ pub use render_config::{DisplayOptions, RenderConfig, StderrTail};
 use crate::command::RunnerEvent;
 use ops_core::config::CommandId;
 use ops_core::output::{StepLine, StepStatus};
-use ops_theme::{self as theme, BoxSnapshot};
+use ops_theme::{self as theme, BoxSnapshot, RunOutcome};
 
 use github::{GithubActions, StepOutcome};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -323,7 +323,7 @@ impl ProgressDisplay {
                 skipped: 0,
                 total: self.total_steps,
                 elapsed_secs: 0.0,
-                success: true,
+                outcome: RunOutcome::Success,
                 columns: self.render.columns,
                 command_ids: &self.state.plan_command_ids,
             })
@@ -372,7 +372,7 @@ impl ProgressDisplay {
             skipped: self.skipped_steps,
             total: self.total_steps,
             elapsed_secs: elapsed,
-            success: success_so_far,
+            outcome: RunOutcome::from_success(success_so_far),
             columns: self.render.columns,
             command_ids: &self.state.plan_command_ids,
         }

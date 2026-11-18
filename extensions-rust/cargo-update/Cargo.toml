@@ -9,7 +9,7 @@ license.workspace = true
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 # Owns the workspace's shared ANSI grammar; the parser consumes it via
-# `ops_theme::strip_ansi_preserving_raw`.
+# `ops_theme::style::strip_ansi_preserving_raw`.
 ops-theme = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

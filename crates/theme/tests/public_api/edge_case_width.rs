@@ -104,7 +104,7 @@ fn render_separator_label_longer_than_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let columns = 10usize;
     let long_label = "this_label_is_way_too_long_for_the_given_column_width";
-    let sep = theme.render_separator(long_label, "1.23s", columns, false);
+    let sep = theme.render_separator(long_label, "1.23s", columns, RowState::Finished);
     // Nothing is left over for the separator, so it collapses to its floor of
     // three columns — measured in display columns and tied to `columns`.
     assert!(
@@ -130,8 +130,8 @@ fn render_separator_uses_display_width_for_multi_byte_duration() {
     let wide_dur = "⏱ 1.2s"; // 6 columns, 8 bytes
     let prefix = "● cargo build";
     let cols = 80;
-    let sep_ascii = theme.render_separator(prefix, ascii_dur, cols, false);
-    let sep_wide = theme.render_separator(prefix, wide_dur, cols, false);
+    let sep_ascii = theme.render_separator(prefix, ascii_dur, cols, RowState::Finished);
+    let sep_wide = theme.render_separator(prefix, wide_dur, cols, RowState::Finished);
     let ascii_w = visible_width(&sep_ascii);
     let wide_w = visible_width(&sep_wide);
     assert_eq!(
@@ -154,8 +154,8 @@ fn render_separator_budgets_wide_glyphs_in_columns() {
         ..ThemeConfig::compact()
     });
     let prefix = "● cargo build";
-    let narrow_sep = narrow.render_separator(prefix, "1.23s", 80, false);
-    let wide_sep = wide.render_separator(prefix, "1.23s", 80, false);
+    let narrow_sep = narrow.render_separator(prefix, "1.23s", 80, RowState::Finished);
+    let wide_sep = wide.render_separator(prefix, "1.23s", 80, RowState::Finished);
     assert_eq!(
         wide_sep.chars().filter(|c| *c == '\u{ff0e}').count(),
         narrow_sep.chars().filter(|c| *c == '.').count() / 2,

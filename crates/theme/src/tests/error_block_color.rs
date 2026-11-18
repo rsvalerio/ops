@@ -89,14 +89,18 @@ fn error_block_stderr_tail_branch_is_colored_and_indented() {
     let lines = render_error_block_gated(&detail, icon_column_width(), &chars, 0, true);
     // top + message + "stderr (last 2 lines):" + 2 entries + bottom
     assert_eq!(lines.len(), 6, "{lines:?}");
-    assert!(crate::strip_ansi(&lines[2]).ends_with("stderr (last 2 lines):"), "{:?}", lines[2]);
+    assert!(
+        crate::style::strip_ansi(&lines[2]).ends_with("stderr (last 2 lines):"),
+        "{:?}",
+        lines[2]
+    );
     for line in &lines[2..5] {
         assert!(
             line.contains('\x1b'),
             "mid glyph on the stderr_tail branch must carry SGR: {line}"
         );
     }
-    assert!(crate::strip_ansi(&lines[4]).ends_with("   kaboom"), "{:?}", lines[4]);
+    assert!(crate::style::strip_ansi(&lines[4]).ends_with("   kaboom"), "{:?}", lines[4]);
 
     // With the gate off the same lines carry no SGR at all.
     let plain = render_error_block_gated(&detail, icon_column_width(), &chars, 0, false);

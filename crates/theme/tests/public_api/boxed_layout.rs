@@ -9,7 +9,7 @@ const fn snap(
     completed: usize,
     total: usize,
     elapsed: f64,
-    success: bool,
+    outcome: RunOutcome,
     columns: u16,
 ) -> BoxSnapshot<'static> {
     BoxSnapshot {
@@ -18,7 +18,7 @@ const fn snap(
         skipped: 0,
         total,
         elapsed_secs: elapsed,
-        success,
+        outcome,
         columns,
         command_ids: &[],
     }
@@ -35,8 +35,8 @@ fn boxed_theme() -> ConfigurableTheme {
 #[test]
 fn flat_theme_returns_no_borders() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
-    assert!(theme.box_top_border(snap(0, 5, 0.0, true, 80)).is_none());
-    assert!(theme.box_bottom_border(snap(5, 5, 1.0, true, 80)).is_none());
+    assert!(theme.box_top_border(snap(0, 5, 0.0, RunOutcome::Success, 80)).is_none());
+    assert!(theme.box_bottom_border(snap(5, 5, 1.0, RunOutcome::Success, 80)).is_none());
     assert_eq!(theme.step_column_reserve(), 0);
     assert_eq!(theme.wrap_step_line("hello", "█", 80), "hello");
 }
@@ -46,7 +46,10 @@ fn boxed_top_border_spans_columns() {
     let theme = boxed_theme();
     let ids = vec!["build".to_string(), "test".to_string()];
     let top = theme
-        .box_top_border(BoxSnapshot { command_ids: &ids, ..snap(2, 5, 12.4, true, 60) })
+        .box_top_border(BoxSnapshot {
+            command_ids: &ids,
+            ..snap(2, 5, 12.4, RunOutcome::Success, 60)
+        })
         .expect("boxed theme returns top");
     let plain = strip_ansi(&top);
     assert_eq!(ops_core::output::display_width(&plain), 60, "got: {top}");
@@ -58,8 +61,9 @@ fn boxed_top_border_spans_columns() {
 #[test]
 fn boxed_bottom_border_shows_done_when_success() {
     let theme = boxed_theme();
-    let bottom =
-        theme.box_bottom_border(snap(5, 5, 94.0, true, 60)).expect("boxed theme returns bottom");
+    let bottom = theme
+        .box_bottom_border(snap(5, 5, 94.0, RunOutcome::Success, 60))
+        .expect("boxed theme returns bottom");
     let plain = strip_ansi(&bottom);
     assert!(plain.contains("Done 5/5"), "got: {plain}");
     assert!(plain.starts_with("╰─"));
@@ -72,7 +76,11 @@ fn boxed_bottom_border_shows_breakdown_when_not_success() {
     // breakdown instead of conflating terminal count with success count.
     let theme = boxed_theme();
     let bottom = theme
-        .box_bottom_border(BoxSnapshot { failed: 1, skipped: 1, ..snap(3, 5, 2.0, false, 80) })
+        .box_bottom_border(BoxSnapshot {
+            failed: 1,
+            skipped: 1,
+            ..snap(3, 5, 2.0, RunOutcome::Failure, 80)
+        })
         .expect("boxed theme returns bottom");
     let plain = strip_ansi(&bottom);
     assert!(plain.contains("1 succeeded, 1 skipped, 1 failed of 5"), "got: {plain}");
@@ -82,7 +90,7 @@ fn boxed_bottom_border_shows_breakdown_when_not_success() {
 fn boxed_top_border_lists_command_ids_when_provided() {
     let theme = boxed_theme();
     let ids = vec!["build".to_string(), "test".to_string()];
-    let s = BoxSnapshot { command_ids: &ids, ..snap(0, 2, 0.0, true, 60) };
+    let s = BoxSnapshot { command_ids: &ids, ..snap(0, 2, 0.0, RunOutcome::Success, 60) };
     let top = strip_ansi(&theme.box_top_border(s).expect("top"));
     assert!(top.contains("Running: build, test"), "got: {top}");
 }
@@ -108,7 +116,10 @@ fn boxed_step_with_duration_matches_border_width() {
     let ids = vec!["build".to_string()];
     let top = strip_ansi(
         &theme
-            .box_top_border(BoxSnapshot { command_ids: &ids, ..snap(1, 1, 1.23, true, columns) })
+            .box_top_border(BoxSnapshot {
+                command_ids: &ids,
+                ..snap(1, 1, 1.23, RunOutcome::Success, columns)
+            })
             .unwrap(),
     );
     assert_eq!(
@@ -213,7 +224,7 @@ fn wrap_step_line_and_render_separator_no_intermediate_repeat_alloc() {
     assert!(plain.starts_with("│ █  "));
     assert!(plain.ends_with(" │"));
 
-    let sep = theme.render_separator("  ✓ cargo build", "1.23s", 60, false);
+    let sep = theme.render_separator("  ✓ cargo build", "1.23s", 60, RowState::Finished);
     // Always begins with one leading space, then a non-empty run of separator
     // glyphs (no `to_string().repeat` intermediate), no trailing space when
     // duration_str is non-empty.
@@ -222,7 +233,7 @@ fn wrap_step_line_and_render_separator_no_intermediate_repeat_alloc() {
     let dots = sep.trim_start();
     assert!(!dots.is_empty(), "sep: {sep:?}");
 
-    let sep_running = theme.render_separator("  ✓ cargo build", "", 60, true);
+    let sep_running = theme.render_separator("  ✓ cargo build", "", 60, RowState::Running);
     assert!(sep_running.starts_with(' '));
     assert!(sep_running.ends_with(' '));
 }

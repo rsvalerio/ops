@@ -27,7 +27,7 @@
 
 use ops_core::output::{StepLine, StepStatus, ALL_STATUSES};
 
-use super::step_line_theme::{format_duration, SlotLine, StepPrefixParts};
+use super::step_line_theme::{format_duration, RowState, RunOutcome, SlotLine, StepPrefixParts};
 use super::style::{
     apply_with_prefix_gated, color_enabled, precompute_sgr_prefix, truncate_to_width, visible_width,
 };
@@ -38,7 +38,8 @@ mod config_access;
 mod report;
 
 /// Minimum separator run, in terminal columns, between the label and the
-/// trailing slot.
+/// trailing slot. The run includes its leading space, so this is two
+/// separator glyphs after that space.
 const MIN_SEP_GLYPHS: usize = 3;
 
 /// A theme backed by a [`ThemeConfig`].
@@ -250,8 +251,8 @@ impl ConfigurableTheme {
     /// Returning the components separately (rather than re-deriving them in
     /// each caller) makes drift impossible.
     #[must_use]
-    pub fn step_prefix_parts(&self, status: StepStatus, is_running: bool) -> StepPrefixParts<'_> {
-        self.icon_prefix_parts(self.status_icon(status), is_running)
+    pub fn step_prefix_parts(&self, status: StepStatus, state: RowState) -> StepPrefixParts<'_> {
+        self.icon_prefix_parts(self.status_icon(status), state)
     }
 
     /// Generalization of [`step_prefix_parts`](Self::step_prefix_parts) over an
@@ -260,13 +261,15 @@ impl ConfigurableTheme {
     /// `icon_column_width` still measures over [`ALL_STATUSES`], so report
     /// glyphs (✓ ⚠ ✘ ℹ, width 1) line up under the same column as step icons.
     #[must_use]
-    pub fn icon_prefix_parts<'a>(&'a self, icon: &'a str, is_running: bool) -> StepPrefixParts<'a> {
+    pub fn icon_prefix_parts<'a>(&'a self, icon: &'a str, state: RowState) -> StepPrefixParts<'a> {
         let icon_width = visible_width(icon);
         let max_icon_width = self.icon_column_width();
         // The running row's spinner cell is as wide as
         // the widest configured tick glyph, not a hardcoded single column.
-        let (indent, spinner_cols) =
-            if is_running { ("", self.spinner_reserve_cols) } else { (self.step_indent(), 0usize) };
+        let (indent, spinner_cols) = match state {
+            RowState::Running => ("", self.spinner_reserve_cols),
+            RowState::Finished => (self.step_indent(), 0usize),
+        };
         let pad =
             " ".repeat(max_icon_width.saturating_sub(icon_width.saturating_add(spinner_cols)));
         StepPrefixParts { indent, icon, pad }
@@ -274,31 +277,29 @@ impl ConfigurableTheme {
 
     /// Build the left portion of a step line: indent + icon + padding + label.
     #[must_use]
-    pub fn render_prefix(&self, step: &StepLine, is_running: bool) -> String {
-        let parts = self.step_prefix_parts(step.status, is_running);
+    pub fn render_prefix(&self, step: &StepLine, state: RowState) -> String {
+        let parts = self.step_prefix_parts(step.status, state);
         format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, step.label)
     }
 
     /// Build the separator (dots/dashes) between label and elapsed time.
     ///
     /// Width budget (left-to-right):
-    /// `columns = template_overhead + left_pad + prefix_width + space +
-    /// sep_count + space + duration`. We invert that equation to derive
-    /// `sep_count`, with a floor of 3 so the separator is always at least
-    /// three glyphs wide.
+    /// `columns = reserved_chrome + prefix_width + space + sep_count +
+    /// space + duration`, where `reserved_chrome` is the row's left pad plus,
+    /// on a running row, the template overhead (see
+    /// [`Self::reserved_chrome`]). We invert that equation to derive the
+    /// separator run, floored at [`MIN_SEP_GLYPHS`] columns *including* its
+    /// leading space, so the run is always at least two glyphs wide.
     #[must_use]
     pub fn render_separator(
         &self,
         prefix: &str,
         duration_str: &str,
         columns: usize,
-        is_running: bool,
+        state: RowState,
     ) -> String {
-        // Reservations taken out of the total `columns` budget before we can
-        // spend anything on the separator itself.
-        let template_overhead = if is_running { self.running_template_overhead() } else { 0 };
-        let reserved_chrome = template_overhead.saturating_add(self.left_pad());
-        let line_budget = columns.saturating_sub(reserved_chrome);
+        let line_budget = columns.saturating_sub(self.reserved_chrome(state));
 
         // Fixed costs inside `line_budget`: the label prefix, the duration
         // (when present), and one leading space before the separator.
@@ -350,7 +351,6 @@ impl ConfigurableTheme {
     /// mapping mechanical so the runner output stays byte-identical.
     #[must_use]
     pub fn render(&self, step: &StepLine, columns: u16) -> String {
-        let is_running = step.status == StepStatus::Running;
         let trailing = step.elapsed.map(|d| self.format_elapsed(d)).unwrap_or_default();
         self.render_slot(
             &SlotLine {
@@ -358,7 +358,7 @@ impl ConfigurableTheme {
                 label: &step.label,
                 trailing: &trailing,
                 trailing_prefix: self.duration_prefix.as_deref(),
-                is_running,
+                state: RowState::of(step.status),
             },
             columns,
         )
@@ -380,17 +380,15 @@ impl ConfigurableTheme {
 
     /// [`Self::render_slot`] with an explicit colour gate.
     fn render_slot_gated(&self, slot: &SlotLine<'_>, columns: u16, color: bool) -> String {
-        let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
+        let parts = self.icon_prefix_parts(slot.icon, slot.state);
         let budget = usize::from(columns);
-        let template_overhead = if slot.is_running { self.running_template_overhead() } else { 0 };
         // Spend the budget on chrome, the trailing slot and
         // the minimum separator run first; the label gets the remainder and is
         // truncated to it. See the module-level truncation policy.
         let label = truncate_to_width(slot.label, self.label_budget(&parts, slot, budget));
         let plain_prefix = format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, label);
         let plain_separator =
-            self.render_separator(&plain_prefix, slot.trailing, budget, slot.is_running);
-        let pad = if slot.is_running { "" } else { self.left_pad_str() };
+            self.render_separator(&plain_prefix, slot.trailing, budget, slot.state);
 
         let colored_label = apply_with_prefix_gated(&label, self.label_prefix.as_deref(), color);
         let colored_prefix =
@@ -398,22 +396,54 @@ impl ConfigurableTheme {
         let colored_separator =
             apply_with_prefix_gated(&plain_separator, self.separator_prefix.as_deref(), color);
 
-        let line = if slot.trailing.is_empty() {
-            format!("{pad}{colored_prefix}{colored_separator}")
+        let body = if slot.trailing.is_empty() {
+            format!("{colored_prefix}{colored_separator}")
         } else {
             let colored_trailing =
                 apply_with_prefix_gated(slot.trailing, slot.trailing_prefix, color);
-            format!("{pad}{colored_prefix}{colored_separator} {colored_trailing}")
+            format!("{colored_prefix}{colored_separator} {colored_trailing}")
         };
-        if budget == 0 {
-            return line;
-        }
-        // Belt and braces: the label budget above already makes the line fit,
+        // Belt and braces: the label budget above already makes the body fit,
         // but a trailing slot wider than the whole budget (a report result
         // string, say) has no label left to give back — clamp regardless so
         // the invariant "a rendered line fits its budget" holds for every
-        // input, not only the ones the arithmetic anticipated.
-        truncate_to_width(&line, budget.saturating_sub(template_overhead)).into_owned()
+        // input, not only the ones the arithmetic anticipated. The body gets
+        // exactly what `label_budget` and `render_separator` left it.
+        let body = if budget == 0 {
+            body
+        } else {
+            truncate_to_width(&body, budget.saturating_sub(self.reserved_chrome(slot.state)))
+                .into_owned()
+        };
+        // A running row's left pad is emitted by the running style around
+        // this string, not here; see `reserved_chrome`.
+        match slot.state {
+            RowState::Running => body,
+            RowState::Finished => format!("{}{body}", self.left_pad_str()),
+        }
+    }
+
+    /// Columns of a row's `columns` budget spent outside its label,
+    /// separator and trailing slot: the left pad, plus on a running row the
+    /// `running_template_overhead`.
+    ///
+    /// Both states reserve the left pad. A finished row emits it itself
+    /// (`render_slot` prefixes the body with it); a running row does not,
+    /// because the runner's running style prepends the same pad to
+    /// `running_template`, which in turn surrounds the rendered body with
+    /// the template's fixed text (spinner, elapsed field, chrome) counted by
+    /// `running_template_overhead`. The full running row on screen is
+    /// therefore `left_pad + running_template_overhead + body` columns.
+    ///
+    /// The single source of truth for that reservation: [`Self::label_budget`],
+    /// [`Self::render_separator`] and the final clamp in `render_slot` all
+    /// subtract it, so none of them can disagree on what a row may spend.
+    const fn reserved_chrome(&self, state: RowState) -> usize {
+        let template_overhead = match state {
+            RowState::Running => self.running_template_overhead(),
+            RowState::Finished => 0,
+        };
+        template_overhead.saturating_add(self.left_pad())
     }
 
     /// Columns available to the label in [`Self::render_slot`], after the chrome,
@@ -430,13 +460,12 @@ impl ConfigurableTheme {
             // control-character stripping in `truncate_to_width`.
             return usize::MAX;
         }
-        let template_overhead = if slot.is_running { self.running_template_overhead() } else { 0 };
         // The space between the icon column and the label, plus the space
         // that precedes the trailing slot (or the separator's own trailing
         // space when there is none).
         let spaces = 2usize;
-        let reserved = template_overhead
-            .saturating_add(self.left_pad())
+        let reserved = self
+            .reserved_chrome(slot.state)
             .saturating_add(visible_width(parts.indent))
             .saturating_add(visible_width(parts.icon))
             .saturating_add(parts.pad.len())
@@ -451,8 +480,11 @@ impl ConfigurableTheme {
     /// Uses the precomputed SGR prefix. Split so report
     /// footers reuse the same chrome (`render_summary_text`) with their own body.
     #[must_use]
-    pub fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
-        let label = if success { "Done" } else { "Failed" };
+    pub fn render_summary(&self, outcome: RunOutcome, elapsed_secs: f64) -> String {
+        let label = match outcome {
+            RunOutcome::Success => "Done",
+            RunOutcome::Failure => "Failed",
+        };
         self.render_summary_text(&format!("{} in {}", label, format_duration(elapsed_secs)))
     }
 

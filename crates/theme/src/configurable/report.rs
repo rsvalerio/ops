@@ -12,7 +12,7 @@ use ops_core::report::{Report, ReportStatus};
 use super::boxed::{build_horizontal_border, BorderArgs};
 use super::ConfigurableTheme;
 use crate::render::sanitise;
-use crate::step_line_theme::SlotLine;
+use crate::step_line_theme::{RowState, SlotLine};
 use crate::style::{apply_with_prefix_gated, color_enabled};
 
 impl ConfigurableTheme {
@@ -152,7 +152,7 @@ impl ConfigurableTheme {
             label,
             trailing: result,
             trailing_prefix: self.report_prefix(row.status),
-            is_running: false,
+            state: RowState::Finished,
         }
     }
 }
