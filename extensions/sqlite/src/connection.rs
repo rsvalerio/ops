@@ -182,37 +182,25 @@ impl Sqlite {
 
     /// Return the per-table ingest mutex, creating it on first use.
     ///
-    /// The registry mutex recovers from poisoning via
-    /// `into_inner` so a panic inside one ingestor's `collect`/`load` does
-    /// not permanently brick every other ingest. The connection lock at
-    /// `Self::lock` continues to surface poisoning as
-    /// [`DbError::MutexPoisoned`] because a poisoned SQLite connection
-    /// reflects partially applied state we cannot trust to keep using; a
-    /// poisoned per-table coordination mutex only guards a `()`, so
-    /// recovering is safe and avoids the documented denial-of-service.
+    /// Poisoning propagates, matching [`Self::lock`]: a poisoned
+    /// registry means a holder panicked mid-update, so the map is not
+    /// trusted and the caller gets [`DbError::MutexPoisoned`] instead.
     ///
-    /// Operator signal: when a prior panic poisons the per-table mutex,
-    /// `provide_via_ingestor` emits `tracing::warn!` on recovery, so a
-    /// transient ingest panic leaves an audit breadcrumb in production
-    /// logs rather than recovering silently.
-    pub(crate) fn ingest_mutex_for(&self, table_name: &'static str) -> Arc<Mutex<()>> {
-        let mut map = self.ingest_locks.lock().unwrap_or_else(|poisoned| {
-            tracing::warn!("ingest_locks registry mutex was poisoned by a prior panic; recovered");
-            // The recovery re-establishes the registry's invariant, so
-            // clear the poison flag — later acquires take the fast path
-            // instead of re-entering this branch and re-emitting the warn on
-            // every call.
-            self.ingest_locks.clear_poison();
-            poisoned.into_inner()
-        });
+    /// # Errors
+    ///
+    /// [`DbError::MutexPoisoned`] if another thread panicked while holding
+    /// the registry lock.
+    pub(crate) fn ingest_mutex_for(&self, table_name: &'static str) -> DbResult<Arc<Mutex<()>>> {
+        let mut map =
+            self.ingest_locks.lock().map_err(|e| DbError::MutexPoisoned(e.to_string()))?;
         // The `&'static str` key is `Copy`, so `entry` allocates nothing and
         // the hot path (entry already present) is alloc-free.
-        Arc::clone(map.entry(table_name).or_default())
+        Ok(Arc::clone(map.entry(table_name).or_default()))
     }
 
     #[cfg(test)]
     pub(crate) fn ingest_lock_count(&self) -> usize {
-        self.ingest_locks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        self.ingest_locks.lock().expect("ingest_locks registry poisoned").len()
     }
 
     /// Resolve the DB path from config and workspace root.
@@ -419,11 +407,11 @@ mod tests {
             );
         }
 
-        /// After recovering a poisoned registry mutex,
-        /// the poison flag is cleared, so the recovery warn fires once —
-        /// not again on every subsequent acquire.
+        /// A poisoned registry mutex surfaces as
+        /// `DbError::MutexPoisoned` on every acquire; the poison is never
+        /// cleared.
         #[test]
-        fn ingest_mutex_for_clears_poison_so_recovery_warns_once() {
+        fn ingest_mutex_for_surfaces_a_poisoned_registry_as_an_error() {
             let db = Sqlite::open_in_memory().expect("open");
 
             // Poison the registry mutex: panic while holding its guard.
@@ -433,12 +421,13 @@ mod tests {
             }));
             assert!(panicked.is_err(), "setup must have poisoned the registry");
 
-            let ((), warns) = ops_core::test_utils::count_warnings(|| {
-                let _first = db.ingest_mutex_for("poison_once_table");
-                let _second = db.ingest_mutex_for("poison_once_table");
-                let _third = db.ingest_mutex_for("poison_once_other_table");
-            });
-            assert_eq!(warns, 1, "recovery warn must fire on the first acquire only, got {warns}");
+            for table in ["poisoned_table", "poisoned_table", "other_table"] {
+                let err = db
+                    .ingest_mutex_for(table)
+                    .expect_err("a poisoned registry must surface as an error");
+                assert!(matches!(err, DbError::MutexPoisoned(_)), "{table}: got {err:?}");
+            }
+            assert!(db.ingest_locks.is_poisoned(), "poison must not be cleared");
         }
     }
 }

@@ -1,4 +1,4 @@
-//! `provide_via_ingestor` orchestrator: per-table mutex, refresh, poison recovery.
+//! `provide_via_ingestor` orchestrator: per-table mutex, refresh, poison propagation.
 
 use crate::sql::validation::quoted_ident;
 use crate::Sqlite;
@@ -94,23 +94,20 @@ where
     // lock.
     let _reentry_guard = ReentryGuard::new(table_name);
 
-    let ingest_mutex = db.ingest_mutex_for(table_name);
-    // Poisoning the per-table mutex must not become a permanent denial of
-    // service for that table — recover via `into_inner`.
-    let _ingest_guard = ingest_mutex.lock().unwrap_or_else(|poisoned| {
-        tracing::warn!(
-            table = %table_name,
-            "per-table ingest mutex was poisoned by a prior panic; recovered"
-        );
-        // The mutex only guards a `()` token, so recovery
-        // re-establishes its invariant — clear the poison flag so later
-        // ingests for this table do not re-enter this branch and re-emit
-        // the warn.
-        ingest_mutex.clear_poison();
-        poisoned.into_inner()
-    });
-
     use anyhow::Context;
+
+    // A poisoned registry or per-table mutex means an earlier ingest
+    // panicked inside the drop → probe → collect → load → query section, so
+    // the table may be dropped or half-loaded and the staging dir
+    // half-cleaned. Surface it as `DbError::MutexPoisoned`, the same stance
+    // `Sqlite::lock` takes for the connection, instead of carrying on.
+    let ingest_mutex = db
+        .ingest_mutex_for(table_name)
+        .with_context(|| format!("provide_via_ingestor({table_name}): ingest lock registry"))?;
+    let _ingest_guard = ingest_mutex
+        .lock()
+        .map_err(|e| crate::DbError::MutexPoisoned(e.to_string()))
+        .with_context(|| format!("provide_via_ingestor({table_name}): per-table ingest lock"))?;
 
     // Every `?` inside the orchestrator carries `.with_context` that names
     // *both* the phase (drop / probe / create-dir / collect / init-schema /
@@ -372,8 +369,8 @@ mod tests {
         );
 
         for name in ["t_a", "t_b", "t_c"] {
-            let _ = db.ingest_mutex_for(name);
-            let _ = db.ingest_mutex_for(name);
+            let _ = db.ingest_mutex_for(name).expect("healthy registry");
+            let _ = db.ingest_mutex_for(name).expect("healthy registry");
         }
         assert_eq!(
             db.ingest_lock_count(),
@@ -397,16 +394,16 @@ mod tests {
         assert_eq!(db2.ingest_lock_count(), 0, "fresh instance has no entries");
     }
 
-    /// A panic inside an ingestor's `collect` must not permanently brick
-    /// the table.
+    /// A panic inside an ingestor's `collect` poisons the per-table
+    /// mutex mid-ingest. The next ingest of that table must surface that as
+    /// a `DbError::MutexPoisoned` error naming the table, every time, rather
+    /// than clearing the poison and carrying on over a possibly half-loaded
+    /// table.
     #[test]
-    fn panic_in_collect_does_not_brick_subsequent_ingest() {
+    fn panic_in_collect_surfaces_as_poisoned_ingest_lock_error() {
         use crate::DataIngestor;
-        use std::sync::atomic::{AtomicBool, Ordering};
 
-        struct PanickyIngestor {
-            should_panic: AtomicBool,
-        }
+        struct PanickyIngestor;
         impl DataIngestor for PanickyIngestor {
             fn name(&self) -> &'static str {
                 "panicky"
@@ -414,16 +411,11 @@ mod tests {
             // The panic *is* the behaviour under test: this mock stands in for
             // an ingestor that blows up mid-collect.
             #[allow(clippy::panic_in_result_fn)]
-            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
-                assert!(
-                    !self.should_panic.swap(false, Ordering::SeqCst),
-                    "simulated transient ingest panic"
-                );
-                dir.write_atomic("panicky.json", b"[{\"id\":1}]")?;
-                Ok(())
+            fn collect(&self, _ctx: &ops_extension::Context, _dir: &IngestDir) -> DbResult<()> {
+                panic!("simulated ingest panic");
             }
-            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                mock_load(dir, db, "panicky_table", "panicky.json", "panicky")
+            fn load(&self, _dir: &IngestDir, _db: &Sqlite) -> DbResult<crate::LoadResult> {
+                Ok(crate::LoadResult::success("panicky", 0))
             }
         }
 
@@ -431,160 +423,35 @@ mod tests {
         let db_path = db_dir.path().join("panicky.db");
         let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
-        let ingestor = Arc::new(PanickyIngestor { should_panic: AtomicBool::new(true) });
-
-        let db1 = Arc::clone(&db);
-        let ing1 = Arc::clone(&ingestor);
-        let h = std::thread::spawn(move || {
-            let ctx = ops_extension::Context::new(
+        let ctx = || {
+            ops_extension::Context::new(
                 Arc::new(ops_core::config::Config::empty()),
                 PathBuf::from("/tmp"),
-            );
-            provide_via_ingestor(&db1, &ctx, "panicky_table", &*ing1, |_| {
+            )
+        };
+
+        let db1 = Arc::clone(&db);
+        let h = std::thread::spawn(move || {
+            provide_via_ingestor(&db1, &ctx(), "panicky_table", &PanickyIngestor, |_| {
                 Ok(serde_json::Value::Null)
             })
         });
         assert!(h.join().is_err(), "first call must have panicked");
 
-        let ctx = ops_extension::Context::new(
-            Arc::new(ops_core::config::Config::empty()),
-            PathBuf::from("/tmp"),
-        );
-        provide_via_ingestor(&db, &ctx, "panicky_table", &*ingestor, |_| {
-            Ok(serde_json::Value::Null)
-        })
-        .expect("recovery ingest must not panic");
-    }
-
-    /// Poison recovery emits a warn log.
-    #[test]
-    fn poison_recovery_emits_warn_log() {
-        use crate::DataIngestor;
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        struct PanickyIngestor {
-            should_panic: AtomicBool,
-        }
-        impl DataIngestor for PanickyIngestor {
-            fn name(&self) -> &'static str {
-                "panicky_warn"
-            }
-            // The panic *is* the behaviour under test: this mock stands in for
-            // an ingestor that blows up mid-collect.
-            #[allow(clippy::panic_in_result_fn)]
-            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
-                assert!(
-                    !self.should_panic.swap(false, Ordering::SeqCst),
-                    "simulated transient ingest panic"
-                );
-                dir.write_atomic("panicky_warn.json", b"[{\"id\":1}]")?;
-                Ok(())
-            }
-            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                mock_load(dir, db, "panicky_warn_table", "panicky_warn.json", "panicky_warn")
-            }
-        }
-
-        let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("panicky_warn.db");
-        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
-        init_schema(&db).expect("init_schema");
-        let ingestor = Arc::new(PanickyIngestor { should_panic: AtomicBool::new(true) });
-
-        let db1 = Arc::clone(&db);
-        let ing1 = Arc::clone(&ingestor);
-        let h = std::thread::spawn(move || {
-            let ctx = ops_extension::Context::new(
-                Arc::new(ops_core::config::Config::empty()),
-                PathBuf::from("/tmp"),
-            );
-            provide_via_ingestor(&db1, &ctx, "panicky_warn_table", &*ing1, |_| {
+        for attempt in 0..2 {
+            let err = provide_via_ingestor(&db, &ctx(), "panicky_table", &PanickyIngestor, |_| {
                 Ok(serde_json::Value::Null)
             })
-        });
-        assert!(h.join().is_err(), "first call must have panicked");
-
-        let logs = ops_core::test_utils::capture_warn(|| {
-            let ctx = ops_extension::Context::new(
-                Arc::new(ops_core::config::Config::empty()),
-                PathBuf::from("/tmp"),
+            .expect_err("a poisoned ingest lock must surface as an error, not recover");
+            assert!(
+                matches!(err.downcast_ref::<DbError>(), Some(DbError::MutexPoisoned(_))),
+                "attempt {attempt}: expected DbError::MutexPoisoned, got: {err:#}"
             );
-            provide_via_ingestor(&db, &ctx, "panicky_warn_table", &*ingestor, |_| {
-                Ok(serde_json::Value::Null)
-            })
-            .expect("recovery ingest must not panic");
-        });
-
-        assert!(
-            logs.contains("per-table ingest mutex was poisoned"),
-            "expected poison-recovery warn, got: {logs}"
-        );
-        assert!(logs.contains("panicky_warn_table"), "expected table name in warn, got: {logs}");
-    }
-
-    /// Clearing the per-table poison flag on recovery
-    /// means a poisoned-then-recovered table does not warn on the next
-    /// ingest — the recovery warn fires once, not per ingest.
-    #[test]
-    fn poison_recovery_warns_once_across_ingests() {
-        use crate::DataIngestor;
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        struct PanickyOnceIngestor {
-            should_panic: AtomicBool,
-        }
-        impl DataIngestor for PanickyOnceIngestor {
-            fn name(&self) -> &'static str {
-                "panicky_once"
-            }
-            // The panic *is* the behaviour under test: this mock stands in
-            // for an ingestor that blows up mid-collect exactly once.
-            #[allow(clippy::panic_in_result_fn)]
-            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
-                assert!(
-                    !self.should_panic.swap(false, Ordering::SeqCst),
-                    "simulated transient ingest panic"
-                );
-                dir.write_atomic("panicky_once.json", b"[{\"id\":1}]")?;
-                Ok(())
-            }
-            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                mock_load(dir, db, "panicky_once_table", "panicky_once.json", "panicky_once")
-            }
-        }
-
-        let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("panicky_once.db");
-        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
-        init_schema(&db).expect("init_schema");
-        let ingestor = Arc::new(PanickyOnceIngestor { should_panic: AtomicBool::new(true) });
-
-        let db1 = Arc::clone(&db);
-        let ing1 = Arc::clone(&ingestor);
-        let h = std::thread::spawn(move || {
-            let ctx = ops_extension::Context::new(
-                Arc::new(ops_core::config::Config::empty()),
-                PathBuf::from("/tmp"),
+            assert!(
+                format!("{err:#}").contains("panicky_table"),
+                "attempt {attempt}: the error must name the table, got: {err:#}"
             );
-            provide_via_ingestor(&db1, &ctx, "panicky_once_table", &*ing1, |_| {
-                Ok(serde_json::Value::Null)
-            })
-        });
-        assert!(h.join().is_err(), "first call must have panicked");
-
-        let ((), warns) = ops_core::test_utils::count_warnings(|| {
-            for _ in 0..2 {
-                let ctx = ops_extension::Context::new(
-                    Arc::new(ops_core::config::Config::empty()),
-                    PathBuf::from("/tmp"),
-                );
-                provide_via_ingestor(&db, &ctx, "panicky_once_table", &*ingestor, |_| {
-                    Ok(serde_json::Value::Null)
-                })
-                .expect("post-poison ingest must not panic");
-            }
-        });
-        assert_eq!(warns, 1, "recovery warn must fire on the first ingest only, got {warns}");
+        }
     }
 
     /// Refresh-driven DROP serializes behind in-flight `query_fn`.
