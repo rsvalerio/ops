@@ -42,7 +42,7 @@ pub(super) fn read_capped<R: Read>(
     // Pre-size the capture buffer so multi-MiB streams
     // (cargo metadata, large stdout) skip the O(log N) Vec-doubling chain
     // from empty. Bounded by `cap` so a tiny cap doesn't over-reserve, and
-    // by 64 KiB so a huge cap (256 MiB default) doesn't allocate up-front
+    // by 64 KiB so a large cap (`DEFAULT_OUTPUT_BYTE_CAP`, 4 MiB) doesn't allocate up-front
     // memory for streams that turn out to be empty.
     const INITIAL_CAP: usize = 64 * 1024;
     let want = cap.min(INITIAL_CAP);
@@ -195,15 +195,72 @@ pub(super) fn collect_drain(
     }
 }
 
-/// How long the post-timeout cleanup waits for a drain thread to
-/// see EOF before abandoning it. Mirrors the stderr drain grace the hook
-/// crates use for the same reason.
-const DRAIN_GRACE: Duration = Duration::from_millis(500);
+/// Minimum time the drain reaper waits for a drain thread to see EOF
+/// before abandoning it, after the child was killed on timeout *or* exited
+/// on its own. Mirrors the stderr drain grace the hook crates use for the
+/// same reason.
+pub(super) const DRAIN_GRACE: Duration = Duration::from_millis(500);
 
-/// Poll interval while waiting out [`DRAIN_GRACE`]. Short enough that the
-/// common case (EOF already delivered) costs one tick, long enough not to
-/// spin.
+/// Upper bound on the poll interval while waiting for a drain thread. The
+/// wait starts at 1 ms and doubles up to this, so the common case (EOF
+/// arrives a moment after the child exits) costs about a millisecond and a
+/// long wait does not spin.
 const DRAIN_POLL: Duration = Duration::from_millis(10);
+
+/// The instant `wait` from now, saturating at the furthest instant the
+/// platform can represent rather than overflowing on an absurd `wait`.
+pub(super) fn instant_after(wait: Duration) -> Instant {
+    let now = Instant::now();
+    let mut wait = wait;
+    loop {
+        if let Some(at) = now.checked_add(wait) {
+            return at;
+        }
+        // Halving reaches zero, which `checked_add` always accepts.
+        wait = wait.checked_div(2).unwrap_or(Duration::ZERO);
+    }
+}
+
+/// Wait until `handle` finishes or `until` passes, whichever is first.
+///
+/// Returns the handle when the drain thread finished, ready for
+/// [`collect_drain`]. Returns `None` after logging a `tracing::warn!`
+/// naming `label` and `stream` when it is still blocked at `until`: the
+/// thread is abandoned, owning only its capped buffer, and exits on its own
+/// once the pipe finally closes.
+///
+/// A drain thread finishes only at EOF, and EOF arrives only once *every*
+/// holder of the pipe's write end has closed it. A grandchild the child
+/// forked and left running (a daemonized helper, a `sh -c` that forks
+/// instead of exec'ing) inherits stdout/stderr and keeps the pipe open
+/// after the child itself is gone, so an unbounded `join` would block for
+/// the grandchild's whole lifetime.
+pub(super) fn await_drain(
+    handle: Option<thread::JoinHandle<DrainResult>>,
+    until: Instant,
+    label: &str,
+    stream: &'static str,
+    context: &'static str,
+) -> Option<thread::JoinHandle<DrainResult>> {
+    let handle = handle?;
+    let mut poll = Duration::from_millis(1);
+    while !handle.is_finished() {
+        let now = Instant::now();
+        if now >= until {
+            tracing::warn!(
+                label,
+                stream,
+                context,
+                "pipe drain still blocked after the child {context}; abandoning it — \
+                 a surviving descendant is holding the pipe open, and captured bytes are lost"
+            );
+            return None;
+        }
+        thread::sleep(poll.min(until.saturating_duration_since(now)));
+        poll = poll.saturating_mul(2).min(DRAIN_POLL);
+    }
+    Some(handle)
+}
 
 /// Post-timeout-kill drain reaper. Joins both pipe
 /// drains and emits a `tracing::warn!` against `label`/`stream` when a
@@ -212,38 +269,20 @@ const DRAIN_POLL: Duration = Duration::from_millis(10);
 /// breadcrumb here lets operators correlate the loss of captured bytes
 /// with the `RunError::Timeout` that the caller observed.
 ///
-/// The join is bounded by [`DRAIN_GRACE`] rather than unbounded.
-/// Killing the child does *not* guarantee EOF on its pipes: any surviving
-/// grandchild inherits the write ends and holds them open (`sh -c "sleep
-/// 30"` under a shell that forks instead of exec'ing leaves the `sleep`
-/// behind). Joining unconditionally there made the timed-out call outrun
-/// its own deadline by the grandchild's whole lifetime — the bounded-wait
-/// contract the timeout exists to enforce. A drain thread still blocked
-/// after the grace is abandoned: it owns only its capped buffer and exits
-/// on its own once the pipe finally closes.
+/// The join is bounded by [`DRAIN_GRACE`] rather than unbounded (see
+/// [`await_drain`]): killing the child does *not* guarantee EOF on its
+/// pipes, because any surviving grandchild inherits the write ends.
 pub(super) fn drain_after_timeout(
     stdout: Option<thread::JoinHandle<DrainResult>>,
     stderr: Option<thread::JoinHandle<DrainResult>>,
     label: &str,
 ) {
-    let start = Instant::now();
+    let until = instant_after(DRAIN_GRACE);
     for (handle, stream) in [(stdout, "stdout"), (stderr, "stderr")] {
-        let Some(handle) = handle else {
+        let Some(handle) = await_drain(handle, until, label, stream, "was killed on timeout")
+        else {
             continue;
         };
-        while !handle.is_finished() && start.elapsed() < DRAIN_GRACE {
-            thread::sleep(DRAIN_POLL);
-        }
-        if !handle.is_finished() {
-            tracing::warn!(
-                label,
-                stream,
-                grace_ms = DRAIN_GRACE.as_millis(),
-                "pipe drain still blocked after the child was killed; abandoning it — \
-                 a surviving grandchild is holding the pipe open, and captured bytes are lost"
-            );
-            continue;
-        }
         if let Err(e) = collect_drain(Some(handle), label, stream) {
             tracing::warn!(
                 label,

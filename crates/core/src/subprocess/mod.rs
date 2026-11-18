@@ -61,7 +61,9 @@ pub use cap::{
 };
 
 use cap::output_byte_cap;
-use drain::{collect_drain, drain_after_timeout, spawn_drain};
+use drain::{
+    await_drain, collect_drain, drain_after_timeout, instant_after, spawn_drain, DRAIN_GRACE,
+};
 
 /// Returned when [`run_with_timeout`] has to kill the child because it
 /// outran the deadline. The label is the human-readable operation name
@@ -178,8 +180,23 @@ impl From<TimeoutError> for RunError {
 ///
 /// # Errors
 ///
-/// Returns [`RunError::Io`] if spawning or waiting on the child fails, and
-/// [`RunError::Timeout`] if the child outruns `timeout`.
+/// - [`RunError::Spawn`] if the child cannot be spawned (a missing
+///   binary, say).
+/// - [`RunError::Io`] if waiting on the child fails, if a drain thread
+///   panics, or if a drain fails before capturing any byte (see below).
+/// - [`RunError::Timeout`] if the child outruns `timeout`, or if it exited
+///   in time but a surviving descendant kept its stdout/stderr pipe open
+///   past the drain bound, so the captured output is incomplete.
+///
+/// ## Bounded drain after exit
+///
+/// The pipes reach EOF only once every holder of their write ends has
+/// closed them, and a grandchild the child left running inherits them.
+/// After the child exits, the drain threads are therefore waited on until
+/// the original deadline, or for a short grace when less than that
+/// remains, never unboundedly. A drain still blocked at that point is
+/// abandoned with a `tracing::warn!` naming `label` and the stream, and the
+/// call returns [`RunError::Timeout`].
 ///
 /// ## Panic-handling guarantees
 ///
@@ -224,6 +241,7 @@ fn run_with_timeout_inner(
     label: &str,
     cap: usize,
 ) -> Result<Output, RunError> {
+    let deadline = instant_after(timeout);
     let mut child =
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).spawn().map_err(
             |e| {
@@ -276,6 +294,18 @@ fn run_with_timeout_inner(
         return Err(RunError::Timeout(TimeoutError { label: label.to_string(), timeout }));
     };
 
+    // The child exited, but its pipes reach EOF only once every holder of
+    // the write ends closed them: a grandchild it left running keeps them
+    // open. Bound the drain by the remaining deadline, with a short grace
+    // floor so a child that exits right at the deadline can still flush.
+    let drain_until = deadline.max(instant_after(DRAIN_GRACE));
+    let stdout_piped = stdout_handle.is_some();
+    let stderr_piped = stderr_handle.is_some();
+    let stdout_handle = await_drain(stdout_handle, drain_until, label, "stdout", "exited");
+    let stderr_handle = await_drain(stderr_handle, drain_until, label, "stderr", "exited");
+    if (stdout_piped && stdout_handle.is_none()) || (stderr_piped && stderr_handle.is_none()) {
+        return Err(RunError::Timeout(TimeoutError { label: label.to_string(), timeout }));
+    }
     let stdout = collect_drain(stdout_handle, label, "stdout")?;
     let stderr = collect_drain(stderr_handle, label, "stderr")?;
 
@@ -536,5 +566,34 @@ mod tests {
             elapsed < Duration::from_secs(3),
             "must not wait out the surviving grandchild; elapsed = {elapsed:?}"
         );
+    }
+
+    /// A child that exits 0 but leaves a grandchild holding stdout open must
+    /// not hold the call past its deadline: the drain is bounded after exit
+    /// too, not only after a timeout kill.
+    #[cfg(unix)]
+    #[test]
+    fn success_returns_within_timeout_when_a_grandchild_holds_the_pipes() {
+        let timeout = Duration::from_millis(300);
+        let started = std::time::Instant::now();
+        let (logs, result) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
+            run_with_timeout(
+                Command::new("sh").args(["-c", "sleep 5 & exit 0"]),
+                timeout,
+                "sh lingering grandchild",
+            )
+        });
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "must not wait out the surviving grandchild; elapsed = {elapsed:?}"
+        );
+        assert!(
+            matches!(result, Err(RunError::Timeout(_))),
+            "an incomplete capture must surface as a timeout, got {result:?}"
+        );
+        assert!(logs.contains("sh lingering grandchild"), "warn must name the label: {logs}");
+        assert!(logs.contains("stdout"), "warn must name the stream: {logs}");
     }
 }
