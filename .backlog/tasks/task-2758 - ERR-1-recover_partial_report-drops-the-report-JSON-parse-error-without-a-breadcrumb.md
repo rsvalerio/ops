@@ -1,10 +1,10 @@
 ---
 id: TASK-2758
 title: 'ERR-1: recover_partial_report drops the report JSON parse error without a breadcrumb'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:46'
 labels:
   - code-review-rust
   - ERR
@@ -29,8 +29,9 @@ dedup_key: 'ERR-1:extensions-rust/test-coverage/src/parse.rs:recover_partial_rep
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A report that is read but fails to parse as JSON emits a warn naming report_path and the serde error before falling through to the cargo error
-- [ ] #2 A test covers the non-zero-exit + unparseable-report path and asserts the cargo error is still the returned error
+- [x] #1 A report that is read but fails to parse as JSON emits a warn naming report_path and the serde error before falling through to the cargo error
+- [x] #2 A test covers the non-zero-exit + unparseable-report path and asserts the cargo error is still the returned error
+
 <!-- AC:END -->
 
 ## Implementation Notes

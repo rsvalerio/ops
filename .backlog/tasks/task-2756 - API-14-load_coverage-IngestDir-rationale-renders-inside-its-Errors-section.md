@@ -1,10 +1,10 @@
 ---
 id: TASK-2756
 title: 'API-14: load_coverage IngestDir rationale renders inside its # Errors section'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:46'
 labels:
   - code-review-rust
   - API
@@ -29,8 +29,9 @@ dedup_key: 'API-14:extensions-rust/test-coverage/src/lib.rs:load_coverage'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The IngestDir paragraph is moved above the # Errors heading (into the description prose)
-- [ ] #2 The # Errors section of load_coverage lists only error conditions
+- [x] #1 The IngestDir paragraph is moved above the # Errors heading (into the description prose)
+- [x] #2 The # Errors section of load_coverage lists only error conditions
+
 <!-- AC:END -->
 
 ## Implementation Notes

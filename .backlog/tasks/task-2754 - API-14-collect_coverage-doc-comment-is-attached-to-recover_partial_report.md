@@ -1,10 +1,10 @@
 ---
 id: TASK-2754
 title: 'API-14: collect_coverage doc comment is attached to recover_partial_report'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:46'
 labels:
   - code-review-rust
   - API
@@ -29,8 +29,9 @@ dedup_key: 'API-14:extensions-rust/test-coverage/src/parse.rs:collect_coverage'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The collect_coverage doc block (summary, soft-fail rationale, deadline paragraph) is moved onto collect_coverage
-- [ ] #2 recover_partial_report's doc comment describes only recover_partial_report and mentions no parameter it does not take
+- [x] #1 The collect_coverage doc block (summary, soft-fail rationale, deadline paragraph) is moved onto collect_coverage
+- [x] #2 recover_partial_report's doc comment describes only recover_partial_report and mentions no parameter it does not take
+
 <!-- AC:END -->
 
 ## Implementation Notes

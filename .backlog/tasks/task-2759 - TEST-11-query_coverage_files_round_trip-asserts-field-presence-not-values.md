@@ -1,10 +1,10 @@
 ---
 id: TASK-2759
 title: 'TEST-11: query_coverage_files_round_trip asserts field presence, not values'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:46'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-11:extensions-rust/test-coverage/src/tests/provider.rs:query_co
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test compares at least one full row (all 15 fields) to the fixture values for that filename
-- [ ] #2 Swapping two same-typed columns in query_coverage_files makes the test fail
+- [x] #1 The test compares at least one full row (all 15 fields) to the fixture values for that filename
+- [x] #2 Swapping two same-typed columns in query_coverage_files makes the test fail
+
 <!-- AC:END -->
 
 ## Implementation Notes
