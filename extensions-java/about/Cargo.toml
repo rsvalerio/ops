@@ -5,20 +5,10 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 
-[package.metadata.cargo-machete]
-# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
-# in this crate, which machete cannot see through.
-ignored = ["linkme"]
-
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
-# `linkme` has no `linkme::` path in this crate's source, but
-# `ops_extension::impl_extension!` expands to
-# `#[linkme::distributed_slice(...)]`, so it must stay a direct dependency.
-# A plain grep for unused deps will "find" it again — it is not unused.
-linkme = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 

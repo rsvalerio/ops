@@ -1392,7 +1392,6 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "libc",
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-git",
@@ -1410,7 +1409,6 @@ dependencies = [
 name = "ops-about-go"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1423,7 +1421,6 @@ dependencies = [
 name = "ops-about-java"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1436,7 +1433,6 @@ dependencies = [
 name = "ops-about-node"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1451,7 +1447,6 @@ dependencies = [
 name = "ops-about-python"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1467,7 +1462,6 @@ name = "ops-about-rust"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-about",
  "ops-cargo-toml",
  "ops-cargo-update",
@@ -1488,7 +1482,6 @@ dependencies = [
 name = "ops-about-terraform"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1514,7 +1507,6 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "ignore",
- "linkme",
  "ops-core",
  "ops-extension",
  "serde",
@@ -1530,7 +1522,6 @@ name = "ops-cargo-update"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1547,7 +1538,6 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "json5 1.3.7",
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-text-fixers",
@@ -1618,7 +1608,6 @@ dependencies = [
 name = "ops-create-review-tasks-rust"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-about",
  "ops-about-rust",
  "ops-cargo-toml",
@@ -1637,7 +1626,6 @@ name = "ops-deps"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-theme",
@@ -1668,7 +1656,6 @@ dependencies = [
 name = "ops-git"
 version = "0.94.1"
 dependencies = [
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-hook-common",
@@ -1698,7 +1685,6 @@ name = "ops-metadata"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
@@ -1715,7 +1701,6 @@ name = "ops-run-before-commit"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-hook-common",
@@ -1728,7 +1713,6 @@ name = "ops-run-before-push"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-extension",
  "ops-hook-common",
  "serial_test",
@@ -1779,7 +1763,6 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "ignore",
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-sqlite",
@@ -1798,7 +1781,6 @@ dependencies = [
  "anyhow",
  "hex",
  "libc",
- "linkme",
  "ops-core",
  "ops-extension",
  "rusqlite",
@@ -1815,7 +1797,6 @@ name = "ops-test-coverage"
 version = "0.94.1"
 dependencies = [
  "anyhow",
- "linkme",
  "ops-core",
  "ops-extension",
  "ops-sqlite",
@@ -1832,7 +1813,6 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "ignore",
- "linkme",
  "ops-core",
  "ops-extension",
  "tempfile",
@@ -1877,7 +1857,6 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "ignore",
- "linkme",
  "ops-extension",
  "ops-sqlite",
  "serde_json",

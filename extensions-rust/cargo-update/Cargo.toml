@@ -5,18 +5,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[package.metadata.cargo-machete]
-# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
-# in this crate, which machete cannot see through.
-ignored = ["linkme"]
-
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 # Owns the workspace's shared ANSI grammar; the parser consumes it via
 # `ops_theme::strip_ansi_preserving_raw`.
 ops-theme = { workspace = true }
-linkme = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

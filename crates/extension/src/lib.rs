@@ -7,7 +7,9 @@
 // tokens the compiler counts into the invoking crate, so they must never be
 // expanded inside this crate (its tests live in `tests/`, a separate crate).
 // The macro emits `#[allow(unsafe_code)]` onto the generated static for
-// invoking crates that only deny (see `macros.rs`).
+// invoking crates that only deny (see `macros.rs`), and reaches linkme
+// through the hidden `__private` re-export so invoking crates need no direct
+// `linkme` dependency.
 // Crate-root attribute rather than a `[lints.rust]` table because Cargo
 // cannot merge a per-crate lints table with `workspace = true` inheritance.
 #![forbid(unsafe_code)]
@@ -31,3 +33,10 @@ pub use extension::{
 
 #[cfg(feature = "sqlite")]
 pub use db_handle::SqliteHandle;
+
+/// Macro support for `impl_extension!`. Not part of the public API: it may
+/// change in any release.
+#[doc(hidden)]
+pub mod __private {
+    pub use linkme;
+}

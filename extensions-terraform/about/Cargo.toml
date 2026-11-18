@@ -5,19 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[package.metadata.cargo-machete]
-# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
-# in this crate, which machete cannot see through.
-ignored = ["linkme"]
-
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
-# `linkme` is never named in the source, but it is a real dependency:
-# `ops_extension::impl_extension!` expands to
-# `#[linkme::distributed_slice(...)]`.
-linkme = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 # HCL identifiers are UAX #31, and heredoc terminators are identifiers, so
