@@ -1,10 +1,10 @@
 ---
 id: TASK-2779
 title: 'ARCH-11: config-checkers sets missing_docs as a crate-root attribute instead of in [workspace.lints]'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:14'
 labels:
   - code-review-rust
   - architecture
@@ -31,12 +31,16 @@ dedup_key: 'ARCH-11:extensions/config-checkers/src/lib.rs:crate-root-lints'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 missing_docs is either declared once in [workspace.lints.rust] (at a level that gates) or removed from the crate root, with no crate-root lint-level attribute left in config-checkers apart from the documented cfg_attr(test) block
-- [ ] #2 ops verify / clippy gates pass afterwards
+- [x] #1 missing_docs is either declared once in [workspace.lints.rust] (at a level that gates) or removed from the crate root, with no crate-root lint-level attribute left in config-checkers apart from the documented cfg_attr(test) block
+- [x] #2 ops verify / clippy gates pass afterwards
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.23 (code-review-rust run, 2026-11-18).
+
+Resolved by removing #![warn(missing_docs)] from the crate root (AC option 2) rather than adding missing_docs to [workspace.lints.rust]: a workspace-wide gate would fire across ~30 crates that were never held to it, which is policy, not a bounded fix.
+
 <!-- SECTION:NOTES:END -->

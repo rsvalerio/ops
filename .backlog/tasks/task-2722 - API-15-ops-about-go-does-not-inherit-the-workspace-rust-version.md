@@ -1,10 +1,10 @@
 ---
 id: TASK-2722
 title: 'API-15: ops-about-go does not inherit the workspace rust-version'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:33'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:12'
 labels:
   - code-review-rust
   - API
@@ -29,8 +29,9 @@ dedup_key: 'review-2667.07-11'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extensions-go/about/Cargo.toml declares rust-version.workspace = true
-- [ ] #2 cargo metadata reports rust_version 1.97 for ops-about-go
+- [x] #1 extensions-go/about/Cargo.toml declares rust-version.workspace = true
+- [x] #2 cargo metadata reports rust_version 1.97 for ops-about-go
+
 <!-- AC:END -->
 
 ## Implementation Notes

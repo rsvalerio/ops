@@ -1,10 +1,10 @@
 ---
 id: TASK-2780
 title: 'API-15: ops-config-checkers does not inherit the workspace rust-version'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:14'
 labels:
   - code-review-rust
   - api
@@ -31,8 +31,9 @@ The same omission exists in several sibling manifests (crates/core, crates/backl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extensions/config-checkers/Cargo.toml has rust-version.workspace = true
-- [ ] #2 cargo metadata reports rust_version 1.97 for ops-config-checkers
+- [x] #1 extensions/config-checkers/Cargo.toml has rust-version.workspace = true
+- [x] #2 cargo metadata reports rust_version 1.97 for ops-config-checkers
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2847
 title: 'code-review-plan-wave11'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:14'
 labels:
   - code-review-wave
 dependencies:
@@ -41,4 +41,8 @@ Grouping: workspace manifest/lint policy: rust-version inheritance, missing_docs
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2859 (extensions/config-checkers/src/lib.rs)
+
+Branch: code-review/TASK-2847
+Worktree: /home/rsvalerio/projects/.wave-TASK-2847
+
 <!-- SECTION:NOTES:END -->
