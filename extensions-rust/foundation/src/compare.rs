@@ -21,8 +21,10 @@ pub enum Rule {
 /// One place where the repo diverges from the baseline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Drift {
-    /// `<file>` or `<file>:<dotted.key>` — also the key a waiver names.
+    /// `<file>` or `<file>:<dotted.key>` — also the key a waiver names. A
+    /// key segment holding a `.` is double-quoted, as in a TOML dotted key.
     pub location: String,
+    /// What diverged, rendered verbatim by the CLI next to `location`.
     pub message: String,
 }
 
@@ -126,10 +128,44 @@ fn lint_level(spec: &Value) -> Option<Level> {
 }
 
 fn join(location: &str, key: &str) -> String {
+    let key = key_segment(key);
     if location.contains(':') {
         format!("{location}.{key}")
     } else {
         format!("{location}:{key}")
+    }
+}
+
+/// One key-path segment, double-quoted when it holds a `.` so the dot cannot
+/// be read as a segment boundary.
+pub fn key_segment(key: &str) -> std::borrow::Cow<'_, str> {
+    if key.contains('.') {
+        std::borrow::Cow::Owned(format!("\"{key}\""))
+    } else {
+        std::borrow::Cow::Borrowed(key)
+    }
+}
+
+/// Split a dotted key path into its segments, treating dots inside a
+/// double-quoted segment as part of the name.
+pub fn key_segments(path: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut rest = path;
+    loop {
+        let mut quoted = false;
+        let cut = rest.char_indices().find(|&(_, c)| {
+            if c == '"' {
+                quoted = !quoted;
+            }
+            c == '.' && !quoted
+        });
+        let Some((i, _)) = cut else {
+            segments.push(rest);
+            return segments;
+        };
+        let (segment, tail) = rest.split_at(i);
+        segments.push(segment);
+        rest = tail.strip_prefix('.').unwrap_or(tail);
     }
 }
 

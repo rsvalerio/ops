@@ -78,7 +78,8 @@ The check also compares `[cargo] workspaces` in `.ops.toml` (see
 cargo workspaces nested in the tree, such as cargo-fuzz's `fuzz/`:
 
 - A nested workspace missing from the list is drift at
-  `.ops.toml:cargo.workspaces.<dir>`, because the Rust built-ins skip it. This
+  `.ops.toml:cargo.workspaces.<dir>`, because the Rust built-ins skip it (a `<dir>`
+  holding a `.` is double-quoted, as in `cargo.workspaces."tools.x"`). This
   includes a repo that never set the list. Leaving one out on purpose is a
   waiver on that location.
 - A listed directory with no `Cargo.toml`, or one that is only a member of the
@@ -99,5 +100,7 @@ A deliberate divergence is recorded in `.ops.toml` with its reason:
 ```
 
 A key names a drift location exactly as the check prints it, or a file or table that
-contains it. Waived drift is still listed, with its reason. A waiver that matches no
+contains it. The file part must match in full, so `Cargo` or `deny` covers nothing,
+and a table covers only whole keys beneath it: `clippy.toml:allow` does not cover
+`clippy.toml:allow-unwrap-in-tests`. Waived drift is still listed, with its reason. A waiver that matches no
 drift is reported as `unused` so it can be removed before it hides something.

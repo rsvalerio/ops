@@ -31,7 +31,9 @@ pub use compare::{Drift, Rule};
 /// A foundation config file written verbatim at a fixed repo-relative path.
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigFile {
+    /// Where the file lives, relative to the repo root.
     pub path: &'static str,
+    /// The embedded baseline: the bytes [`scaffold`] writes and [`check`] compares.
     pub template: &'static str,
 }
 
@@ -71,7 +73,9 @@ pub enum Outcome {
 /// `:<table>` suffix for a manifest edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
+    /// The repo-relative file, plus `:<table>` when a manifest table was edited.
     pub target: String,
+    /// What [`scaffold`] did with `target`.
     pub outcome: Outcome,
 }
 
@@ -214,9 +218,16 @@ fn render_lints(shape: Shape) -> String {
 /// # Errors
 ///
 /// If `root` has no parseable `Cargo.toml`, its workspace members cannot be
-/// resolved, `.config` is a symlink, or any write fails.
+/// resolved, `.config` is a symlink, a member manifest resolves outside
+/// `root` (through a symlinked member directory, say), or any write fails.
+/// Members are checked before anything is written.
 pub fn scaffold(root: &Path, force: bool) -> anyhow::Result<Vec<Written>> {
     let manifest = Root::load(root)?;
+    let canonical_root =
+        root.canonicalize().with_context(|| format!("resolving {}", root.display()))?;
+    for member in &manifest.members {
+        ensure_inside(root, &canonical_root, &member_manifest(member))?;
+    }
     let mut written = Vec::new();
     for file in &FILES {
         let outcome =
@@ -267,6 +278,21 @@ fn ensure_real_dir(dir: &Path) -> anyhow::Result<()> {
             std::fs::create_dir(dir).with_context(|| format!("creating {}", dir.display()))
         }
         Err(e) => Err(e).with_context(|| format!("inspecting {}", dir.display())),
+    }
+}
+
+/// Refuse a repo-relative path that resolves outside `canonical_root`, so a
+/// symlinked member directory cannot steer a manifest write out of the repo.
+/// A path that does not resolve has nothing to write through.
+fn ensure_inside(root: &Path, canonical_root: &Path, rel: &str) -> anyhow::Result<()> {
+    match root.join(rel).canonicalize() {
+        Ok(resolved) if resolved.starts_with(canonical_root) => Ok(()),
+        Ok(resolved) => anyhow::bail!(
+            "{rel} resolves to {}, outside the repo; refusing to write through it",
+            resolved.display()
+        ),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("resolving {rel}")),
     }
 }
 
@@ -431,7 +457,7 @@ fn check_workspaces(root: &Path, configured: &[String], out: &mut Vec<Drift>) {
     for nested in &found {
         if !listed.contains(&nested.dir.as_str()) {
             out.push(Drift::new(
-                format!("{WORKSPACES_LOCATION}.{}", nested.dir),
+                format!("{WORKSPACES_LOCATION}.{}", compare::key_segment(&nested.dir)),
                 format!(
                     "'{}' is a cargo workspace ({}) missing from [cargo] workspaces, so the \
                      Rust built-ins skip it",
@@ -450,7 +476,10 @@ fn check_workspaces(root: &Path, configured: &[String], out: &mut Vec<Drift>) {
         } else {
             format!("lists '{dir}', which has no Cargo.toml")
         };
-        out.push(Drift::new(format!("{WORKSPACES_LOCATION}.{dir}"), message));
+        out.push(Drift::new(
+            format!("{WORKSPACES_LOCATION}.{}", compare::key_segment(dir)),
+            message,
+        ));
     }
 }
 
@@ -558,12 +587,32 @@ fn template_value(template: &str) -> anyhow::Result<Value> {
         .context("embedded foundation template does not parse")
 }
 
-/// A waiver covers a location when it names it exactly or names a file or
-/// table that contains it.
+/// A waiver covers a location when its file part names the location's file
+/// exactly and its key part, if any, is a whole-segment prefix of the
+/// location's key path. A file name's own dots are never a boundary.
 fn waiver_covers(waiver: &str, location: &str) -> bool {
-    location
-        .strip_prefix(waiver)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with(':') || rest.starts_with('.'))
+    let (waiver_file, waiver_key) = split_location(waiver);
+    let (file, key) = split_location(location);
+    if waiver_file != file {
+        return false;
+    }
+    let Some(waiver_key) = waiver_key else {
+        return true;
+    };
+    let Some(key) = key else {
+        return false;
+    };
+    let want = compare::key_segments(waiver_key);
+    let have = compare::key_segments(key);
+    have.starts_with(&want)
+}
+
+/// `<file>[:<dotted.key>]` split into its file and key parts.
+fn split_location(location: &str) -> (&str, Option<&str>) {
+    match location.split_once(':') {
+        Some((file, key)) => (file, Some(key)),
+        None => (location, None),
+    }
 }
 
 fn apply_waivers(drift: Vec<Drift>, waivers: &IndexMap<String, String>) -> Report {
