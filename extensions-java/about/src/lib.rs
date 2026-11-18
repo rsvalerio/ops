@@ -30,6 +30,10 @@ use ops_extension::ExtensionType;
 
 use gradle::GradleIdentityProvider;
 use maven::MavenIdentityProvider;
+use ops_about::units::PROJECT_UNITS_PROVIDER;
+
+/// Registry key both Java identity providers are registered and named under.
+const DATA_PROVIDER_NAME: &str = "project_identity";
 
 // --- Maven ---
 
@@ -53,11 +57,11 @@ ops_extension::impl_extension! {
     shortname: MAVEN_SHORTNAME,
     types: ExtensionType::DATASOURCE,
     stack: Some(ops_core::stack::Stack::JavaMaven),
-    data_provider_name: Some("project_identity"),
+    data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        let _ = registry.register("project_identity", Box::new(MavenIdentityProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(MavenIdentityProvider));
         // The card counts `<module>` entries, so the units page lists them.
-        let _ = registry.register("project_units", Box::new(maven::MavenUnitsProvider));
+        let _ = registry.register(PROJECT_UNITS_PROVIDER, Box::new(maven::MavenUnitsProvider));
     },
     factory: MAVEN_ABOUT_FACTORY = |_, _| {
         Some((MAVEN_NAME, Box::new(AboutMavenExtension)))
@@ -86,11 +90,11 @@ ops_extension::impl_extension! {
     shortname: GRADLE_SHORTNAME,
     types: ExtensionType::DATASOURCE,
     stack: Some(ops_core::stack::Stack::JavaGradle),
-    data_provider_name: Some("project_identity"),
+    data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        let _ = registry.register("project_identity", Box::new(GradleIdentityProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(GradleIdentityProvider));
         // The card counts `include` entries, so the units page lists them.
-        let _ = registry.register("project_units", Box::new(gradle::GradleUnitsProvider));
+        let _ = registry.register(PROJECT_UNITS_PROVIDER, Box::new(gradle::GradleUnitsProvider));
     },
     factory: GRADLE_ABOUT_FACTORY = |_, _| {
         Some((GRADLE_NAME, Box::new(AboutGradleExtension)))
@@ -179,6 +183,11 @@ mod tests {
             identity["stack_detail"],
             serde_json::json!("Maven"),
             "the Maven extension must register the Maven provider: {identity}"
+        );
+        assert_eq!(
+            identity["name"],
+            serde_json::json!("demo-maven"),
+            "the Maven provider must parse the fixture's artifactId: {identity}"
         );
 
         let gradle_dir = tempfile::tempdir().unwrap();
