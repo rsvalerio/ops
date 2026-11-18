@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
 
 use ops_about::text_util::trim_nonempty;
 use serde::Deserialize;
@@ -187,10 +187,11 @@ fn collect_authors(author: Option<PersonField>, contributors: Vec<PersonField>) 
 /// serde error uses `Display`, which is the readable form.
 pub fn warn_parse_failure(path: &Path, error: &serde_path_to_error::Error<serde_json::Error>) {
     static WARNED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    let mut seen = WARNED
-        .get_or_init(|| Mutex::new(HashSet::new()))
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    // Poison propagates (CONC-16) via the shared `ops_core::sync` policy.
+    let mut seen = ops_core::sync::lock(
+        WARNED.get_or_init(|| Mutex::new(HashSet::new())),
+        "package.json warn-once set",
+    );
     if !seen.insert(path.to_path_buf()) {
         return;
     }

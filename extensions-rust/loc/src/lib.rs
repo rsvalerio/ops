@@ -21,8 +21,8 @@ pub use ingestor::RustLocIngestor;
 
 use std::io::{BufRead, BufReader, Read, Seek as _};
 use std::path::Path;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, PoisonError};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use ops_extension::{
@@ -161,6 +161,11 @@ pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 /// partial-count policy is deliberate, and it is precisely *because* a short
 /// count is otherwise indistinguishable from a complete one that an expired
 /// deadline aborts instead of returning the rows it happened to reach.
+///
+/// # Panics
+///
+/// When a walk worker panicked while holding the row sink: the sink may be
+/// half-written, so the poisoned lock is propagated rather than recovered.
 pub fn collect_rust_loc(
     working_dir: &Path,
     deadline: Option<&Deadline>,
@@ -201,7 +206,9 @@ pub fn collect_rust_loc(
                 };
                 match count_entry(&entry, working_dir, deadline) {
                     EntryCount::Counted(relative, counts) => {
-                        let mut sink = records.lock().unwrap_or_else(PoisonError::into_inner);
+                        // Poison propagates via the shared `ops_core::sync`
+                        // policy: a torn sink would yield a short count.
+                        let mut sink = ops_core::sync::lock(&records, "rust-loc record sink");
                         push_records(&mut sink, &relative, &counts);
                     }
                     EntryCount::Skipped => {}
@@ -224,7 +231,14 @@ pub fn collect_rust_loc(
         }
     }
 
-    let mut records = records.into_inner().unwrap_or_else(PoisonError::into_inner);
+    // A worker that panicked mid-push poisons the sink, and its rows may be
+    // half-written; propagate rather than report a silently short count.
+    #[expect(
+        clippy::expect_used,
+        reason = "CONC-16: a poisoned lock is propagated, never recovered; the panic is the handling"
+    )]
+    let mut records =
+        records.into_inner().expect("rust-loc record sink poisoned by a panicking worker");
     // Workers finish in arbitrary order. Sorting keeps the JSON sidecar
     // and the SQLite ingest byte-stable across runs, so a diff of two
     // collections shows real changes only.
