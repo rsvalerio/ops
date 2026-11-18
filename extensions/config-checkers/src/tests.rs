@@ -8,6 +8,8 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use ops_text_fixers::discovery::Scope;
+
 use super::{
     CheckerOptions, CheckerReport, FailedFile, FailureKind, NAME, SHORTNAME, run_check_json,
     run_check_yaml, write_summary,
@@ -66,7 +68,7 @@ fn check_json_flags_only_broken_files() {
     write(&root.join("bad.json"), br#"{"a": }"#);
     write(&root.join("note.txt"), br#"{"a": }"#); // wrong ext: ignored
 
-    let opts = CheckerOptions::new(root.clone(), false);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -81,11 +83,11 @@ fn check_json_json5_flag_accepts_comments_and_unquoted_keys() {
     let root = &canon(&dir);
     write(&root.join("c.json"), br#"{ /* x */ "a": 1, }"#);
 
-    let strict = CheckerOptions::new(root.clone(), false);
+    let strict = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut buf = Vec::new();
     assert!(run_check_json(&strict, &mut buf).unwrap().failed());
 
-    let lenient = CheckerOptions::new(root.clone(), false).with_allow_json5(true);
+    let lenient = CheckerOptions::new(root.clone(), Scope::Walk).with_allow_json5(true);
     let mut buf = Vec::new();
     assert!(!run_check_json(&lenient, &mut buf).unwrap().failed());
 }
@@ -98,7 +100,7 @@ fn check_yaml_flags_only_broken_files() {
     write(&root.join("multi.yml"), b"a: 1\n---\nb: 2\n");
     write(&root.join("bad.yaml"), b"a: : :\n");
 
-    let opts = CheckerOptions::new(root.clone(), false);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut buf = Vec::new();
     let report = run_check_yaml(&opts, &mut buf).unwrap();
 
@@ -113,7 +115,7 @@ fn extension_matching_is_case_insensitive() {
     let root = &canon(&dir);
     write(&root.join("UPPER.JSON"), br#"{"ok": true}"#);
 
-    let opts = CheckerOptions::new(root.clone(), false);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
     assert_eq!(report.files_scanned, 1);
@@ -134,7 +136,7 @@ fn oversized_files_are_skipped_not_parsed() {
     // — must be reported as skipped, never reach the parser.
     write(&root.join("huge.json"), b"not valid json at all");
 
-    let opts = CheckerOptions::new(root.clone(), false).with_max_bytes(4);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk).with_max_bytes(4);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -152,7 +154,7 @@ fn parse_failures_are_recorded_with_the_parse_kind() {
     let root = &canon(&dir);
     write(&root.join("bad.json"), br#"{"a": }"#);
 
-    let opts = CheckerOptions::new(root.clone(), false);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -184,7 +186,7 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
     write(&p, br#"{"a": 1}"#);
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-    let opts = CheckerOptions::new(root.clone(), false);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -213,7 +215,7 @@ fn tracked_only_validates_the_files_git_lists() {
         return; // no git: `discover` would fall back to the walk
     }
 
-    let opts = CheckerOptions::new(root.clone(), true);
+    let opts = CheckerOptions::new(root.clone(), Scope::Tracked);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -235,7 +237,7 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
     // sparse checkout) still lists the path. That is not a parse failure.
     std::fs::remove_file(root.join("gone.json")).unwrap();
 
-    let opts = CheckerOptions::new(root.clone(), true);
+    let opts = CheckerOptions::new(root.clone(), Scope::Tracked);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -275,7 +277,7 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
         return;
     }
 
-    let opts = CheckerOptions::new(root.clone(), true);
+    let opts = CheckerOptions::new(root.clone(), Scope::Tracked);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -369,16 +371,53 @@ fn writer_errors_propagate() {
     let root = &canon(&dir);
     write(&root.join("bad.json"), br#"{"a": }"#);
 
-    let opts = CheckerOptions::new(root.clone(), false);
+    let opts = CheckerOptions::new(root.clone(), Scope::Walk);
     let mut w = FailingWriter;
     let err = run_check_json(&opts, &mut w).unwrap_err();
     assert!(err.to_string().contains("check-json"), "context missing: {err}");
 }
 
-// Note: `discovery::discover` currently swallows filesystem errors and
-// returns an empty list, so the `with_context` wrap on its `?` site is
-// a defensive future-proof — there is no externally-reachable failure
-// mode to assert against today.
+/// A git failure other than "not a repository" is a discovery error, and it
+/// reaches the caller with the checker label and the root attached.
+#[test]
+fn a_discovery_failure_carries_the_label_and_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = &canon(&dir);
+    write(&root.join("a.json"), b"{}");
+    if !stage_all(root) {
+        return;
+    }
+    std::fs::write(root.join(".git/index"), b"not an index").unwrap();
+
+    let opts = CheckerOptions::new(root.clone(), Scope::Tracked);
+    let err = run_check_json(&opts, &mut Vec::new()).unwrap_err();
+    let rendered = format!("{err:#}");
+    assert!(rendered.contains("check-json"), "label missing: {rendered}");
+    assert!(rendered.contains(&root.display().to_string()), "root missing: {rendered}");
+}
+
+/// Tracked paths discovery could not decode (non-Unix only) are announced
+/// and counted as skipped, never dropped in silence. The count cannot be
+/// produced on Unix, so the `Discovery` is constructed.
+#[test]
+fn undecodable_tracked_paths_are_announced_and_counted_as_skipped() {
+    let discovered =
+        ops_text_fixers::discovery::Discovery { undecodable_paths: 2, ..Default::default() };
+    let mut report = CheckerReport::default();
+    let mut out = Vec::new();
+
+    let files = discovered
+        .into_reported_files(&mut report, &mut out, "check-json", Path::new("/r"))
+        .unwrap();
+
+    assert!(files.is_empty());
+    assert_eq!(report.files_skipped, 2);
+    let out = String::from_utf8(out).unwrap();
+    assert!(
+        out.contains("check-json: 2 tracked path(s) skipped: filename is not valid UTF-8"),
+        "notice missing: {out}"
+    );
+}
 
 // -- extension registration --
 

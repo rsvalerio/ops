@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::discovery::Scope;
 use crate::test_support::{ReadOnlyDir, UnreadableFile, git_add, git_init, skip_precondition};
 
 /// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
@@ -29,13 +30,13 @@ fn write(p: &Path, content: &[u8]) {
 }
 
 fn opts(root: &Path) -> FixerOptions {
-    FixerOptions::new(root.to_path_buf(), false)
+    FixerOptions::new(root.to_path_buf(), Scope::Walk)
 }
 
 /// Every regular file under `root`, keyed by relative path.
 fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut out = BTreeMap::new();
-    for path in discovery::discover(root, false).unwrap().files {
+    for path in discovery::discover(root, Scope::Walk).unwrap().files {
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
         out.insert(rel, std::fs::read(&path).unwrap());
     }
@@ -118,7 +119,7 @@ fn every_discovered_file_is_accounted_for() {
     let mut buf = Vec::new();
     let report = run_trailing_whitespace(&opts(root), &mut buf).unwrap();
 
-    let discovered = discovery::discover(root, false).unwrap().files.len();
+    let discovered = discovery::discover(root, Scope::Walk).unwrap().files.len();
     assert_eq!(
         report.files_scanned + report.files_skipped + report.files_failed.len(),
         discovered,
@@ -151,7 +152,7 @@ fn a_file_whose_write_fails_is_counted_once() {
 
     assert_eq!(report.files_failed.len(), 1, "the write must fail");
     assert_eq!(report.files_scanned, 0, "a failed file is not also a scanned file");
-    let discovered = discovery::discover(root, false).unwrap().files.len();
+    let discovered = discovery::discover(root, Scope::Walk).unwrap().files.len();
     assert_eq!(
         report.files_scanned + report.files_skipped + report.files_failed.len(),
         discovered,
@@ -382,7 +383,7 @@ fn tracked_mode_never_rewrites_through_a_symlink_out_of_the_root() {
     write(&root.join("inside.txt"), b"inside   \n");
     git_add(root, &[Path::new("escape.conf"), Path::new("inside.txt")]);
 
-    let o = FixerOptions::new(root.clone(), true);
+    let o = FixerOptions::new(root.clone(), Scope::Tracked);
     let mut buf = Vec::new();
     let r1 = run_trailing_whitespace(&o, &mut buf).unwrap();
     let r2 = run_end_of_file_fixer(&o, &mut buf).unwrap();
@@ -408,7 +409,7 @@ fn tracked_mode_end_to_end_fixes_only_tracked_files() {
     write(&root.join("untracked.txt"), b"untracked   \n");
     git_add(root, &[Path::new("tracked.txt")]);
 
-    let o = FixerOptions::new(root.clone(), true);
+    let o = FixerOptions::new(root.clone(), Scope::Tracked);
     let mut buf = Vec::new();
     let report = run_trailing_whitespace(&o, &mut buf).unwrap();
 
@@ -432,7 +433,7 @@ fn a_tracked_run_outside_a_repository_announces_the_downgrade() {
     }
     write(&root.join("untracked.txt"), b"untracked   \n");
 
-    let o = FixerOptions::new(root.clone(), true);
+    let o = FixerOptions::new(root.clone(), Scope::Tracked);
     let mut buf = Vec::new();
     let report = run_trailing_whitespace(&o, &mut buf).unwrap();
 

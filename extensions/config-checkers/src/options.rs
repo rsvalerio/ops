@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use ops_text_fixers::discovery::Scope;
+
 use crate::DEFAULT_MAX_BYTES;
 
 /// Options shared by both checkers.
@@ -10,11 +12,11 @@ pub struct CheckerOptions {
     /// Directory the discovery walk descends from; every reported failure
     /// path is relative to it.
     pub root: PathBuf,
-    /// Selects the candidate set: `true` consults the git index
+    /// Selects the candidate set: [`Scope::Tracked`] consults the git index
     /// (`git ls-files`, tracked files only, honouring skip-worktree), while
-    /// `false` walks the directory tree honouring gitignore rules — the two
-    /// sets differ on untracked and ignored files.
-    pub tracked_only: bool,
+    /// [`Scope::Walk`] walks the directory tree honouring gitignore rules —
+    /// the two sets differ on untracked and ignored files.
+    pub scope: Scope,
     /// JSON only: accept JSON5 (a strict superset of JSONC — comments and
     /// trailing commas, plus unquoted keys, single-quoted strings, hex
     /// numbers, etc.).
@@ -26,11 +28,11 @@ pub struct CheckerOptions {
 }
 
 impl CheckerOptions {
-    /// Creates options for `root` with `tracked_only` selecting the
-    /// candidate set, JSON5 off, and the default byte cap.
+    /// Creates options for `root` with `scope` selecting the candidate set,
+    /// JSON5 off, and the default byte cap.
     #[must_use]
-    pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
-        Self { root, tracked_only, allow_json5: false, max_bytes: DEFAULT_MAX_BYTES }
+    pub const fn new(root: PathBuf, scope: Scope) -> Self {
+        Self { root, scope, allow_json5: false, max_bytes: DEFAULT_MAX_BYTES }
     }
 
     /// Enables JSON5 acceptance (JSON checker only).

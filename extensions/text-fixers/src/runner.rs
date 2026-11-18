@@ -7,9 +7,7 @@ use std::path::Path;
 
 use anyhow::Context;
 
-use ops_core::bounded_read::{
-    Rejected, read_candidate, record_failure, relative_to, report_walk_errors,
-};
+use ops_core::bounded_read::{Rejected, read_candidate, record_failure, relative_to};
 
 use crate::options::FixerOptions;
 use crate::report::{FailedFile, FailureKind, FixerReport, SkipReason};
@@ -23,7 +21,7 @@ use crate::{atomic, binary, discovery, eof, trailing};
 /// # Errors
 ///
 /// If the candidate file set cannot be discovered (including a failing
-/// `git ls-files` when `tracked_only` is set), or if the writer fails.
+/// `git ls-files` under [`Scope::Tracked`](discovery::Scope::Tracked)), or if the writer fails.
 /// Per-file read and write failures are recorded in the report, not returned;
 /// see [`run_fixer`].
 pub fn run_trailing_whitespace(
@@ -41,7 +39,7 @@ pub fn run_trailing_whitespace(
 /// # Errors
 ///
 /// If the candidate file set cannot be discovered (including a failing
-/// `git ls-files` when `tracked_only` is set), or if the writer fails.
+/// `git ls-files` under [`Scope::Tracked`](discovery::Scope::Tracked)), or if the writer fails.
 /// Per-file read and write failures are recorded in the report, not returned;
 /// see [`run_fixer`].
 pub fn run_end_of_file_fixer(
@@ -79,22 +77,22 @@ fn run_fixer(
     label: &str,
     fix: fn(&[u8]) -> Option<Vec<u8>>,
 ) -> anyhow::Result<FixerReport> {
-    let mut discovered = discovery::discover(&opts.root, opts.tracked_only).with_context(|| {
+    let discovered = discovery::discover(&opts.root, opts.scope).with_context(|| {
         format!(
-            "{label}: file discovery failed for root {} (tracked_only={})",
+            "{label}: file discovery failed for root {} (scope={:?})",
             opts.root.display(),
-            opts.tracked_only
+            opts.scope
         )
     })?;
 
     let mut report = FixerReport { check_only: opts.check, ..FixerReport::default() };
-    report_discovery_issues(&mut report, writer, label, &opts.root, &mut discovered)?;
+    let files = discovered.into_reported_files(&mut report, writer, label, &opts.root)?;
 
     let mut ctx = RunContext { label, check: opts.check, root: &opts.root, writer };
-    // Every counter below tallies entries of `discovered.files`, an in-memory
-    // `Vec` from one discovery pass, so the totals are bounded by its length
-    // and the `saturating_add` guards can never actually saturate.
-    for path in discovered.files {
+    // Every counter below tallies entries of `files`, an in-memory `Vec` from
+    // one discovery pass, so the totals are bounded by its length and the
+    // `saturating_add` guards can never actually saturate.
+    for path in files {
         let outcome = classify_candidate(opts.max_bytes, fix, &path);
         record_outcome(&mut ctx, &mut report, &path, outcome)?;
     }
@@ -130,48 +128,6 @@ enum FileOutcome {
     /// The fix produced new bytes that must be written back — or, in check
     /// mode, reported without writing.
     NeedsWrite { fixed: Vec<u8>, metadata: Metadata },
-}
-
-/// Render the run-level discovery notices and fold the walk errors into the
-/// report: the tracked-mode fallback warning, the untraversable directories,
-/// then the undecodable-path count, in that order.
-///
-/// The walk-error accounting loop is shared with the config checkers; see
-/// `ops_core::bounded_read::report_walk_errors` for why an untraversable
-/// directory must fail the run, not just print.
-///
-/// # Errors
-///
-/// If `writer` fails while rendering a notice.
-fn report_discovery_issues(
-    report: &mut FixerReport,
-    writer: &mut dyn Write,
-    label: &str,
-    root: &Path,
-    discovered: &mut discovery::Discovery,
-) -> anyhow::Result<()> {
-    if let Some(fallback) = &discovered.fallback {
-        // The user asked for the git index and is getting the filesystem
-        // instead, which puts untracked files under a tool that rewrites in
-        // place. Never silent.
-        writeln!(
-            writer,
-            "{label}: --tracked unavailable ({fallback}); falling back to a full walk of {} — \
-             untracked files are candidates too",
-            root.display()
-        )
-        .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
-    }
-    report_walk_errors(report, writer, label, std::mem::take(&mut discovered.walk_errors))?;
-    if discovered.undecodable_paths > 0 {
-        writeln!(
-            writer,
-            "{label}: {} tracked path(s) skipped: filename is not valid UTF-8 on this platform",
-            discovered.undecodable_paths
-        )
-        .with_context(|| format!("{label}: writing the undecodable-path notice failed"))?;
-    }
-    Ok(())
 }
 
 /// Read one discovered file and classify it, without touching the report or
@@ -262,15 +218,15 @@ fn record_rewrite(
     // as scanned too would put one discovered file in two buckets and
     // make `scanned + failed + skipped` overshoot the discovered total.
     if let Err(e) = atomic::replace(path, fixed, metadata) {
+        // A refusal is the safety check working, not the write breaking, so
+        // it is named as one.
+        let message = atomic::Refusal::of(&e)
+            .map_or_else(|| format!("write: {e}"), |refusal| format!("write refused: {refusal}"));
         record_failure(
             report,
             ctx.writer,
             label,
-            FailedFile {
-                path: display,
-                kind: FailureKind::Write(e.kind()),
-                message: format!("write: {e}"),
-            },
+            FailedFile { path: display, kind: FailureKind::Write(e.kind()), message },
         )?;
         return Ok(());
     }
@@ -310,6 +266,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::discovery::Scope;
 
     thread_local! {
         /// The file [`edit_then_fix`] overwrites, standing in for whoever
@@ -342,7 +299,7 @@ mod tests {
         VICTIM.set(Some(path.clone()));
 
         let mut out = Vec::new();
-        let opts = FixerOptions::new(root, false);
+        let opts = FixerOptions::new(root, Scope::Walk);
         let report = run_fixer(&opts, &mut out, "test-fixer", edit_then_fix).unwrap();
 
         assert_eq!(
@@ -359,7 +316,8 @@ mod tests {
         assert!(matches!(failure.kind, FailureKind::Write(_)));
         let rendered = String::from_utf8(out).unwrap();
         assert!(
-            rendered.contains(&format!("a.txt: write: {}", atomic::CHANGED_SINCE_READ)),
+            rendered
+                .contains(&format!("a.txt: write refused: {}", atomic::Refusal::ChangedSinceRead)),
             "the refusal must be named in the output: {rendered}"
         );
     }
