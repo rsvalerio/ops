@@ -1,10 +1,10 @@
 ---
 id: TASK-2692
 title: 'DUP-3: no-clobber hard-link claim is hand-written in three places'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:28'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - DUP
@@ -31,12 +31,16 @@ dedup_key: 'DUP-3:crates/backlog/src/cmd/cleanup.rs:move_to_completed'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single helper (e.g. link_noclobber / move_noclobber in cmd/mod.rs) owns the hard-link claim and its error messages
-- [ ] #2 rename_to_new_slug, move_to_completed and atomic_write_noclobber call it; existing tests pass
+- [x] #1 A single helper (e.g. link_noclobber / move_noclobber in cmd/mod.rs) owns the hard-link claim and its error messages
+- [x] #2 rename_to_new_slug, move_to_completed and atomic_write_noclobber call it; existing tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: cmd::link_noclobber owns the hard-link claim and the DestinationTaken error; atomic_write_noclobber, rename_to_new_slug and move_to_completed call it.
+
 <!-- SECTION:NOTES:END -->

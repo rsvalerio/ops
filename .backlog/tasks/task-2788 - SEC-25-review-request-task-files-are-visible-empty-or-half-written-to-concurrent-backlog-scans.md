@@ -1,10 +1,10 @@
 ---
 id: TASK-2788
 title: 'SEC-25: review-request task files are visible empty or half-written to concurrent backlog scans'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - SEC
@@ -31,13 +31,17 @@ dedup_key: 'SEC-25:extensions/create-review-tasks/src/lib.rs:stage_task_file'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each task file is rendered to a staging path and published to its final name atomically with no-clobber semantics (e.g. reuse ops-backlog's atomic_write_noclobber), so a scan never sees an empty or partial file
-- [ ] #2 Taken-name detection (AlreadyExists leads to reallocation) and the all-or-nothing rollback still hold, and their existing tests still pass
-- [ ] #3 A test asserts that no file under .backlog/tasks is empty or unparseable at any point a concurrent scan can observe (or at least after a failed attempt's rollback)
+- [x] #1 Each task file is rendered to a staging path and published to its final name atomically with no-clobber semantics (e.g. reuse ops-backlog's atomic_write_noclobber), so a scan never sees an empty or partial file
+- [x] #2 Taken-name detection (AlreadyExists leads to reallocation) and the all-or-nothing rollback still hold, and their existing tests still pass
+- [x] #3 A test asserts that no file under .backlog/tasks is empty or unparseable at any point a concurrent scan can observe (or at least after a failed attempt's rollback)
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.25 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: stage_task_file renders in memory and publishes via ops_backlog::cmd::atomic_write_noclobber (now pub); DestinationTaken maps to reallocation; render_task_file returns String. Test: concurrent_scans_never_see_a_partial_task_file; rollback test asserts no staging leftovers.
+
 <!-- SECTION:NOTES:END -->

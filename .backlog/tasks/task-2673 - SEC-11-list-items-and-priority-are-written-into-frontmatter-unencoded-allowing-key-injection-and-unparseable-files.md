@@ -1,10 +1,10 @@
 ---
 id: TASK-2673
 title: 'SEC-11: list items and priority are written into frontmatter unencoded, allowing key injection and unparseable files'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - SEC
@@ -35,13 +35,17 @@ The `yaml_scalar` doc comment claims "Values are validated at the provider bound
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 List items containing control characters, a leading/trailing space, or YAML-significant characters are either encoded so they round-trip or rejected with an error naming the field
-- [ ] #2 priority is validated (or encoded) so an empty or multi-line value cannot produce an unparseable file
-- [ ] #3 Round-trip tests: render then parse of a Frontmatter with a newline-bearing label and empty priority yields the same values or a create-time error, never an injected key
+- [x] #1 List items containing control characters, a leading/trailing space, or YAML-significant characters are either encoded so they round-trip or rejected with an error naming the field
+- [x] #2 priority is validated (or encoded) so an empty or multi-line value cannot produce an unparseable file
+- [x] #3 Round-trip tests: render then parse of a Frontmatter with a newline-bearing label and empty priority yields the same values or a create-time error, never an injected key
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: model::validate_list_item / validate_priority reject non-bare-safe values (control chars, outer whitespace, YAML indicators, ': ', ' #'), called by task create and task edit before anything is written; yaml_scalar doc corrected.
+
 <!-- SECTION:NOTES:END -->

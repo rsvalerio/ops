@@ -1,10 +1,10 @@
 ---
 id: TASK-2670
 title: 'SEC-25: task create hands out duplicate ids under concurrency and exposes half-written task files'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - SEC
@@ -34,13 +34,17 @@ Second defect in the same function: the file is created empty (`create_new`) and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Concurrent creates with different titles never produce two task files carrying the same id (e.g. allocation lock always held around scan+claim, or the number claimed independent of the slug)
-- [ ] #2 A new task file is never observable empty or partially written: content is staged and published atomically with no-clobber semantics
-- [ ] #3 A regression test spawns N concurrent unkeyed creates with distinct titles and asserts N distinct ids
+- [x] #1 Concurrent creates with different titles never produce two task files carrying the same id (e.g. allocation lock always held around scan+claim, or the number claimed independent of the slug)
+- [x] #2 A new task file is never observable empty or partially written: content is staged and published atomically with no-clobber semantics
+- [x] #3 A regression test spawns N concurrent unkeyed creates with distinct titles and asserts N distinct ids
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: create_task always holds Store::lock_allocation across scan+publish and publishes via atomic_write_noclobber (retrying on DestinationTaken). Test: concurrent_unkeyed_creates_get_distinct_ids.
+
 <!-- SECTION:NOTES:END -->

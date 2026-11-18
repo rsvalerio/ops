@@ -1,10 +1,10 @@
 ---
 id: TASK-2837
 title: 'code-review-plan-wave1'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:27'
 labels:
   - code-review-wave
 dependencies:
@@ -50,4 +50,8 @@ Grouping: backlog: id allocation, write atomicity and frontmatter integrity (TAS
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2838 (crates/backlog/src/cmd/create.rs, crates/backlog/src/cmd/edit.rs, crates/backlog/src/store.rs)
+
+Branch: code-review/TASK-2837
+Worktree: /home/rsvalerio/projects/.wave-TASK-2837
+
 <!-- SECTION:NOTES:END -->

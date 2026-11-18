@@ -1,10 +1,10 @@
 ---
 id: TASK-2786
 title: 'SEC-25: create-review-tasks allocates ids outside the backlog allocation lock and can duplicate a concurrent task create''s id'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - SEC
@@ -37,13 +37,17 @@ The lock exists precisely to serialise allocation across processes, and this sec
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 commit_task_set holds Store::lock_allocation() across id allocation and every task-file create of an attempt, so it serialises with keyed ops backlog task create
-- [ ] #2 A test interleaves a lock-holding ops-backlog create with a create-review-tasks run and asserts distinct main-task numbers
-- [ ] #3 The doc comments on commit_task_set and conflicting_claim describe the lock as the guarantee, and keep the re-check only if it still covers writers that do not take the lock
+- [x] #1 commit_task_set holds Store::lock_allocation() across id allocation and every task-file create of an attempt, so it serialises with keyed ops backlog task create
+- [x] #2 A test interleaves a lock-holding ops-backlog create with a create-review-tasks run and asserts distinct main-task numbers
+- [x] #3 The doc comments on commit_task_set and conflicting_claim describe the lock as the guarantee, and keep the re-check only if it still covers writers that do not take the lock
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.25 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: commit_task_set holds Store::lock_allocation across all attempts; conflicting_claim kept for writers outside the lock (backlog.md CLI, hand-copied files). Test: a_run_waits_for_a_lock_holding_writer_and_takes_a_distinct_number (fails without the lock).
+
 <!-- SECTION:NOTES:END -->

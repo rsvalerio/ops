@@ -1,10 +1,10 @@
 ---
 id: TASK-2682
 title: 'SEC-25: task edit is an unlocked read-modify-write, so concurrent edits of one task lose updates'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - SEC
@@ -29,12 +29,16 @@ dedup_key: 'SEC-25:crates/backlog/src/cmd/edit.rs:run_edit'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Edits to one task are serialized (e.g. the store's allocation lock or a per-task lock held across read, modify and write) or detected via a compare-before-rename check that retries/fails loudly
-- [ ] #2 A concurrency test runs N parallel --append-notes edits on one task and asserts all N notes are present
+- [x] #1 Edits to one task are serialized (e.g. the store's allocation lock or a per-task lock held across read, modify and write) or detected via a compare-before-rename check that retries/fails loudly
+- [x] #2 A concurrency test runs N parallel --append-notes edits on one task and asserts all N notes are present
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: run_edit holds Store::lock_allocation across find/modify/write (covers wave claim/park). Test: concurrent_note_appends_all_survive. Remaining unlocked writers filed as TASK-2864 (wave create/migrate) and TASK-2865 (cleanup).
+
 <!-- SECTION:NOTES:END -->

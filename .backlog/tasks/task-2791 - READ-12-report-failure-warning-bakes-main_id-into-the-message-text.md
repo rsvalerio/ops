@@ -1,10 +1,10 @@
 ---
 id: TASK-2791
 title: 'READ-12: report-failure warning bakes main_id into the message text'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:45'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:26'
 labels:
   - code-review-rust
   - READ
@@ -29,12 +29,16 @@ dedup_key: 'READ-12:extensions/create-review-tasks/src/lib.rs:run_create_tasks_a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tracing::warn! message is a constant template; main_id is carried only as a named field
-- [ ] #2 The recovery hint (warning and report line) names ops backlog task list --parent, with tests updated
+- [x] #1 The tracing::warn! message is a constant template; main_id is carried only as a named field
+- [x] #2 The recovery hint (warning and report line) names ops backlog task list --parent, with tests updated
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.25 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2837: warn! message is a constant template with main_id only as a field; warning, report line, docs and tests name ops backlog task list --parent (and the init hint names ops backlog init).
+
 <!-- SECTION:NOTES:END -->
