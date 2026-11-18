@@ -1,10 +1,10 @@
 ---
 id: TASK-2740
 title: 'READ-13: manifest_cache module docs carry migration plans and reviewer rules instead of the contract'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - READ
@@ -31,12 +31,16 @@ dedup_key: 'READ-13:extensions-rust/about/src/manifest_cache.rs:module-doc'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module/item docs keep only the end-state contract (key, value, cap, invalidation, member-set freeze, single-threaded-host assumption)
-- [ ] #2 Migration plans, reviewer rules and history of the removed Deref move to a backlog task, ADR or PR description
+- [x] #1 Module/item docs keep only the end-state contract (key, value, cap, invalidation, member-set freeze, single-threaded-host assumption)
+- [x] #2 Migration plans, reviewer rules and history of the removed Deref move to a backlog task, ADR or PR description
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.11 (code-review-rust run, 2026-11-18).
+
+Migration plan, reviewer rule and daemon member-freshness rule moved to TASK-2875 (Triage); the Deref history in unexpanded_workspace_members_spec was dropped. The struct-level 'does not implement Deref' note stays: it states an enduring property, not history.
+
 <!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2742
 title: 'READ-11: "metadata" cache key hardcoded in two providers, not tied to the metadata extension''s constant'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:29'
 labels:
   - code-review-rust
   - READ
@@ -30,7 +30,8 @@ dedup_key: 'READ-11:extensions-rust/about/src/units.rs:RustUnitsProvider::provid
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The metadata provider key is a single named constant shared with the producer (exported from the metadata extension or a shared crate) and both call sites use it
+- [x] #1 The metadata provider key is a single named constant shared with the producer (exported from the metadata extension or a shared crate) and both call sites use it
+
 <!-- AC:END -->
 
 ## Implementation Notes

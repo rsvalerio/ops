@@ -1,10 +1,10 @@
 ---
 id: TASK-2744
 title: 'READ-5: Concurrent coverage-cache test doc states the opposite of the implemented locking invariant'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:29'
 labels:
   - code-review-rust
   - READ
@@ -29,7 +29,8 @@ dedup_key: 'READ-5:extensions-rust/about/src/coverage_provider.rs:project_covera
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test doc describes the OnceLock-per-slot guarantee with the query running outside the outer mutex, matching cached_query_project_coverage
+- [x] #1 The test doc describes the OnceLock-per-slot guarantee with the query running outside the outer mutex, matching cached_query_project_coverage
+
 <!-- AC:END -->
 
 ## Implementation Notes

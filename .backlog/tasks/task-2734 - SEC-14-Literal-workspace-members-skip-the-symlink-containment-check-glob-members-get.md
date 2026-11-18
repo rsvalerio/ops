@@ -1,10 +1,10 @@
 ---
 id: TASK-2734
 title: 'SEC-14: Literal workspace members skip the symlink containment check glob members get'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:37'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:27'
 labels:
   - code-review-rust
   - SEC
@@ -31,8 +31,9 @@ dedup_key: 'SEC-14:extensions-rust/about/src/members.rs:resolved_workspace_membe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Literal members are canonicalized and rejected (with the shared Debug-formatted warn) when they resolve outside the canonical workspace root, matching resolve_glob_entry
-- [ ] #2 A test plants a literal member that is a symlink to a directory outside the workspace and asserts it is dropped from resolved_workspace_members and never read
+- [x] #1 Literal members are canonicalized and rejected (with the shared Debug-formatted warn) when they resolve outside the canonical workspace root, matching resolve_glob_entry
+- [x] #2 A test plants a literal member that is a symlink to a directory outside the workspace and asserts it is dropped from resolved_workspace_members and never read
+
 <!-- AC:END -->
 
 ## Implementation Notes
