@@ -1,10 +1,10 @@
 ---
 id: TASK-2768
 title: 'SEC-31: classify_plan silently drops resource changes with an empty actions array'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:43'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:53'
 labels:
   - code-review-rust
   - SEC
@@ -30,9 +30,10 @@ dedup_key: 'SEC-31:extensions-terraform/plan/src/lib.rs:classify_plan'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A resource change with an empty actions array surfaces as Action::Unknown (with a tracing::warn!), matching classify_output_action
-- [ ] #2 Such a row appears in the resource table with the unknown banner and makes has_changes return true
-- [ ] #3 A unit test covers a resource_changes entry with actions: []
+- [x] #1 A resource change with an empty actions array surfaces as Action::Unknown (with a tracing::warn!), matching classify_output_action
+- [x] #2 Such a row appears in the resource table with the unknown banner and makes has_changes return true
+- [x] #3 A unit test covers a resource_changes entry with actions: []
+
 <!-- AC:END -->
 
 ## Implementation Notes

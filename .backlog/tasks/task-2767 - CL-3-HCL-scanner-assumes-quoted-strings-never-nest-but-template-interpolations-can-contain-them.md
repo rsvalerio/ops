@@ -1,10 +1,10 @@
 ---
 id: TASK-2767
 title: 'CL-3: HCL scanner assumes quoted strings never nest, but template interpolations can contain them'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:43'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - CL
@@ -36,9 +36,10 @@ The module docs ("Quoted strings are line-local", the `strip_comments` and `scan
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either both stages track ${ / %{ interpolation depth inside quoted strings (nested quotes inside an interpolation do not end the outer string), or the limitation is stated in the strip_comments / scan_line docs
-- [ ] #2 Unit tests cover a terraform block next to lines like x = "${replace(var.x, "\\"", "")}" and x = "${format("%s}", var.y)}", asserting the chosen behaviour
-- [ ] #3 Both stages still agree on string boundaries (both_stages_* style test extended to interpolations)
+- [x] #1 Either both stages track ${ / %{ interpolation depth inside quoted strings (nested quotes inside an interpolation do not end the outer string), or the limitation is stated in the strip_comments / scan_line docs
+- [x] #2 Unit tests cover a terraform block next to lines like x = "${replace(var.x, "\\"", "")}" and x = "${format("%s}", var.y)}", asserting the chosen behaviour
+- [x] #3 Both stages still agree on string boundaries (both_stages_* style test extended to interpolations)
+
 <!-- AC:END -->
 
 ## Implementation Notes

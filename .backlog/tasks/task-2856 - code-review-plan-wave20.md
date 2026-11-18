@@ -1,10 +1,10 @@
 ---
 id: TASK-2856
 title: 'code-review-plan-wave20'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:04'
 labels:
   - code-review-wave
 dependencies:
@@ -47,4 +47,8 @@ Grouping: terraform about and plan
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2856
+Worktree: /home/rsvalerio/projects/.wave-TASK-2856
+
 <!-- SECTION:NOTES:END -->

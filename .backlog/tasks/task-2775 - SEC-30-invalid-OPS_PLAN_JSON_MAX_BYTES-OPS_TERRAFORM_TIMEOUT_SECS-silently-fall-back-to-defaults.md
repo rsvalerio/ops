@@ -1,10 +1,10 @@
 ---
 id: TASK-2775
 title: 'SEC-30: invalid OPS_PLAN_JSON_MAX_BYTES / OPS_TERRAFORM_TIMEOUT_SECS silently fall back to defaults'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:57'
 labels:
   - code-review-rust
   - SEC
@@ -29,9 +29,10 @@ dedup_key: 'SEC-30:extensions-terraform/plan/src/lib.rs:PipelineEnv::from_env'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A set-but-invalid OPS_PLAN_JSON_MAX_BYTES or OPS_TERRAFORM_TIMEOUT_SECS is reported (error or warn) naming the variable and the rejected value
-- [ ] #2 Unset variables still use the documented defaults
-- [ ] #3 The parsing is unit-tested on injected strings without mutating the process environment
+- [x] #1 A set-but-invalid OPS_PLAN_JSON_MAX_BYTES or OPS_TERRAFORM_TIMEOUT_SECS is reported (error or warn) naming the variable and the rejected value
+- [x] #2 Unset variables still use the documented defaults
+- [x] #3 The parsing is unit-tested on injected strings without mutating the process environment
+
 <!-- AC:END -->
 
 ## Implementation Notes

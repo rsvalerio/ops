@@ -1,10 +1,10 @@
 ---
 id: TASK-2766
 title: 'SEC-11: Overlong required_version is silently truncated into a constraint the manifest never stated'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:43'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:49'
 labels:
   - code-review-rust
   - SEC
@@ -31,9 +31,10 @@ The function's own doc comment rejects this approach for control characters: "St
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An over-cap required_version is either dropped (returns None with the existing warn) or rendered with a visible truncation marker, never as an unmarked prefix
-- [ ] #2 The REQUIRED_VERSION_MAX_LEN and sanitize_required_version docs state the chosen policy consistently with the control-character drop policy
-- [ ] #3 extract_required_version_caps_overlong_value is updated to assert the new behaviour, and the char count is computed once
+- [x] #1 An over-cap required_version is either dropped (returns None with the existing warn) or rendered with a visible truncation marker, never as an unmarked prefix
+- [x] #2 The REQUIRED_VERSION_MAX_LEN and sanitize_required_version docs state the chosen policy consistently with the control-character drop policy
+- [x] #3 extract_required_version_caps_overlong_value is updated to assert the new behaviour, and the char count is computed once
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2778
 title: 'TEST-2: read_stdin_* tests exercise read_capped and bundle an unrelated has_changes assertion'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:57'
 labels:
   - code-review-rust
   - TEST
@@ -29,13 +29,17 @@ dedup_key: 'TEST-2:extensions-terraform/plan/src/lib.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tests named for read_stdin either exercise the stdin path or are renamed to describe read_capped at-cap / over-cap behaviour
-- [ ] #2 The has_changes(&[]) assertion is removed from read_stdin_at_cap_returns_payload
-- [ ] #3 The over-cap read_capped tests that differ only in their source label are consolidated (e.g. one table-driven test)
+- [x] #1 Tests named for read_stdin either exercise the stdin path or are renamed to describe read_capped at-cap / over-cap behaviour
+- [x] #2 The has_changes(&[]) assertion is removed from read_stdin_at_cap_returns_payload
+- [x] #3 The over-cap read_capped tests that differ only in their source label are consolidated (e.g. one table-driven test)
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.21 (code-review-rust run, 2026-11-18).
+
+AC #2 was already satisfied on the landing branch: read_stdin_at_cap_returns_payload no longer carried the has_changes(&[]) assertion. Renamed the at-cap test to read_capped_at_cap_returns_payload_unchanged and folded the over-cap stdin/show tests into one table-driven read_capped test.
+
 <!-- SECTION:NOTES:END -->
