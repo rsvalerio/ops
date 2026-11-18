@@ -1,10 +1,10 @@
 ---
 id: TASK-2729
 title: 'READ-10: stale cast-lint suppressions in crate-level test allow'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:35'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - readability
@@ -29,8 +29,9 @@ dedup_key: 'READ-10:extensions-node/about/src/lib.rs:crate-attributes'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three clippy::cast_* entries are removed from the crate-level cfg_attr(test, allow(...))
-- [ ] #2 cargo clippy --all-targets -p ops-about-node stays clean
+- [x] #1 The three clippy::cast_* entries are removed from the crate-level cfg_attr(test, allow(...))
+- [x] #2 cargo clippy --all-targets -p ops-about-node stays clean
+
 <!-- AC:END -->
 
 ## Implementation Notes

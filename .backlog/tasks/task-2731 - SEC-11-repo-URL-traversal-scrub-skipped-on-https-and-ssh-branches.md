@@ -1,10 +1,10 @@
 ---
 id: TASK-2731
 title: 'SEC-11: repo URL traversal scrub skipped on https and ssh branches'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:35'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - security
@@ -33,13 +33,17 @@ So `git+https://host/o/../../x` is scrubbed while `https://host/o/../../x` is no
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every branch of normalize_repo_url applies the same traversal policy (scrub or drop), including the clean https fall-through and ssh_to_https
-- [ ] #2 The module doc describes the actual policy (strip vs reject)
-- [ ] #3 Tests pin https://host/o/../../x and ssh://git@host/o/../../x
+- [x] #1 Every branch of normalize_repo_url applies the same traversal policy (scrub or drop), including the clean https fall-through and ssh_to_https
+- [x] #2 The module doc describes the actual policy (strip vs reject)
+- [x] #3 Tests pin https://host/o/../../x and ssh://git@host/o/../../x
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.09 (code-review-rust run, 2026-11-18).
+
+Traversal policy is strip on every branch (authority kept); module doc updated accordingly.
+
 <!-- SECTION:NOTES:END -->

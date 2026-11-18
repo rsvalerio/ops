@@ -1,10 +1,10 @@
 ---
 id: TASK-2732
 title: 'TEST-4: repeated provider-to-identity setup across lib.rs tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:35'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - test
@@ -29,8 +29,9 @@ dedup_key: 'TEST-4:extensions-node/about/src/lib.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single test helper produces ProjectIdentity from a fixture dir; the ten call sites use it
-- [ ] #2 All ops-about-node tests still pass
+- [x] #1 A single test helper produces ProjectIdentity from a fixture dir; the ten call sites use it
+- [x] #2 All ops-about-node tests still pass
+
 <!-- AC:END -->
 
 ## Implementation Notes

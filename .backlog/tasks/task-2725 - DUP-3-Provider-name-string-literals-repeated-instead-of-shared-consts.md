@@ -1,10 +1,10 @@
 ---
 id: TASK-2725
 title: 'DUP-3: Provider-name string literals repeated instead of shared consts'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:34'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - duplication
@@ -31,8 +31,9 @@ dedup_key: 'DUP-3:extensions-java/about/src/lib.rs:register_data_providers'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each registry key is defined once as a const (or reuses ops_about's PROJECT_UNITS_PROVIDER) and every register call, data_provider_name and DataProvider::name uses it
-- [ ] #2 No inline "project_identity" / "project_units" literal remains in non-test code of ops-about-java
+- [x] #1 Each registry key is defined once as a const (or reuses ops_about's PROJECT_UNITS_PROVIDER) and every register call, data_provider_name and DataProvider::name uses it
+- [x] #2 No inline "project_identity" / "project_units" literal remains in non-test code of ops-about-java
+
 <!-- AC:END -->
 
 ## Implementation Notes
