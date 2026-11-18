@@ -4,6 +4,7 @@ title: 'SEC-25: wave create member updates and wave migrate rewrite task files o
 status: Triage
 assignee: []
 created_date: '2026-11-18 21:21'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - SEC
@@ -32,3 +33,9 @@ ordinal: 1000
 - [ ] #1 wave create's member updates and wave migrate's rewrites hold Store::lock_allocation() across each task's read, modify and write (without deadlocking against create_task, which takes the same lock)
 - [ ] #2 A concurrency test races a member rewrite against task edit --append-notes and asserts both changes survive
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-2838 (via TASK-2687) moved wave create's check, parent creation and member rewrites under the allocation lock; only the wave migrate half of this finding remains.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2691
 title: 'DUP-1: Store scan and lookup repeat the same directory walk + read + parse loop three times'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - DUP
@@ -29,8 +29,9 @@ dedup_key: 'DUP-1:crates/backlog/src/store.rs:Store::scan_all_tasks'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One private helper reads and parses the .md entries of a directory (with a strict/tolerant mode), used by scan_tasks, scan_all_tasks and find
-- [ ] #2 Existing store tests pass unchanged
+- [x] #1 One private helper reads and parses the .md entries of a directory (with a strict/tolerant mode), used by scan_tasks, scan_all_tasks and find
+- [x] #2 Existing store tests pass unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2690
 title: 'TIME-6: create/edit/wave commands read the wall clock inside the handler instead of taking it from the edge'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - TIME
@@ -32,12 +32,16 @@ dedup_key: 'TIME-6:crates/backlog/src/cmd/create.rs:create_task'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 create_task, run_edit, run_wave_create and the wave migration take the stamp (or a Timestamp) as a parameter read once at the command edge
-- [ ] #2 At least one create and one edit test assert the exact created_date/updated_date from an injected fixed clock
+- [x] #1 create_task, run_edit, run_wave_create and the wave migration take the stamp (or a Timestamp) as a parameter read once at the command edge
+- [x] #2 At least one create and one edit test assert the exact created_date/updated_date from an injected fixed clock
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+Public run_* wrappers read UtcStamp::now() once at the edge and delegate to create_task(stamp) / edit_with / wave_create_with / migrate_with(stamp); wave claim/park read it at their own edge; create-coderabbit-tasks reads one stamp per review.
+
 <!-- SECTION:NOTES:END -->

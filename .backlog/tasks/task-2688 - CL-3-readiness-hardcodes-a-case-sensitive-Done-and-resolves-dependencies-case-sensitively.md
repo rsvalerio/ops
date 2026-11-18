@@ -1,10 +1,10 @@
 ---
 id: TASK-2688
 title: 'CL-3: readiness hardcodes a case-sensitive "Done" and resolves dependencies case-sensitively'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - CL
@@ -32,9 +32,10 @@ Separately, the id → status lookups handed to `readiness_of` in `run_view` and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 readiness_of takes the configured terminal status and compares statuses case-insensitively, consistent with cleanup/about
-- [ ] #2 view and list JSON resolve dependency ids case-insensitively (one shared lookup builder), matching about.rs readiness_counts
-- [ ] #3 Tests cover a lowercase dependency id, a lowercase done status, and a non-Done terminal column
+- [x] #1 readiness_of takes the configured terminal status and compares statuses case-insensitively, consistent with cleanup/about
+- [x] #2 view and list JSON resolve dependency ids case-insensitively (one shared lookup builder), matching about.rs readiness_counts
+- [x] #3 Tests cover a lowercase dependency id, a lowercase done status, and a non-Done terminal column
+
 <!-- AC:END -->
 
 ## Implementation Notes

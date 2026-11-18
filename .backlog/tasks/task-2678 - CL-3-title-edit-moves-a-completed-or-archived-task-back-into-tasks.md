@@ -1,10 +1,10 @@
 ---
 id: TASK-2678
 title: 'CL-3: title edit moves a completed or archived task back into tasks/'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - CL
@@ -31,8 +31,9 @@ Reproduced on ops 0.94.1: create TASK-0001, move its file to `.backlog/completed
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A title edit renames the file within the directory it already lives in (completed/ and archive/tasks/ included)
-- [ ] #2 A test edits the title of a task in completed/ and asserts the file stays in completed/ under the new slug and nothing appears in tasks/
+- [x] #1 A title edit renames the file within the directory it already lives in (completed/ and archive/tasks/ included)
+- [x] #2 A test edits the title of a task in completed/ and asserts the file stays in completed/ under the new slug and nothing appears in tasks/
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2687
 title: 'DUP-3: wave create re-implements wave/membership checks inconsistently with wave.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - DUP
@@ -34,9 +34,10 @@ dedup_key: 'DUP-3:crates/backlog/src/cmd/wave_create.rs:resolve_members'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_members uses the shared wave predicates (is_wave and the membership union) so marker matching and membership rules are identical to wave list/members
-- [ ] #2 Member ids resolve with the same bare/padded forms Store::find accepts
-- [ ] #3 Members are re-read under a lock (or compare-before-write) so concurrent wave creates cannot both claim one member and member edits are not overwritten
+- [x] #1 resolve_members uses the shared wave predicates (is_wave and the membership union) so marker matching and membership rules are identical to wave list/members
+- [x] #2 Member ids resolve with the same bare/padded forms Store::find accepts
+- [x] #3 Members are re-read under a lock (or compare-before-write) so concurrent wave creates cannot both claim one member and member edits are not overwritten
+
 <!-- AC:END -->
 
 ## Implementation Notes

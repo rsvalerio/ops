@@ -1,10 +1,10 @@
 ---
 id: TASK-2838
 title: 'code-review-plan-wave2'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:45'
 labels:
   - code-review-wave
 dependencies:
@@ -50,4 +50,8 @@ Grouping: backlog: internal cleanup (id parsing, store scan, readiness, wave cre
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2837 (crates/backlog/src/cmd/create.rs, crates/backlog/src/cmd/edit.rs, crates/backlog/src/store.rs)
+
+Branch: code-review/TASK-2838
+Worktree: /home/rsvalerio/projects/.wave-TASK-2838
+
 <!-- SECTION:NOTES:END -->

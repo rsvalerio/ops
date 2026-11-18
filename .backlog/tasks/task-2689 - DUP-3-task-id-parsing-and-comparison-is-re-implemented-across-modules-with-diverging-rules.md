@@ -1,10 +1,10 @@
 ---
 id: TASK-2689
 title: 'DUP-3: task-id parsing and comparison is re-implemented across modules with diverging rules'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - DUP
@@ -34,12 +34,16 @@ dedup_key: 'DUP-3:crates/backlog/src/store.rs:task_id_key'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One TaskId parsing/comparison helper (e.g. a TaskId newtype or task_id_key-based eq) owns the matching rule
-- [ ] #2 wave members/overlap, list --parent/--dependents and wave create match ids with that helper, so padded and bare forms resolve consistently with Store::find
+- [x] #1 One TaskId parsing/comparison helper (e.g. a TaskId newtype or task_id_key-based eq) owns the matching rule
+- [x] #2 wave members/overlap, list --parent/--dependents and wave create match ids with that helper, so padded and bare forms resolve consistently with Store::find
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+TaskFileName::parse keeps its own leading_task_number for id allocation (conservative, filename-only, documented); every id comparison goes through store::same_task_id / task_id_lookup_key.
+
 <!-- SECTION:NOTES:END -->

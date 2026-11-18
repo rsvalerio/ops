@@ -1,10 +1,10 @@
 ---
 id: TASK-2693
 title: 'PERF-12: Store::find reads and parses every task file to resolve one id'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:28'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:41'
 labels:
   - code-review-rust
   - PERF
@@ -29,12 +29,16 @@ dedup_key: 'PERF-12:crates/backlog/src/store.rs:Store::find'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 find pre-filters entries by the id parsed from the filename (falling back to a full parse only for names without a derivable id) before reading/parsing
-- [ ] #2 Lookup semantics (precedence order, case/padding tolerance, damaged-neighbour tolerance) are unchanged; existing store tests pass
+- [x] #1 find pre-filters entries by the id parsed from the filename (falling back to a full parse only for names without a derivable id) before reading/parsing
+- [x] #2 Lookup semantics (precedence order, case/padding tolerance, damaged-neighbour tolerance) are unchanged; existing store tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.01 (code-review-rust run, 2026-11-18).
+
+find skips files whose filename id key differs from the wanted key; a file whose name disagrees with its own frontmatter id is the one (documented) semantic narrowing.
+
 <!-- SECTION:NOTES:END -->
