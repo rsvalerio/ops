@@ -580,7 +580,8 @@ pub fn run_locked(
     Ok(ExitCode::from(code))
 }
 
-/// Run the child to completion, forwarding caught signals to it, and map
+/// Run the child to completion, forwarding caught signals to it (except a
+/// SIGINT the terminal already delivered, see [`tty_already_delivered`]), and map
 /// its end to an exit code: its own code, or `128 + signo` when it (or
 /// `ops`) was signalled.
 ///
@@ -605,10 +606,51 @@ async fn run_child(
             }
             signo = signals.recv() => {
                 received = Some(signo);
-                forward(&child, signo);
+                if !tty_already_delivered(signo) {
+                    forward(&child, signo);
+                }
             }
         }
     }
+}
+
+/// Whether the terminal itself already delivered `signo` to the child.
+///
+/// The child is spawned in `ops`'s own process group, so it stays in the
+/// terminal's foreground group and keeps reading the tty normally. The
+/// cost is that a Ctrl-C at the terminal is delivered by the kernel to that
+/// *whole* group: the child already has its SIGINT, and forwarding the one
+/// `ops` caught would turn one keypress into two — which a nested `ops`
+/// (or any "second Ctrl-C = force" program) treats as an abort that skips
+/// graceful cleanup.
+///
+/// So a SIGINT is not forwarded while `ops`'s group is the foreground group
+/// of its controlling terminal. SIGTERM is always forwarded: the terminal
+/// never generates it. The one case this gives up is a SIGINT sent with
+/// `kill` to `ops`'s pid alone while it runs in the foreground; send
+/// SIGTERM for that, or press Ctrl-C.
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "tcgetpgrp/getpgrp FFI; see the SAFETY comment")]
+fn tty_already_delivered(signo: i32) -> bool {
+    use std::os::fd::AsRawFd as _;
+    if signo != libc::SIGINT {
+        return false;
+    }
+    // No controlling terminal (CI, a daemon, a pipe) means no tty-generated
+    // signal: whatever `ops` caught was sent to it, and must be forwarded.
+    let Ok(tty) = File::open("/dev/tty") else {
+        return false;
+    };
+    // SAFETY: both calls take plain integers and dereference nothing;
+    // `tty` is an open descriptor that outlives the `tcgetpgrp` call.
+    let (foreground, ours) = unsafe { (libc::tcgetpgrp(tty.as_raw_fd()), libc::getpgrp()) };
+    foreground > 0 && foreground == ours
+}
+
+/// No signals are caught off unix, so none was delivered by a terminal.
+#[cfg(not(unix))]
+const fn tty_already_delivered(_signo: i32) -> bool {
+    false
 }
 
 /// Send `signo` to the child, if it is still running.
