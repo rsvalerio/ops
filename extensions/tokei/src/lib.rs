@@ -1,18 +1,8 @@
 //! Tokei extension: code statistics (lines of code, comments, blanks) via the tokei library.
 //! Language-agnostic -- loads for any project regardless of stack.
 //!
-//! [`TokeiIngestor`] is the single entry point for loading statistics into
-//! the database: the crate exports no free `load_tokei` function. The doctest
-//! below enforces that, failing the day such a symbol exists.
-//!
-//! ```compile_fail
-//! let _ = ops_tokei::load_tokei;
-//! ```
-
-// The crate root needs no `cfg_attr(test, allow(..))` block: the crate
-// contains no `as` cast for a cast lint to fire on, and `unwrap_used` is
-// relaxed for test code workspace-wide by `allow-unwrap-in-tests` in
-// `clippy.toml`.
+//! [`TokeiIngestor`] is the entry point for loading statistics into the
+//! database: it stages the scan as a sidecar and loads it into `tokei_files`.
 
 mod ingestor;
 #[cfg(test)]
@@ -22,14 +12,16 @@ pub mod views;
 pub use ingestor::TokeiIngestor;
 
 use anyhow::Context as _;
+use encoding_rs_io::DecodeReaderBytesBuilder;
 use ignore::{DirEntry, WalkBuilder};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, Deadline,
     ExtensionType,
 };
 use ops_sqlite::Sqlite;
+use std::io::Read as _;
 use std::path::Path;
-use tokei::{Config as TokeiConfig, LanguageType, Languages};
+use tokei::{CodeStats, Config as TokeiConfig, LanguageType, Languages, Report};
 
 /// Extension identifier used to register this crate in the engine's
 /// extension registry.
@@ -144,9 +136,17 @@ pub(crate) const TOKEI_DEFAULT_EXCLUDED: &[&str] =
 /// taking the process down.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ScanLimits {
-    /// Files larger than this are skipped without being opened. Tokei reads
-    /// each file whole into memory to count its lines, so a checked-in
-    /// multi-GB `.sql` dump would otherwise be resident all at once.
+    /// Files larger than this are skipped. Tokei counts a file from its whole
+    /// contents in memory, so a checked-in multi-GB `.sql` dump would
+    /// otherwise be resident all at once.
+    ///
+    /// The cap is enforced twice: against the walk's `stat`, so an oversized
+    /// file is never opened, and again on the bytes actually read, through a
+    /// reader limited to one byte past the cap. A file that grows between the
+    /// walk and the read is therefore skipped as oversize rather than read
+    /// whole. The one residual: a regular file replaced by a FIFO after the
+    /// walk blocks its `open` until a writer appears, which no deadline check
+    /// can interrupt.
     pub file_bytes: u64,
     /// Upper bound on the number of files **scanned** — that is, opened,
     /// counted, and materialised as records.
@@ -255,13 +255,23 @@ pub(crate) fn scan_tokei(
         let Some(lang) = LanguageType::from_path(&path, &config) else {
             continue;
         };
-        match lang.parse(path, &config) {
-            Ok(report) => {
+        match count_capped(lang, &path, &config, limits.file_bytes) {
+            Ok(Some(stats)) => {
                 // Same accumulation tokei's own pipeline performs: group
                 // per-language, one `Report` per file.
+                let mut report = Report::new(path);
+                report.stats = stats;
                 languages.entry(lang).or_default().add_report(report);
             }
-            Err((error, path)) => {
+            Ok(None) => {
+                skips.oversize = skips.oversize.saturating_add(1);
+                tracing::warn!(
+                    path = ?path,
+                    cap = limits.file_bytes,
+                    "tokei: skipping file that grew past the size cap after the walk"
+                );
+            }
+            Err(error) => {
                 skips.unreadable = skips.unreadable.saturating_add(1);
                 // Debug-format the path per the project-wide path-log policy.
                 tracing::warn!(path = ?path, %error, "tokei: candidate could not be opened");
@@ -271,6 +281,50 @@ pub(crate) fn scan_tokei(
     let records = flatten_tokei_records(&languages, working_dir);
 
     Ok(skips.into_scan(records))
+}
+
+/// Count one candidate as `lang`, reading at most `cap` bytes of it.
+///
+/// Does what `LanguageType::parse` does — open the file, decode it through
+/// tokei's BOM-sniffing reader, count the bytes — but checks the size on the
+/// open handle and reads through a reader limited to `cap + 1` bytes, so the
+/// cap holds for the bytes actually read rather than for a `stat` taken
+/// during the walk. Returns `Ok(None)` when the file is over the cap by the
+/// time it is read.
+///
+/// # Errors
+///
+/// The open, the handle's metadata, or the read failed, or the path no
+/// longer names a regular file.
+fn count_capped(
+    lang: LanguageType,
+    path: &Path,
+    config: &TokeiConfig,
+    cap: u64,
+) -> std::io::Result<Option<CodeStats>> {
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no longer a regular file",
+        ));
+    }
+    if metadata.len() > cap {
+        return Ok(None);
+    }
+    let mut raw = file.take(cap.saturating_add(1));
+    // Sized from the handle's own length; decoding a UTF-16 file can still
+    // grow the UTF-8 text past it.
+    let capacity = usize::try_from(metadata.len()).unwrap_or(0);
+    let mut text = Vec::with_capacity(capacity);
+    DecodeReaderBytesBuilder::new().build(&mut raw).read_to_end(&mut text)?;
+    // A spent limit means the reader stopped at `cap + 1` raw bytes: the file
+    // grew past the cap after its metadata was read.
+    if raw.limit() == 0 {
+        return Ok(None);
+    }
+    Ok(Some(lang.parse_from_slice(text, config)))
 }
 
 /// What the candidate walk and the parse loop refused to look at, in one

@@ -1858,6 +1858,7 @@ name = "ops-tokei"
 version = "0.94.1"
 dependencies = [
  "anyhow",
+ "encoding_rs_io",
  "ignore",
  "ops-extension",
  "ops-sqlite",
