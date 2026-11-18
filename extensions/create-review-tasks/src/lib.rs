@@ -125,7 +125,7 @@ const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
 ///
 /// # Errors
 ///
-/// - No `.backlog/tasks` directory in `workspace_root` (hint: `backlog init`).
+/// - No `.backlog/tasks` directory in `workspace_root` (hint: `ops backlog init`).
 /// - No `review_targets` provider registered for the detected stack.
 /// - The registered provider failed, or its payload did not match
 ///   [`ReviewTargets`].
@@ -142,7 +142,7 @@ const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
 ///   [`RunMode::Write`] the run still succeeds — the task set is durably
 ///   committed and stays committed — and the failure is surfaced as a
 ///   `tracing` warning naming the main task id, recoverable via
-///   `backlog task list --parent <id>`.
+///   `ops backlog task list --parent <id>`.
 pub fn run_create_review_tasks(
     registry: &DataRegistry,
     workspace_root: &Path,
@@ -244,8 +244,7 @@ fn run_create_tasks_at(
                 error = %report_err,
                 main_id = %plan.main_id,
                 "task set was created but the report could not be written; \
-                 recover the ids with `backlog task list --parent {}`",
-                plan.main_id
+                 recover the ids with `ops backlog task list --parent <main_id>`"
             );
             return Ok(());
         }
@@ -442,23 +441,27 @@ fn plan_task_set<'a>(
 
 /// Allocate and write the whole task set, returning the plan that committed.
 ///
-/// Both ids come from one directory scan, so they are consistent with
-/// each other by construction, but that scan is still not atomic with the
-/// write that follows it — the remaining race is purely time-of-check to
-/// time-of-use. Two guards close it. Every file is created
-/// with `create_new`, which makes the filesystem — not the scan — decide who
-/// owns a filename; and once the main task file exists,
-/// [`backlog::conflicting_claim`] re-reads the tree to catch a concurrent run
-/// that took the same main number or the same daily sequence under a
-/// *different* name. A loser on either guard rolls back and rescans instead of
-/// leaving a duplicate id or a duplicate `review-request-<date>-<n>` title
-/// behind.
+/// The guarantee is the backlog store's allocation lock
+/// ([`ops_backlog::store::Store::lock_allocation`]), held across every
+/// attempt's id scan and every task-file publish — the same lock `ops
+/// backlog task create` and `task edit` hold — so no `ops` writer can
+/// allocate between this run's scan and its writes, and two review-request
+/// runs cannot take the same daily sequence. Two guards remain for writers
+/// that do not take the lock (the external backlog.md CLI, a hand-copied
+/// file): every file is published no-clobber, so the filesystem decides who
+/// owns a filename, and once the main task file exists
+/// [`backlog::conflicting_claim`] re-reads the tree for the same main number
+/// or daily sequence under a *different* name. A loser on either guard rolls
+/// back and rescans instead of leaving a duplicate id or a duplicate
+/// `review-request-<date>-<n>` title behind.
 fn commit_task_set<'a>(
     workspace_root: &Path,
     targets: &'a ReviewTargets,
     scheme: &'a RequestScheme,
     stamp: &UtcStamp,
 ) -> anyhow::Result<TaskPlan<'a>> {
+    let _lock =
+        ops_backlog::store::Store::open(&workspace_root.join(".backlog"))?.lock_allocation()?;
     for _ in 0..MAX_ALLOCATION_ATTEMPTS {
         let plan = plan_task_set(workspace_root, targets, scheme, stamp)?;
         if write_task_set(workspace_root, &plan, stamp)? {
@@ -499,12 +502,11 @@ fn write_task_set(
     if !stage_task_file(&mut staged, &tasks_dir, &main, stamp)? {
         return Ok(false);
     }
-    // The main file now exists, so it is a reservation every concurrent run
-    // can see. Re-reading the tree here catches the allocations that `create_new`
-    // structurally cannot: a run that interleaved between this one's two id
-    // scans and landed on the same number or the same daily sequence under a
-    // different filename. Seeing a conflict always loses, so two runs never
-    // both keep — whichever checks last sees both files.
+    // The main file now exists, so it is a reservation every concurrent
+    // writer can see. `ops` writers are already excluded by the allocation
+    // lock; re-reading the tree here catches a writer that does not take it
+    // and landed on the same number or the same daily sequence under a
+    // different filename, which the no-clobber publish structurally cannot.
     let claim = backlog::MainTaskClaim {
         file_name: &main.name,
         number: plan.main_number,
@@ -550,11 +552,17 @@ struct TaskFile<'a> {
     content: backlog::TaskContent<'a>,
 }
 
-/// Create and render one task file, registering it with `staged` first so a
-/// failure part-way through the render still rolls it back. `Ok(false)` means
-/// the name was taken between the id scan and the create.
+/// Render one task file and publish it under its final name, registering it
+/// with `staged` so a later failure rolls it back. `Ok(false)` means the
+/// name was already taken.
 ///
-/// Both the create and the write errors name the exact file path.
+/// The document is rendered in memory and published with
+/// [`ops_backlog::cmd::atomic_write_noclobber`]: written and synced to a
+/// staging file, then claimed with a hard link that refuses an existing
+/// name. A concurrent scan therefore never sees the file empty or
+/// half-written, and a crash never leaves a truncated task file behind.
+///
+/// Errors name the exact file path.
 fn stage_task_file(
     staged: &mut StagedTasks,
     tasks_dir: &Path,
@@ -562,27 +570,15 @@ fn stage_task_file(
     stamp: &UtcStamp,
 ) -> anyhow::Result<bool> {
     let path = tasks_dir.join(&file.name);
-    // `create_new` is the atomic check-and-create. `File::create`
-    // would silently truncate a task file another run just wrote.
-    let handle = match std::fs::File::create_new(&path) {
-        Ok(handle) => handle,
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-        Err(err) => {
-            return Err(anyhow::Error::new(err))
-                .with_context(|| format!("creating {}", path.display()));
+    let rendered = backlog::render_task_file(file.id, file.title, stamp, &file.content);
+    match ops_backlog::cmd::atomic_write_noclobber(&path, &rendered) {
+        Ok(()) => {
+            staged.track(path);
+            Ok(true)
         }
-    };
-    staged.track(path.clone());
-    // `render_task_file` emits the document as a single `write_all`; the
-    // `BufWriter` keeps that one write whole on its way to the file. The
-    // flush is explicit and checked — `BufWriter`'s `Drop` discards errors —
-    // and a flush failure carries the same path-naming context as the write
-    // errors above.
-    let mut writer = std::io::BufWriter::new(handle);
-    backlog::render_task_file(&mut writer, file.id, file.title, stamp, &file.content)
-        .and_then(|()| writer.flush())
-        .with_context(|| format!("writing {}", path.display()))?;
-    Ok(true)
+        Err(err) if err.downcast_ref::<ops_backlog::cmd::DestinationTaken>().is_some() => Ok(false),
+        Err(err) => Err(err),
+    }
 }
 
 /// The task files one attempt has created. Dropping this without
@@ -658,7 +654,7 @@ fn report(out: &mut dyn Write, plan: &TaskPlan<'_>, mode: RunMode) -> anyhow::Re
     }
     // Printed in both modes: even a dry run shows the id the eventual real
     // run will allocate, so the filter is usable as soon as the tasks exist.
-    writeln!(out, "list subtasks: backlog task list --parent {}", plan.main_id)?;
+    writeln!(out, "list subtasks: ops backlog task list --parent {}", plan.main_id)?;
     Ok(())
 }
 
@@ -754,7 +750,7 @@ mod tests {
                 "created TASK-0001 review-request-2026-08-20-1 (2 subtasks)\n",
                 "created TASK-0001.01 REVIEW: Run skill code-review-rust against ops-core (crates/core)\n",
                 "created TASK-0001.02 REVIEW: Run skill code-review-rust against ops-cli (crates/cli)\n",
-                "list subtasks: backlog task list --parent TASK-0001\n",
+                "list subtasks: ops backlog task list --parent TASK-0001\n",
             )
         );
     }
@@ -920,7 +916,7 @@ mod tests {
                 "would create TASK-0001 review-request-2026-08-20-1 (2 subtasks)\n",
                 "would create TASK-0001.01 REVIEW: Run skill code-review-rust against ops-core (crates/core)\n",
                 "would create TASK-0001.02 REVIEW: Run skill code-review-rust against ops-cli (crates/cli)\n",
-                "list subtasks: backlog task list --parent TASK-0001\n",
+                "list subtasks: ops backlog task list --parent TASK-0001\n",
             )
         );
         let tasks_dir = dir.path().join(".backlog").join("tasks");
@@ -1091,7 +1087,7 @@ mod tests {
         let (out, result) = run(&dir, &registry, RunMode::Write);
         let err = result.expect_err("the oversized filename must fail the run");
         assert!(
-            format!("{err:#}").contains("creating "),
+            format!("{err:#}").contains("task-0001.02 - "),
             "error must name the file it could not create, got: {err:#}"
         );
 
@@ -1100,7 +1096,79 @@ mod tests {
         assert_eq!(
             std::fs::read_dir(&tasks_dir).expect("tasks dir").count(),
             0,
-            "every staged task file must be removed"
+            "every staged task file must be removed, staging files included"
+        );
+    }
+
+    /// A backlog scan running beside a run never sees a task file empty or
+    /// half-written: every file is published complete, so the scan — the
+    /// one `ops backlog task list` and `task create --unless-exists` make —
+    /// never fails to parse.
+    #[test]
+    fn concurrent_scans_never_see_a_partial_task_file() {
+        const RUNS: usize = 6;
+        let dir = scratch_backlog();
+        let registry = registry_with(sample_payload());
+        let store =
+            ops_backlog::store::Store::open(&dir.path().join(".backlog")).expect("open store");
+        let done = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let scanner = scope.spawn(|| {
+                let mut scans = 0usize;
+                while !done.load(std::sync::atomic::Ordering::Acquire) {
+                    store.scan_tasks().expect("every visible task file parses");
+                    scans = scans.saturating_add(1);
+                }
+                scans
+            });
+            for _ in 0..RUNS {
+                let (_out, result) = run(&dir, &registry, RunMode::Write);
+                result.expect("run must succeed");
+            }
+            done.store(true, std::sync::atomic::Ordering::Release);
+            assert!(scanner.join().expect("scanner must not panic") > 0);
+        });
+        assert_eq!(store.scan_tasks().expect("scan").len(), RUNS * 3);
+    }
+
+    /// A run serialises with an `ops backlog` writer holding the allocation
+    /// lock: it cannot scan until that writer has published, so the two
+    /// never take the same main-task number.
+    #[test]
+    fn a_run_waits_for_a_lock_holding_writer_and_takes_a_distinct_number() {
+        let dir = scratch_backlog();
+        let registry = registry_with(sample_payload());
+        let store =
+            ops_backlog::store::Store::open(&dir.path().join(".backlog")).expect("open store");
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let out = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                // The critical section `ops backlog task create` runs: lock,
+                // scan, publish — with a pause between scan and publish so an
+                // unlocked allocator would scan the same number.
+                let _lock = store.lock_allocation().expect("lock");
+                let number = store.next_task_number().expect("scan");
+                locked_tx.send(number).expect("signal");
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                std::fs::write(
+                    tasks_dir.join(format!("task-{number:04} - cli-task.md")),
+                    format!(
+                        "---\nid: TASK-{number:04}\ntitle: 'cli'\nstatus: To Do\nassignee: []\n\
+                         created_date: '2026-08-20 19:02'\nlabels: []\ndependencies: []\n---\n"
+                    ),
+                )
+                .expect("publish");
+            });
+            let cli_number = locked_rx.recv().expect("writer holds the lock");
+            let (out, result) = run(&dir, &registry, RunMode::Write);
+            result.expect("run must succeed");
+            (cli_number, out)
+        });
+        let (cli_number, out) = out;
+        assert!(
+            out.starts_with(&format!("created TASK-{:04} ", cli_number + 1)),
+            "the run must allocate past the lock holder's TASK-{cli_number:04}, got: {out}"
         );
     }
 

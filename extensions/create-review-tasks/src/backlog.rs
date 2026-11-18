@@ -6,7 +6,6 @@
 //! live in `ops-backlog` (shared with `ops backlog task ...`); what stays
 //! here is everything specific to the `review-request-<date>-<n>` scheme.
 
-use std::io::Write;
 use std::ops::ControlFlow;
 use std::path::Path;
 
@@ -43,7 +42,7 @@ pub fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result<()> {
         Ok(())
     } else {
         anyhow::bail!(
-            "no {} directory found — run `backlog init` in {} before creating review tasks",
+            "no {} directory found — run `ops backlog init` in {} before creating review tasks",
             tasks_dir.display(),
             workspace_root.display()
         )
@@ -169,8 +168,8 @@ pub fn conflicting_claim(
     })
 }
 
-/// Render one task markdown file (frontmatter only, no body sections) into
-/// `w`. `subtask_of` is the parent's zero-padded id plus the
+/// Render one task markdown file (frontmatter only, no body sections).
+/// `subtask_of` is the parent's zero-padded id plus the
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
 /// The bytes come from the shared `ops_backlog` task-document
@@ -178,19 +177,13 @@ pub fn conflicting_claim(
 /// writers cannot drift. Everything specific to review requests (label
 /// sets, ordinals, `parent_task_id`) enters as a [`Frontmatter`] field
 /// here, not as a second frontmatter implementation.
-///
-/// The rendered document reaches `w` as one
-/// `write_all` of the shared renderer's `String` — the one-write-per-
-/// document property — and `w` must still be buffered (e.g. a `BufWriter`
-/// around the `File`) at the call site for the surrounding task-writing
-/// loop to keep that property across a whole request's files.
-pub fn render_task_file<W: Write>(
-    w: &mut W,
+#[must_use = "the rendered document is the whole point of the call"]
+pub fn render_task_file(
     id: &str,
     title: &str,
     stamp: &UtcStamp,
     content: &TaskContent<'_>,
-) -> std::io::Result<()> {
+) -> String {
     let ordinal = match content.subtask_of {
         None => MAIN_ORDINAL,
         // Ordinals only order sibling rows, so pinning an absurd `index` at
@@ -229,7 +222,7 @@ pub fn render_task_file<W: Write>(
             Body { raw: render_body(content.description, &[], &[], None, None) }
         },
     };
-    w.write_all(doc.render().as_bytes())
+    doc.render()
 }
 
 /// What one task file holds beyond its id and title: its place in the set
@@ -477,9 +470,7 @@ mod tests {
     #[test]
     fn render_main_task_matches_cli_shape() {
         let stamp = UtcStamp { date: "2026-08-20".to_string(), minutes: "19:02".to_string() };
-        let mut buf = Vec::new();
-        render_task_file(
-            &mut buf,
+        let rendered = render_task_file(
             "TASK-1671",
             "review-request-2026-08-20-1",
             &stamp,
@@ -488,8 +479,7 @@ mod tests {
                 labels: &["code-review-request", "code-review", "qa"],
                 description: "",
             },
-        )
-        .expect("render");
+        );
         let expected = concat!(
             "---\n",
             "id: TASK-1671\n",
@@ -507,15 +497,13 @@ mod tests {
             "ordinal: 1000\n",
             "---\n",
         );
-        assert_eq!(String::from_utf8(buf).expect("utf8"), expected);
+        assert_eq!(rendered, expected);
     }
 
     #[test]
     fn render_subtask_matches_cli_shape() {
         let stamp = UtcStamp { date: "2026-08-20".to_string(), minutes: "19:02".to_string() };
-        let mut buf = Vec::new();
-        render_task_file(
-            &mut buf,
+        let rendered = render_task_file(
             "TASK-1671.01",
             "REVIEW: Run skill code-review-rust against ops-core",
             &stamp,
@@ -524,8 +512,7 @@ mod tests {
                 labels: &["code-review", "qa"],
                 description: "",
             },
-        )
-        .expect("render");
+        );
         let expected = concat!(
             "---\n",
             "id: TASK-1671.01\n",
@@ -543,7 +530,7 @@ mod tests {
             "ordinal: 2001\n",
             "---\n",
         );
-        assert_eq!(String::from_utf8(buf).expect("utf8"), expected);
+        assert_eq!(rendered, expected);
     }
 
     #[test]
@@ -652,9 +639,7 @@ mod tests {
     #[test]
     fn control_characters_render_as_a_double_quoted_scalar() {
         let stamp = UtcStamp { date: "2026-08-20".to_string(), minutes: "19:02".to_string() };
-        let mut buf = Vec::new();
-        render_task_file(
-            &mut buf,
+        let rendered = render_task_file(
             "TASK-0001",
             "ops\ncore",
             &stamp,
@@ -663,9 +648,7 @@ mod tests {
                 labels: &["code-review-request", "code-review", "qa"],
                 description: "",
             },
-        )
-        .expect("render");
-        let rendered = String::from_utf8(buf).expect("utf8");
+        );
         assert!(
             rendered.contains("title: \"ops\\ncore\"\n"),
             "the newline must be escaped inside the scalar, got: {rendered}"
