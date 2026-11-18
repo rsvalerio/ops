@@ -156,7 +156,6 @@ pub fn run_coderabbit_reviews(
         );
     }
     preflight(opts.program, workspace_root)?;
-    let interrupted = install_interrupt_flag()?;
 
     // The workspace root's place inside the repository, so the same
     // directory can be found inside each worktree.
@@ -164,13 +163,16 @@ pub fn run_coderabbit_reviews(
         .canonicalize()
         .with_context(|| format!("resolving {}", workspace_root.display()))?;
     let within = root.strip_prefix(&top).unwrap_or_else(|_| Path::new("")).to_path_buf();
+    // Held exactly across the review loop: dropping it at the end of this
+    // function restores the default SIGINT/SIGTERM disposition.
+    let interrupt = InterruptGuard::install()?;
     let run = TargetRun {
         backlog,
         workspace_root,
         top: &top,
         within: &within,
         opts,
-        interrupted: &interrupted,
+        interrupted: interrupt.flag(),
     };
     for target in &targets.targets {
         run.review(target, out)?;
@@ -227,23 +229,114 @@ fn display_output(output: &std::process::Output) -> String {
     format!("{text:?}")
 }
 
-/// Set once SIGINT or SIGTERM arrives. While installed, the first signal no
-/// longer kills this process: the coderabbit child (same process group)
-/// still gets it and exits, and the run unwinds through the worktree guard.
-/// A second signal takes the default action, so a wedged cleanup can still
-/// be killed.
-fn install_interrupt_flag() -> anyhow::Result<Arc<AtomicBool>> {
-    use signal_hook::consts::{SIGINT, SIGTERM};
-    let flag = Arc::new(AtomicBool::new(false));
-    for signal in [SIGINT, SIGTERM] {
-        // Registered first, so it sees the flag as it was before this
-        // signal: set means this is the second one.
-        signal_hook::flag::register_conditional_default(signal, Arc::clone(&flag))
-            .context("installing the interrupt handler")?;
-        signal_hook::flag::register(signal, Arc::clone(&flag))
-            .context("installing the interrupt handler")?;
+/// The SIGINT/SIGTERM handlers of one run and the flag they set.
+///
+/// While it lives, the first signal no longer kills this process: the
+/// coderabbit child (same process group) still gets it and exits, and the run
+/// unwinds through the worktree guard. A second signal takes the default
+/// action, so a wedged cleanup can still be killed. Dropping it unregisters
+/// every handler it installed, so the process's signal disposition is
+/// restored once the review loop ends.
+struct InterruptGuard {
+    flag: Arc<AtomicBool>,
+    ids: Vec<signal_hook::SigId>,
+}
+
+impl InterruptGuard {
+    fn install() -> anyhow::Result<Self> {
+        use signal_hook::consts::{SIGINT, SIGTERM};
+        // Built first, so a registration that fails half-way still releases
+        // the handlers already installed.
+        let mut guard = Self { flag: Arc::new(AtomicBool::new(false)), ids: Vec::new() };
+        for signal in [SIGINT, SIGTERM] {
+            // Registered first, so it sees the flag as it was before this
+            // signal: set means this is the second one.
+            guard.ids.push(
+                signal_hook::flag::register_conditional_default(signal, Arc::clone(&guard.flag))
+                    .context("installing the interrupt handler")?,
+            );
+            guard.ids.push(
+                signal_hook::flag::register(signal, Arc::clone(&guard.flag))
+                    .context("installing the interrupt handler")?,
+            );
+        }
+        Ok(guard)
     }
-    Ok(flag)
+
+    /// Set once SIGINT or SIGTERM arrived while the guard was installed.
+    fn flag(&self) -> &AtomicBool {
+        &self.flag
+    }
+}
+
+impl Drop for InterruptGuard {
+    fn drop(&mut self) {
+        for id in self.ids.drain(..) {
+            signal_hook::low_level::unregister(id);
+        }
+    }
+}
+
+/// The tally of one review's findings, kept in the caller so the ids filed
+/// before a failure are still known to it.
+#[derive(Debug, Default)]
+struct Filing {
+    /// Ids of the task files written by this review.
+    filed: Vec<String>,
+    /// Findings whose task already existed.
+    existing: usize,
+    /// Findings skipped because their file is outside the repository.
+    skipped: usize,
+}
+
+/// Where one review's findings are filed: the backlog, the target they are
+/// keyed under, the worktree root their paths are relative to, and the
+/// creation stamp they share.
+struct Filer<'a> {
+    backlog: Backlog<'a>,
+    target_name: &'a str,
+    worktree_root: &'a Path,
+    stamp: &'a UtcStamp,
+}
+
+/// File one Triage task per finding, recording each outcome in `filing`.
+///
+/// A finding whose file is refused by [`finding::repo_relative_file`] is
+/// skipped with a warning on `out`, so one malformed finding does not cost the
+/// findings after it.
+///
+/// # Errors
+///
+/// A task write or a write to `out` fails; `filing` still holds every task
+/// filed before it.
+fn file_findings(
+    filer: &Filer<'_>,
+    findings: &[finding::Finding],
+    filing: &mut Filing,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    for item in findings {
+        let file = match finding::repo_relative_file(&item.file_name, filer.worktree_root) {
+            Ok(file) => file,
+            Err(err) => {
+                writeln!(out, "skipped: {err}")?;
+                filing.skipped = filing.skipped.saturating_add(1);
+                continue;
+            }
+        };
+        let opts = finding::task_options(filer.target_name, &file, item);
+        match create_task(filer.backlog.store, filer.backlog.cfg, &opts, filer.stamp)? {
+            Created::New(id) => {
+                writeln!(out, "created {id} {}", opts.title)?;
+                filing.filed.push(id);
+            }
+            Created::Exists(id) => {
+                writeln!(out, "exists {id} {}", opts.title)?;
+                filing.existing = filing.existing.saturating_add(1);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// What every target's review shares.
@@ -279,40 +372,72 @@ impl TargetRun<'_> {
         let findings = finding::parse_agent_output(&stdout)
             .with_context(|| format!("reading the coderabbit review of {}", target.name))?;
 
-        let root = worktree.path().to_string_lossy().into_owned();
-        let mut filed = Vec::new();
-        let mut existing = 0usize;
         // One clock read per review: every finding it files shares the stamp.
         let stamp = UtcStamp::now()?;
-        for item in &findings {
-            let file = finding::repo_relative_file(&item.file_name, &root)?;
-            let opts = finding::task_options(&target.name, &file, item);
-            match create_task(self.backlog.store, self.backlog.cfg, &opts, &stamp)? {
-                Created::New(id) => {
-                    writeln!(out, "created {id} {}", opts.title)?;
-                    filed.push(id);
-                }
-                Created::Exists(id) => {
-                    writeln!(out, "exists {id} {}", opts.title)?;
-                    existing = existing.saturating_add(1);
-                }
+        let mut filing = Filing::default();
+        let filer = Filer {
+            backlog: self.backlog,
+            target_name: &target.name,
+            worktree_root: worktree.path(),
+            stamp: &stamp,
+        };
+        let filed = file_findings(&filer, &findings, &mut filing, out);
+        // Commit whatever was filed even when filing stopped early: a task
+        // file left uncommitted is never picked up again, since a re-run
+        // reports it as already filed.
+        let committed = self.commit_filed(&target.name, &filing.filed, out);
+        match (filed, committed) {
+            (Ok(()), committed) => committed?,
+            (Err(err), Ok(())) if !filing.filed.is_empty() => {
+                return Err(err.context(format!(
+                    "filing the coderabbit findings of {} stopped; committed the ones filed so \
+                     far: {}",
+                    target.name,
+                    filing.filed.join(" ")
+                )));
             }
-        }
-        if !filed.is_empty() {
-            let commit = CommitOptions {
-                task_ids: filed.clone(),
-                message: format!("chore(backlog): file CodeRabbit findings for {}", target.name),
-            };
-            run_commit(self.backlog.store, self.workspace_root, &commit, &mut &mut *out)?;
+            (Err(err), Ok(())) => return Err(err),
+            // Both failed: the filing error is the cause, the commit error
+            // names the uncommitted ids and the command that commits them.
+            (Err(err), Err(commit)) => return Err(err.context(format!("{commit:#}"))),
         }
         writeln!(
             out,
-            "{}: {} finding(s), {} new, {existing} already filed",
+            "{}: {} finding(s), {} new, {} already filed, {} skipped",
             target.name,
             findings.len(),
-            filed.len()
+            filing.filed.len(),
+            filing.existing,
+            filing.skipped
         )?;
         Ok(())
+    }
+
+    /// Commit the task files `filed` created; a failure names them and the
+    /// command that commits them by hand.
+    fn commit_filed(
+        &self,
+        name: &str,
+        filed: &[String],
+        out: &mut dyn Write,
+    ) -> anyhow::Result<()> {
+        if filed.is_empty() {
+            return Ok(());
+        }
+        let commit = CommitOptions {
+            task_ids: filed.to_vec(),
+            message: format!("chore(backlog): file CodeRabbit findings for {name}"),
+        };
+        run_commit(self.backlog.store, self.workspace_root, &commit, &mut &mut *out).with_context(
+            || {
+                format!(
+                    "committing the new task files {ids} — commit them with `ops backlog commit \
+                     {ids} -m \"{msg}\"`",
+                    ids = filed.join(" "),
+                    msg = commit.message
+                )
+            },
+        )
     }
 
     /// Run `coderabbit review --agent` over the target's directory in the
@@ -373,6 +498,36 @@ mod tests {
         let err =
             preflight(OsStr::new("ops-no-such-coderabbit"), dir.path()).expect_err("must fail");
         assert!(err.to_string().contains("not found on PATH"), "{err}");
+    }
+
+    #[test]
+    fn an_invalid_file_name_skips_only_its_own_finding() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join(".backlog/tasks")).expect("tasks");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let cfg = BacklogConfig::default();
+        let stream = concat!(
+            "{\"type\":\"finding\",\"severity\":\"minor\",\"fileName\":\"/tmp/wt/a.rs\",\"comment\":\"First.\"}\n",
+            "{\"type\":\"finding\",\"severity\":\"minor\",\"fileName\":\"/tmp/wt2/b.rs\",\"comment\":\"Outside.\"}\n",
+            "{\"type\":\"finding\",\"severity\":\"minor\",\"fileName\":\"c.rs\",\"comment\":\"Third.\"}\n",
+            "{\"type\":\"complete\"}\n",
+        );
+        let findings = finding::parse_agent_output(stream).expect("parses");
+        let mut filing = Filing::default();
+        let mut out = Vec::new();
+        let stamp = UtcStamp::now().expect("clock");
+        let filer = Filer {
+            backlog: Backlog { store: &store, cfg: &cfg },
+            target_name: "ops-core",
+            worktree_root: Path::new("/tmp/wt"),
+            stamp: &stamp,
+        };
+        file_findings(&filer, &findings, &mut filing, &mut out).expect("files the valid findings");
+        let out = String::from_utf8(out).expect("utf8");
+        assert_eq!(filing.filed.len(), 2, "{out}");
+        assert_eq!((filing.existing, filing.skipped), (0, 1), "{out}");
+        assert!(out.contains("skipped: coderabbit named a file outside the repository"), "{out}");
+        assert!(out.contains("/tmp/wt2/b.rs"), "{out}");
     }
 
     #[test]

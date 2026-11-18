@@ -10,6 +10,7 @@
 //! what marks a stream as truncated.
 
 use std::fmt::Write as _;
+use std::path::{Component, Path};
 
 use anyhow::Context as _;
 use ops_backlog::cmd::CreateOptions;
@@ -88,25 +89,44 @@ const MAX_TITLE_CHARS: usize = 120;
 
 /// The finding's file as a repo-relative `/` path.
 ///
-/// It is stripped of the worktree root when CodeRabbit printed it absolute,
-/// and refused when it would point outside the repository or carries a character that cannot
-/// sit in a frontmatter list or a report line.
+/// It is stripped of the worktree root, component by component, when
+/// CodeRabbit printed it absolute, and refused when it would point outside
+/// the repository or carries a character that cannot sit in a frontmatter
+/// list or a report line.
 ///
 /// # Errors
 ///
-/// The path is empty, still absolute after stripping, has a `..` component,
-/// or holds an unsafe display character.
-pub fn repo_relative_file(file_name: &str, worktree_root: &str) -> anyhow::Result<String> {
-    let trimmed = file_name
-        .strip_prefix(worktree_root)
-        .map_or(file_name, |rest| rest.trim_start_matches('/'));
-    let relative = trimmed.strip_prefix("./").unwrap_or(trimmed);
-    let unsafe_char = relative.chars().any(is_unsafe_char);
-    let escapes = relative.starts_with('/') || relative.split('/').any(|part| part == "..");
-    if relative.is_empty() || unsafe_char || escapes {
-        anyhow::bail!("coderabbit named a file outside the repository: {file_name:?}");
+/// The path is empty, absolute but not under `worktree_root`, has a `..`,
+/// root or prefix component after stripping, or holds an unsafe display
+/// character.
+pub fn repo_relative_file(file_name: &str, worktree_root: &Path) -> anyhow::Result<String> {
+    let refuse =
+        || anyhow::anyhow!("coderabbit named a file outside the repository: {file_name:?}");
+    if file_name.chars().any(is_unsafe_char) {
+        return Err(refuse());
     }
-    Ok(relative.to_string())
+    let path = Path::new(file_name);
+    // `Path::strip_prefix` matches whole components, so `/tmp/wt2/x` is not
+    // under `/tmp/wt`; an absolute path anywhere else is refused outright.
+    let relative = if path.is_absolute() {
+        path.strip_prefix(worktree_root).map_err(|_| refuse())?
+    } else {
+        path
+    };
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_str().ok_or_else(refuse)?),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(refuse());
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err(refuse());
+    }
+    Ok(parts.join("/"))
 }
 
 /// Characters a title, label or path must not carry: controls, Unicode
@@ -307,14 +327,21 @@ mod tests {
 
     #[test]
     fn file_paths_are_made_repo_relative_and_escapes_refused() {
+        let root = Path::new("/tmp/wt");
         assert_eq!(
-            repo_relative_file("/tmp/wt/crates/core/src/lib.rs", "/tmp/wt").expect("abs"),
+            repo_relative_file("/tmp/wt/crates/core/src/lib.rs", root).expect("abs"),
             "crates/core/src/lib.rs"
         );
-        assert_eq!(repo_relative_file("./crates/a.rs", "/tmp/wt").expect("dot"), "crates/a.rs");
-        for bad in ["", "/etc/passwd", "crates/../../x", "a\nb", "a\u{202E}b"] {
-            assert!(repo_relative_file(bad, "/tmp/wt").is_err(), "{bad:?}");
+        assert_eq!(repo_relative_file("./crates/a.rs", root).expect("dot"), "crates/a.rs");
+        for bad in ["", "/tmp/wt", "/etc/passwd", "crates/../../x", "a/..", "a\nb", "a\u{202E}b"] {
+            assert!(repo_relative_file(bad, root).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_sibling_directory_sharing_the_root_as_a_string_prefix_is_refused() {
+        let err = repo_relative_file("/tmp/wt2/x", Path::new("/tmp/wt")).expect_err("must fail");
+        assert!(err.to_string().contains("outside the repository"), "{err}");
     }
 
     #[test]
