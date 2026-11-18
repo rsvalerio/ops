@@ -22,17 +22,15 @@ async fn deny_policy_refuses_escaping_cwd_on_hook_path() {
     assert_eq!(results.len(), 1);
     assert!(!results[0].success, "Deny must refuse to spawn when cwd escapes the workspace");
     let msg = results[0].message.as_deref().expect("a Deny-refused step carries a message");
-    assert!(
-        msg.contains("PermissionDenied") || msg.contains("Permission denied"),
-        "refusal must surface PermissionDenied, got: {msg}"
-    );
+    // ERR-7 / TASK-2701: the refusal names its cause; nothing was spawned.
+    assert_eq!(msg, "cannot run `true`: cwd escapes the workspace (policy: deny)");
 }
 
 /// Complement to the Deny test above — under `WarnAndAllow`
 /// (the default for interactive `ops <cmd>`) the same escaping cwd
 /// must NOT be refused at the policy layer. The spawn may still fail
 /// (no /etc/true binary on most systems) but the failure shape must
-/// not be the `PermissionDenied` refusal — that is the precise
+/// not be the cwd-escape refusal — that is the precise
 /// behaviour-change-free guarantee the hook split was designed for.
 #[tokio::test]
 async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {
@@ -46,7 +44,7 @@ async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {
     assert_eq!(results.len(), 1);
     if let Some(msg) = results[0].message.as_deref() {
         assert!(
-            !msg.contains("SEC-14"),
+            !msg.contains("cwd escapes the workspace"),
             "WarnAndAllow must not surface the SEC-14 refusal, got: {msg}"
         );
     }

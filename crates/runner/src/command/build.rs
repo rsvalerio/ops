@@ -94,7 +94,6 @@ impl WorkspaceCanonicalCache {
 
     /// Drop every cached entry. Useful for tests and for embedders that
     /// know the workspace layout has changed wholesale.
-    #[allow(dead_code)]
     pub(crate) fn clear(&self) {
         let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
         guard.clear();
@@ -236,6 +235,54 @@ pub fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
     CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
 }
 
+/// Why a step's command could not be built — nothing was spawned.
+///
+/// Carried as the inner error of the `io::Error` the build
+/// functions return, so the exec layer can tell a build failure from a real
+/// spawn failure ([`build_failure`]) and report the cause instead of
+/// "failed to spawn `<program>`: <ErrorKind>". Every message is fixed and
+/// path-free; the offending path or variable name is logged at
+/// `tracing::debug!` where the failure is detected, so it never reaches
+/// `StepFailed` text or uploaded CI logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BuildFailure {
+    /// The spec's `cwd` escapes the workspace under [`CwdEscapePolicy::Deny`].
+    CwdEscapesWorkspace,
+    /// A `${VAR}` reference in program, args, cwd or env failed to expand.
+    VariableExpansion,
+    /// The spec's `cwd` is not valid UTF-8.
+    NonUtf8Cwd,
+    /// The blocking-pool task building the command panicked or was cancelled.
+    BuildTaskFailed,
+}
+
+impl BuildFailure {
+    /// Wrap `self` in an `io::Error` of `kind`, keeping the `ErrorKind`
+    /// existing callers match on.
+    fn into_io(self, kind: std::io::ErrorKind) -> std::io::Error {
+        std::io::Error::new(kind, self)
+    }
+}
+
+impl std::fmt::Display for BuildFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::CwdEscapesWorkspace => "cwd escapes the workspace (policy: deny)",
+            Self::VariableExpansion => "variable expansion failed",
+            Self::NonUtf8Cwd => "cwd is not valid UTF-8",
+            Self::BuildTaskFailed => "building the command failed unexpectedly",
+        })
+    }
+}
+
+impl std::error::Error for BuildFailure {}
+
+/// The [`BuildFailure`] behind `err`, if it is a build failure rather than an
+/// OS spawn / wait error.
+pub(super) fn build_failure(err: &std::io::Error) -> Option<BuildFailure> {
+    err.get_ref()?.downcast_ref::<BuildFailure>().copied()
+}
+
 /// Convert a strict-expansion error into an `io::Error` so build failures
 /// share the spawn-error pipeline and surface as a `StepFailed` event.
 ///
@@ -257,7 +304,7 @@ fn expand_err_to_io(err: ExpandError) -> std::io::Error {
         var_name = ?err.var_name,
         "expand: variable expansion failed (full error)"
     );
-    std::io::Error::new(std::io::ErrorKind::InvalidInput, "variable expansion failed")
+    BuildFailure::VariableExpansion.into_io(std::io::ErrorKind::InvalidInput)
 }
 
 /// Lexically normalize a path by resolving `.` and `..` components without I/O.
@@ -449,8 +496,11 @@ pub fn detect_workspace_escape(
 
 /// Apply an escape policy to a detected escape.
 ///
-/// `Deny` converts it to an `io::Error`; `WarnAndAllow` emits a tracing
-/// warning and lets the caller continue.
+/// `Deny` converts it to a `PermissionDenied` `io::Error` carrying
+/// [`BuildFailure::CwdEscapesWorkspace`]; the paths are logged at
+/// `tracing::debug!`, never put in the error, so they cannot reach
+/// `StepFailed` text. `WarnAndAllow` emits a tracing warning and lets the
+/// caller continue.
 pub fn apply_escape_policy(
     policy: CwdEscapePolicy,
     spec_cwd: &std::path::Path,
@@ -458,14 +508,16 @@ pub fn apply_escape_policy(
     joined: &std::path::Path,
 ) -> Result<(), std::io::Error> {
     match policy {
-        CwdEscapePolicy::Deny => Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            format!(
-                "SEC-14: refusing to spawn: spec cwd {} escapes workspace root {}",
-                spec_cwd.display(),
-                workspace_cwd.display()
-            ),
-        )),
+        CwdEscapePolicy::Deny => {
+            // SEC-21: Debug-formatted for the same reason as the warning below.
+            tracing::debug!(
+                cwd = ?workspace_cwd.display(),
+                spec_cwd = ?spec_cwd.display(),
+                resolved = ?joined.display(),
+                "SEC-14: refusing to spawn: spec cwd escapes workspace root"
+            );
+            Err(BuildFailure::CwdEscapesWorkspace.into_io(std::io::ErrorKind::PermissionDenied))
+        }
         CwdEscapePolicy::WarnAndAllow => {
             // SEC-21 / TASK-1937: `spec_cwd` is `.ops.toml`-supplied and
             // `joined` is derived from it, so both are Debug-formatted —
@@ -507,16 +559,14 @@ pub fn resolve_spec_cwd(
     // U+FFFD and then spawning the child in the wrong-but-similar
     // directory. Reject non-UTF-8 cwd values loudly so the operator
     // sees a real error instead of a quiet redirect.
-    // `{p:?}` is deliberate: the path is not valid UTF-8, which is exactly
-    // what this error reports, so `Display` is not available losslessly.
-    #[allow(clippy::unnecessary_debug_formatting)]
+    // The path goes to debug only (Debug-formatted: it is not valid UTF-8,
+    // so `Display` is not lossless); the error carries a path-free cause.
     let s = p.to_str().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!(
-                "spec cwd contains non-UTF-8 bytes; refusing to lossy-expand and chdir into a wrong-but-similar path: {p:?}"
-            ),
-        )
+        tracing::debug!(
+            spec_cwd = ?p,
+            "spec cwd contains non-UTF-8 bytes; refusing to lossy-expand and chdir into a wrong-but-similar path"
+        );
+        BuildFailure::NonUtf8Cwd.into_io(std::io::ErrorKind::InvalidInput)
     })?;
     let expanded = vars.try_expand(s).map_err(expand_err_to_io)?;
     let ep = std::path::PathBuf::from(expanded.as_ref());
@@ -646,9 +696,7 @@ pub async fn build_command_async(
                 error = %join_err,
                 "ERR-5: build_command panicked on blocking pool; converting to step failure"
             );
-            Err(std::io::Error::other(format!(
-                "build_command panicked on blocking pool: {join_err}"
-            )))
+            Err(BuildFailure::BuildTaskFailed.into_io(std::io::ErrorKind::Other))
         }
     }
 }
@@ -884,7 +932,8 @@ mod tests {
         )
         .expect_err("absolute path outside workspace must be denied under Deny");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err.to_string().contains("SEC-14"));
+        assert_eq!(build_failure(&err), Some(BuildFailure::CwdEscapesWorkspace));
+        assert!(!err.to_string().contains("/etc"), "no path in the error: {err}");
     }
 
     /// Under `WarnAndAllow` the absolute path is still returned (the
@@ -920,7 +969,8 @@ mod tests {
         )
         .expect_err("escape should fail under Deny");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err.to_string().contains("SEC-14"));
+        assert_eq!(build_failure(&err), Some(BuildFailure::CwdEscapesWorkspace));
+        assert!(!err.to_string().contains("/etc"), "no path in the error: {err}");
     }
 
     #[test]
@@ -977,8 +1027,9 @@ mod tests {
         )
         .expect_err("non-UTF-8 cwd must surface as an error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(build_failure(&err), Some(BuildFailure::NonUtf8Cwd));
         assert!(
-            err.to_string().contains("non-UTF-8"),
+            err.to_string().contains("not valid UTF-8"),
             "error message must mention the cause, got: {err}"
         );
     }
@@ -1021,6 +1072,7 @@ mod tests {
         let err = apply_escape_policy(CwdEscapePolicy::Deny, spec, &ws, &joined)
             .expect_err("Deny should produce an error");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(build_failure(&err), Some(BuildFailure::CwdEscapesWorkspace));
     }
 
     #[test]
@@ -1510,5 +1562,6 @@ mod tests {
         );
         assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
         assert!(msg.contains("variable expansion failed"));
+        assert_eq!(build_failure(&io_err), Some(BuildFailure::VariableExpansion));
     }
 }

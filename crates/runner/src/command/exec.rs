@@ -511,16 +511,21 @@ pub async fn execute_with_timeout(
     await_with_timeout(cmd.output(), timeout).await
 }
 
-/// Render a spawn failure without leaking the resolved absolute path.
+/// Render a build or spawn failure without leaking the resolved absolute path.
 ///
 /// Uses the bare program name from the spec plus the textual `ErrorKind`
 /// (e.g. `NotFound`, `PermissionDenied`) rather than `io::Error::to_string`,
 /// which embeds system-specific strings including the full resolved path.
 /// Timeouts retain their longer descriptive message because the timeout
-/// formatter already strips path info.
+/// formatter already strips path info. A build failure (nothing was
+/// spawned) reports its own fixed, path-free cause instead of "failed to
+/// spawn".
 fn redact_spawn_error(program: &str, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::TimedOut {
         return e.to_string();
+    }
+    if let Some(failure) = super::build::build_failure(e) {
+        return format!("cannot run `{program}`: {failure}");
     }
     format!("failed to spawn `{program}`: {kind:?}", kind = e.kind())
 }
@@ -897,7 +902,6 @@ pub struct ExecTaskCtx {
     pub abort: Arc<AbortSignal>,
 }
 
-#[allow(dead_code)]
 impl ExecTaskCtx {
     /// Construct an [`ExecTaskCtx`] from its current required handles.
     /// Prefer this over struct-literal construction so
@@ -1170,5 +1174,79 @@ mod spawn_error_log_format_tests {
 
         // The Display rendering this replaced would not have escaped.
         assert!(format!("{id}").contains('\n'));
+    }
+}
+
+#[cfg(test)]
+mod redact_spawn_error_tests {
+    use super::redact_spawn_error;
+    use crate::command::build::{
+        apply_escape_policy, resolve_spec_cwd, test_default_workspace_cache, CwdEscapePolicy,
+    };
+    use ops_core::expand::Variables;
+    use std::path::{Path, PathBuf};
+
+    fn assert_build_message(msg: &str, cause: &str) {
+        assert_eq!(msg, format!("cannot run `cargo`: {cause}"));
+        assert!(!msg.contains("failed to spawn"), "build failure reported as spawn: {msg}");
+        assert!(!msg.contains('/'), "path leaked: {msg}");
+    }
+
+    /// Each build failure names its own cause.
+    #[test]
+    fn build_failures_report_their_cause_not_a_spawn_failure() {
+        let ws = PathBuf::from("/tmp/ws");
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
+
+        let spec = Path::new("../etc");
+        let deny = apply_escape_policy(CwdEscapePolicy::Deny, spec, &ws, &ws.join(spec))
+            .expect_err("Deny refuses an escaping cwd");
+        assert_build_message(
+            &redact_spawn_error("cargo", &deny),
+            "cwd escapes the workspace (policy: deny)",
+        );
+
+        let poisoned = Variables::poisoned(ops_core::expand::ExpandError {
+            var_name: "OPS_TASK_2701_SECRET".to_string(),
+            cause: std::env::VarError::NotPresent,
+        });
+        let expand = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(Path::new("sub")),
+            &ws,
+            &poisoned,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect_err("a poisoned Variables fails strict expansion");
+        let msg = redact_spawn_error("cargo", &expand);
+        assert_build_message(&msg, "variable expansion failed");
+        assert!(!msg.contains("OPS_TASK_2701_SECRET"), "variable name leaked: {msg}");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let bad = PathBuf::from(std::ffi::OsString::from_vec(vec![b's', 0xff]));
+            let non_utf8 = resolve_spec_cwd(
+                test_default_workspace_cache(),
+                Some(bad.as_path()),
+                &ws,
+                &vars,
+                CwdEscapePolicy::WarnAndAllow,
+            )
+            .expect_err("a non-UTF-8 cwd is refused");
+            assert_build_message(&redact_spawn_error("cargo", &non_utf8), "cwd is not valid UTF-8");
+        }
+    }
+
+    /// Real OS spawn failures keep the redacted "failed to spawn" text.
+    #[test]
+    fn spawn_failures_keep_the_redacted_spawn_message() {
+        for kind in [std::io::ErrorKind::NotFound, std::io::ErrorKind::PermissionDenied] {
+            let e = std::io::Error::new(kind, "/home/someone/.cargo/bin/cargo: denied");
+            assert_eq!(
+                redact_spawn_error("cargo", &e),
+                format!("failed to spawn `cargo`: {kind:?}")
+            );
+        }
     }
 }
