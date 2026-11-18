@@ -372,8 +372,9 @@ pub enum CoreSubcommand {
     /// `--allow` are exempt. Exits non-zero on any violation.
     #[command(name = "lint-actions")]
     LintActions {
-        /// Exempt `uses:` references starting with this prefix, e.g.
-        /// `owner/repo/` (repeatable; adds to `[lint_actions] allow`).
+        /// Exempt `uses:` references starting with this prefix at a path
+        /// boundary, e.g. `owner/repo/` or `owner` (repeatable; adds to
+        /// `[lint_actions] allow`).
         #[arg(long = "allow", value_name = "PREFIX")]
         allow: Vec<String>,
     },

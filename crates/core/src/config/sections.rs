@@ -136,7 +136,9 @@ impl FoundationSection {
 pub struct LintActionsSection {
     /// `uses:` reference prefixes exempt from the full-SHA pin rule — a
     /// first-party reusable workflow version-pinned by decision, say
-    /// (`owner/repo/`). Local references (`./…`) are always exempt.
+    /// (`owner/repo/`). A prefix matches only at a path boundary, so `owner`
+    /// does not exempt `owner-other/…`. Local references (`./…`) are always
+    /// exempt.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<String>,
 }
