@@ -122,6 +122,29 @@ fn collect_coverage_missing_report_falls_through_to_cargo_error() {
     );
 }
 
+/// A report that reads fine but is not JSON (truncated by a full TMPDIR, or
+/// cargo killed mid-write) on the non-zero path leaves a parse breadcrumb at
+/// `warn` and falls through: the cargo exit stays the returned error.
+#[cfg(unix)]
+#[test]
+fn collect_coverage_unparseable_report_falls_through_to_cargo_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let err = collect_coverage_with(
+        dir.path(),
+        runner_writing(r#"{"data":[{"files":["#, 1 << 8, "error: killed"),
+    )
+    .expect_err("an unparseable report must not be demoted");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("cargo llvm-cov exited with status 1"),
+        "cargo exit must remain the headline error, got: {msg}"
+    );
+    assert!(
+        !msg.contains("parsing llvm-cov JSON report"),
+        "the parse failure is a breadcrumb, not the returned error, got: {msg}"
+    );
+}
+
 /// On the success path the report-read and parse errors name the file, so
 /// an operator hitting a TMPDIR problem has something to inspect.
 #[cfg(unix)]
