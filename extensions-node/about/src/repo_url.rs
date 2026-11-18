@@ -143,8 +143,9 @@ fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
 
 /// Whether the path of a `[<scheme>://]<authority>/<path>` value carries a
 /// `.` or `..` segment (either separator), which [`scrub_path_segments`]
-/// would remove.
+/// would remove. A query or fragment is not part of the path.
 fn has_dot_segment(url: &str) -> bool {
+    let (url, _) = split_query_fragment(url);
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     rest.split_once('/')
         .is_some_and(|(_, path)| path.split(['/', '\\']).any(|seg| seg == "." || seg == ".."))
@@ -270,13 +271,21 @@ fn scrub_authority_and_path(authority_and_path: &str) -> String {
 /// The `git+<scheme>://` branch of [`normalize_repo_url`] keeps the scheme
 /// intact, so only the path portion is scrubbed: scrubbing `scheme://` too
 /// would collapse `https://` to `https:/`, the empty segment between the two
-/// slashes being filtered like any other.
+/// slashes being filtered like any other. A query or fragment is not part of
+/// the path, so it is kept verbatim.
 fn scrub_full_url_path(url: &str) -> String {
+    let (url, query_fragment) = split_query_fragment(url);
     if let Some((scheme, rest)) = url.split_once("://") {
-        format!("{scheme}://{}", scrub_authority_and_path(rest))
+        format!("{scheme}://{}{query_fragment}", scrub_authority_and_path(rest))
     } else {
-        scrub_authority_and_path(url)
+        format!("{}{query_fragment}", scrub_authority_and_path(url))
     }
+}
+
+/// Split `url` before its first `?` or `#`, returning the scheme, authority
+/// and path, then the query and fragment (empty when there is neither).
+fn split_query_fragment(url: &str) -> (&str, &str) {
+    url.find(['?', '#']).and_then(|i| url.split_at_checked(i)).unwrap_or((url, ""))
 }
 
 pub fn is_numeric_port_prefix(path: &str) -> bool {
@@ -312,6 +321,25 @@ mod tests {
         assert_eq!(
             normalize_repo_url("https://host/o/../../x"),
             normalize_repo_url("git+https://host/o/../../x")
+        );
+    }
+
+    /// A query or fragment is not path: dot segments in it are kept
+    /// verbatim, while those in the path before it are still scrubbed.
+    #[test]
+    fn normalize_keeps_query_and_fragment_verbatim() {
+        let raw = "https://host/repo?path=../../src";
+        let out = normalize_repo_url(raw);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(out, raw);
+        assert_eq!(normalize_repo_url("https://host/repo#../../x"), "https://host/repo#../../x");
+        assert_eq!(
+            normalize_repo_url("https://host/o/../r?path=../../src#../a"),
+            "https://host/o/r?path=../../src#../a"
+        );
+        assert_eq!(
+            normalize_repo_url("git+https://host/o/./r?path=../src"),
+            "https://host/o/r?path=../src"
         );
     }
 
