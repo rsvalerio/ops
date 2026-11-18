@@ -117,6 +117,7 @@ impl ExtensionType {
 /// should construct via [`ExtensionInfo::new`] (and adjust fields via
 /// direct field access — the fields stay `pub` for ergonomic struct
 /// updates inside this crate and for read access from outside).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ExtensionInfo {
     pub name: &'static str,
@@ -409,8 +410,8 @@ pub trait Extension: Send + Sync {
     ///
     /// Duplicate ids are **last-write-wins** so user config can shadow
     /// extension commands; each collision is recorded on the registry's audit
-    /// trail — see [`DataRegistry::register`] for the full contract and its
-    /// contrast with data-provider registration.
+    /// trail — see [`CommandRegistry::insert`] for the full contract, and
+    /// [`DataRegistry::register`] for the contrasting data-provider policy.
     fn register_commands(&self, registry: &mut CommandRegistry);
 
     /// Registers the extension's data providers into `registry`.
