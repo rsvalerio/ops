@@ -12,9 +12,11 @@ use std::borrow::Cow;
 /// Cap on the rendered `required_version` string.
 ///
 /// HCL constraints in real configs are short (`~> 1.5`, `>= 1.0, < 2.0`) —
-/// well under 64 chars. Without the cap an adversarial `.tf` could embed a
-/// long string that ends up rendered into the About card; values over it are
-/// truncated and the truncation is logged so it stays observable.
+/// well under 64 chars. A value over the cap is either abuse or a malformed
+/// manifest, so it is *dropped* with a `warn`, never truncated: a prefix cut
+/// mid-token (`!= 1.5.3` → `!= 1.5`) would render as a complete constraint the
+/// manifest never stated. This is the same drop-not-strip policy
+/// [`sanitize_required_version`] applies to control characters.
 const REQUIRED_VERSION_MAX_LEN: usize = 64;
 
 /// Extract the `required_version` value from a single `.tf` file's content.
@@ -299,10 +301,10 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
     if let Some(early) = scan_code_chars(line, state, &mut walk) {
         return early;
     }
-    // `in_string` is line-local, so it is still set here only when the
+    // The string state is line-local, so it is still open here only when the
     // line's closing `"` never arrived. This stage sees every line, including
     // files that take the comment-stripper's no-comment fast path.
-    if walk.in_string {
+    if walk.string.is_open() {
         return LineScan::UnterminatedString;
     }
     if walk.found.is_none() {
@@ -312,27 +314,116 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
 }
 
 /// Line-local state [`scan_code_chars`] carries across one line's characters:
-/// where the current brace-free segment began, the quoted-string and escape
-/// flags, and a `required_version` value already located on this line.
+/// where the current brace-free segment began, the quoted-string state, and a
+/// `required_version` value already located on this line.
 #[derive(Default)]
 struct LineWalk {
     segment_start: usize,
-    in_string: bool,
-    escaped: bool,
+    string: QuotedString,
     found: Option<String>,
 }
 
-impl LineWalk {
-    /// Step the quoted-string state machine over `ch` on behalf of an open
-    /// string: an open string consumes every character, and only an unescaped
-    /// `"` closes it.
-    const fn step_string(&mut self, ch: char) {
-        if self.escaped {
-            self.escaped = false;
-        } else if ch == '\\' {
-            self.escaped = true;
-        } else if ch == '"' {
-            self.in_string = false;
+/// One frame of an open quoted HCL string: the template literal itself, or a
+/// `${ … }` / `%{ … }` interpolation inside it.
+#[derive(Debug, Clone, Copy)]
+enum StringFrame {
+    /// Template text: a backslash escapes, `"` closes, `${` / `%{` opens an
+    /// interpolation.
+    Literal,
+    /// An interpolation expression: `"` opens a *nested* quoted string, and
+    /// the `}` matching the opener (once `open_braces` inner `{` have closed)
+    /// ends it.
+    Interpolation { open_braces: usize },
+}
+
+/// The quoted-string state machine, shared by [`scan_code_chars`] and
+/// [`strip_code_chars`] so both stages agree on where a string ends.
+///
+/// HCL quoted strings are templates: a `${ … }` or `%{ … }` sequence inside
+/// one holds an expression, which may contain quoted strings of its own
+/// (`"${replace(var.x, "_", "-")}"`). Treating the inner `"` as the end of
+/// the outer string would read the interpolation as code, so a `}` in a
+/// nested string could pop a block and an escaped inner quote could leave the
+/// line apparently unterminated. The frames track that nesting; the whole
+/// stack is one string as far as the stages are concerned, and none of its
+/// braces, quotes or comment introducers are structural. The doubled `$${` /
+/// `%%{` spelling is HCL's literal escape and opens nothing.
+#[derive(Debug, Default)]
+struct QuotedString {
+    frames: Vec<StringFrame>,
+    escaped: bool,
+}
+
+impl QuotedString {
+    /// Whether a quoted string (at any nesting depth) is open.
+    const fn is_open(&self) -> bool {
+        !self.frames.is_empty()
+    }
+
+    /// Open a string at a `"` seen in code.
+    fn open(&mut self) {
+        self.frames.push(StringFrame::Literal);
+    }
+
+    /// Discard all string state (the line-local reset at a newline).
+    fn reset(&mut self) {
+        self.frames.clear();
+        self.escaped = false;
+    }
+
+    /// Step over `ch`, a character inside the open string; `rest` is the text
+    /// that follows it on the line.
+    ///
+    /// Returns `true` when the character after `ch` belongs to the same token
+    /// (the `{` of `${`, or the second marker of `$$`) and the caller must
+    /// consume it without further interpretation. That character is always
+    /// ASCII.
+    fn step(&mut self, ch: char, rest: &str) -> bool {
+        match self.frames.last().copied() {
+            None => false,
+            Some(StringFrame::Literal) => {
+                if self.escaped {
+                    self.escaped = false;
+                    return false;
+                }
+                match ch {
+                    '\\' => {
+                        self.escaped = true;
+                        false
+                    }
+                    '"' => {
+                        self.frames.pop();
+                        false
+                    }
+                    '$' | '%' if rest.starts_with('{') => {
+                        self.frames.push(StringFrame::Interpolation { open_braces: 0 });
+                        true
+                    }
+                    // `$${` / `%%{` is a literal `${` / `%{`: the doubled
+                    // marker is consumed so the `{` after it opens nothing.
+                    '$' | '%' => rest.starts_with(ch),
+                    _ => false,
+                }
+            }
+            Some(StringFrame::Interpolation { open_braces }) => {
+                match ch {
+                    '"' => self.frames.push(StringFrame::Literal),
+                    '{' => self.set_open_braces(open_braces.saturating_add(1)),
+                    '}' if open_braces == 0 => {
+                        self.frames.pop();
+                    }
+                    '}' => self.set_open_braces(open_braces.saturating_sub(1)),
+                    _ => {}
+                }
+                false
+            }
+        }
+    }
+
+    /// Record the innermost interpolation's open-brace count.
+    fn set_open_braces(&mut self, count: usize) {
+        if let Some(StringFrame::Interpolation { open_braces }) = self.frames.last_mut() {
+            *open_braces = count;
         }
     }
 }
@@ -346,15 +437,21 @@ impl LineWalk {
 /// an empty stack (malformed input) — and `None` when the line ran to its
 /// end, leaving the end-of-line reporting to [`scan_line`].
 fn scan_code_chars(line: &str, state: &mut ScanState, walk: &mut LineWalk) -> Option<LineScan> {
-    for (idx, ch) in line.char_indices() {
-        if walk.in_string {
-            walk.step_string(ch);
+    let mut chars = line.char_indices();
+    while let Some((idx, ch)) = chars.next() {
+        if walk.string.is_open() {
+            let rest = line.get(idx.saturating_add(ch.len_utf8())..).unwrap_or_default();
+            if walk.string.step(ch, rest) {
+                // The paired ASCII character (`{` of `${`, second `$` of
+                // `$$`) is part of the same token.
+                chars.next();
+            }
             continue;
         }
         // `{` and `}` are single-byte ASCII, so `idx + 1` is a char boundary.
         let after_brace = idx.saturating_add(1);
         match ch {
-            '"' => walk.in_string = true,
+            '"' => walk.string.open(),
             '<' => {
                 // `<<EOT` / `<<-EOT`: the body starts on the next line, and
                 // HCL allows nothing after the opener on this one, so the
@@ -506,6 +603,11 @@ fn parse_required_version_assignment(fragment: &str) -> Option<&str> {
 /// This is the same drop-not-strip policy `ops_about::text_util` applies to
 /// manifest URL and repository fields, reusing its shared predicate.
 ///
+/// Over-long values (past [`REQUIRED_VERSION_MAX_LEN`] characters) are
+/// dropped for the same reason: keeping a prefix would render a constraint
+/// that differs from the manifest's with nothing on screen to say so. Width
+/// fitting with a visible ellipsis is the renderer's job, not this gate's.
+///
 /// `source` names the `.tf` file the value came from so both warnings are
 /// attributable to a file: the control-character warn is a smuggling signal an
 /// operator would actually investigate, and a workspace root can carry a dozen
@@ -519,15 +621,15 @@ fn sanitize_required_version(value: &str, source: &str) -> Option<String> {
         );
         return None;
     }
-    if value.chars().count() > REQUIRED_VERSION_MAX_LEN {
-        let truncated: String = value.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
+    let char_len = value.chars().count();
+    if char_len > REQUIRED_VERSION_MAX_LEN {
         tracing::warn!(
             source = ?source,
-            original_len = value.chars().count(),
+            original_len = char_len,
             cap = REQUIRED_VERSION_MAX_LEN,
-            "required_version value exceeds cap; truncating before rendering"
+            "required_version value exceeds cap; dropping the value"
         );
-        return Some(truncated);
+        return None;
     }
     Some(value.to_string())
 }
@@ -588,7 +690,10 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// state resets at every newline and the malformation is reported via
 /// [`StripEof::UnterminatedString`], matching [`scan_line`], so the two stages
 /// agree on where a string ends and one unbalanced `"` cannot silently disable
-/// comment stripping for the remainder of the file. An unterminated `/*`
+/// comment stripping for the remainder of the file. Both stages step strings
+/// through the shared [`QuotedString`], which tracks `${ … }` / `%{ … }`
+/// interpolations and the quoted strings nested inside them, so an inner `"`
+/// does not end the outer string. An unterminated `/*`
 /// likewise runs to EOF *and* is reported
 /// ([`StripEof::UnterminatedBlockComment`]); terraform's own parser errors on
 /// both shapes.
@@ -618,7 +723,7 @@ fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
     // A `"` still open at end of input — the file stopped mid-string with no
     // final newline to trip the line-local reset in [`strip_one_line`], or on
     // a trailing backslash — is the same malformation the reset reports.
-    if state.in_string {
+    if state.string.is_open() {
         state.eof = StripEof::UnterminatedString;
     }
     // A `/*` still open at end of input blanked the remainder as comment, so
@@ -630,12 +735,12 @@ fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
 }
 
 /// Cross-line state [`strip_one_line`] carries from one line to the next: the
-/// shared heredoc tracker, the line-local string flag, the cross-line
+/// shared heredoc tracker, the line-local string state, the cross-line
 /// block-comment flag, and the first malformation seen.
 #[derive(Default)]
 struct StripState {
     heredoc: HeredocTracker,
-    in_string: bool,
+    string: QuotedString,
     in_block_comment: bool,
     eof: StripEof,
 }
@@ -684,8 +789,8 @@ fn strip_one_line(line: &str, state: &mut StripState, out: &mut String) {
     // so it never reaches the next line's comment stripping. A final line
     // without a trailing newline is left open here for [`strip_comments`]'
     // end-of-input check.
-    if state.in_string && !newline.is_empty() {
-        state.in_string = false;
+    if state.string.is_open() && !newline.is_empty() {
+        state.string.reset();
         state.eof = StripEof::UnterminatedString;
     }
     out.push_str(newline);
@@ -702,22 +807,20 @@ fn strip_one_line(line: &str, state: &mut StripState, out: &mut String) {
 /// reason), and a `/*`, `#` or `//` inside a quoted string stays literal.
 fn strip_code_chars(chars: &mut std::str::Chars<'_>, state: &mut StripState, out: &mut String) {
     while let Some(c) = chars.next() {
-        if state.in_string {
+        if state.string.is_open() {
+            // String content — escapes, interpolations and nested strings
+            // included — is emitted verbatim; only its boundaries matter.
             out.push(c);
-            if c == '\\' {
+            if state.string.step(c, chars.as_str()) {
                 if let Some(next) = chars.next() {
-                    // Preserve `\"` and other escapes verbatim — we only
-                    // care about not exiting the string on an escaped quote.
                     out.push(next);
                 }
-            } else if c == '"' {
-                state.in_string = false;
             }
             continue;
         }
         match c {
             '"' => {
-                state.in_string = true;
+                state.string.open();
                 out.push('"');
             }
             '#' => blank_line_comment(chars, out, 1),
@@ -982,15 +1085,27 @@ terraform {
         );
     }
 
-    /// An excessively long value is truncated to
-    /// `REQUIRED_VERSION_MAX_LEN` before being rendered into the About card.
+    /// A value over `REQUIRED_VERSION_MAX_LEN` is dropped with a warn rather
+    /// than truncated: an unmarked prefix would render as a constraint the
+    /// manifest never stated.
     #[test]
     fn extract_required_version_caps_overlong_value() {
-        let long = "v".repeat(200);
+        let long = format!("{}!= 1.5.3", ">= 1.0, ".repeat(10));
+        assert!(long.chars().count() > REQUIRED_VERSION_MAX_LEN);
         let content = format!("terraform {{\nrequired_version = \"{long}\"\n}}\n");
-        let v = extract_required_version(&content, "test.tf").expect("Some");
-        assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
-        assert!(v.chars().all(|c| c == 'v'));
+        let logs = capture_warn(|| {
+            assert_eq!(extract_required_version(&content, "test.tf"), None);
+        });
+        assert!(logs.contains("exceeds cap"), "expected the cap breadcrumb, got: {logs}");
+        assert!(logs.contains("test.tf"), "the warn must name the file, got: {logs}");
+    }
+
+    /// A value exactly at the cap is kept whole.
+    #[test]
+    fn extract_required_version_keeps_value_at_cap() {
+        let at_cap = "v".repeat(REQUIRED_VERSION_MAX_LEN);
+        let content = format!("terraform {{\nrequired_version = \"{at_cap}\"\n}}\n");
+        assert_eq!(extract_required_version(&content, "test.tf"), Some(at_cap));
     }
 
     /// A `required_version` declaration that lives entirely inside an HCL
@@ -1578,7 +1693,7 @@ terraform {
 
     /// Input that stops mid-string with no
     /// final newline never trips the line-local reset, so the end-of-loop
-    /// `in_string` check must report it. The `#` line forces the owned strip
+    /// open-string check must report it. The `#` line forces the owned strip
     /// path — the no-comment fast path never inspects strings.
     #[test]
     fn extract_required_version_reports_string_open_at_eof_without_newline() {
@@ -1619,5 +1734,63 @@ terraform {
             "comment after an unterminated string line must still be blanked; got: {stripped}"
         );
         assert_eq!(eof, StripEof::UnterminatedString);
+    }
+
+    /// A nested string holding an escaped quote inside a `${ … }`
+    /// interpolation does not end the outer string: the interpolation's `}`
+    /// stays inside it and the file is not refused as unterminated.
+    #[test]
+    fn extract_required_version_next_to_interpolation_with_escaped_nested_quote() {
+        let content = r#"locals {
+  x = "${replace(var.x, "\"", "")}"
+}
+terraform {
+  required_version = ">= 1.5"
+}
+"#;
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
+    }
+
+    /// A `}` inside a nested string inside an interpolation is neither the
+    /// interpolation's close nor a structural brace, so the block stack stays
+    /// balanced and the `terraform` block is still read at depth 1.
+    #[test]
+    fn extract_required_version_next_to_interpolation_with_brace_in_nested_string() {
+        let content = r#"terraform {
+  x = "${format("%s}", var.y)}"
+  required_version = "~> 1.6"
+}
+"#;
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.6".to_string()));
+    }
+
+    /// `$${` is HCL's literal-`${` escape: it opens no interpolation, so the
+    /// next `"` closes the string as usual.
+    #[test]
+    fn escaped_interpolation_marker_opens_nothing() {
+        let content =
+            "terraform {\n  x = \"$${not_an_interpolation\"\n  required_version = \"1.7\"\n}\n";
+        assert_eq!(extract_required_version(content, "test.tf"), Some("1.7".to_string()));
+    }
+
+    /// Both stages agree on interpolation boundaries: a `#` inside a nested
+    /// string inside `${ … }` is literal to the stripper, the comment after
+    /// the outer string's real close is blanked, and the structural scan sees
+    /// a closed string and a balanced block on the same lines.
+    #[test]
+    fn both_stages_agree_on_interpolated_string_boundaries() {
+        let content = "locals {\n  x = \"${format(\"#%s}\", var.y)}\" # trailing\n}\n";
+
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert!(stripped.contains("\"#%s}\""), "nested string must stay verbatim; got: {stripped}");
+        assert!(!stripped.contains("trailing"), "real comment must be blanked; got: {stripped}");
+
+        let mut state = ScanState::new();
+        for line in stripped.lines() {
+            assert!(matches!(scan_line(line, &mut state), LineScan::Continue));
+        }
+        assert!(state.stack.is_empty(), "block stack must balance: {:?}", state.stack);
+        assert_eq!(state.end_of_file_refusal(), None);
     }
 }
