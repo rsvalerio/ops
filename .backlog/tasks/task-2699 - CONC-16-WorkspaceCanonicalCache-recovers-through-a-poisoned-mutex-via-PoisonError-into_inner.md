@@ -1,10 +1,10 @@
 ---
 id: TASK-2699
 title: 'CONC-16: WorkspaceCanonicalCache recovers through a poisoned mutex via PoisonError::into_inner'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:30'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:54'
 labels:
   - code-review-rust
   - CONC
@@ -29,12 +29,16 @@ dedup_key: 'CONC-16:crates/runner/src/command/build.rs:recover_workspace_cache'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No production lock of WorkspaceCanonicalCache uses PoisonError::into_inner/get_ref/get_mut or clear_poison; poisoning propagates (e.g. .lock().expect(...)), or a recorded decision (shared with TASK-2672) documents the exemption
-- [ ] #2 A test poisons the cache mutex and asserts the next spawn surfaces a step failure rather than silently continuing
+- [x] #1 No production lock of WorkspaceCanonicalCache uses PoisonError::into_inner/get_ref/get_mut or clear_poison; poisoning propagates (e.g. .lock().expect(...)), or a recorded decision (shared with TASK-2672) documents the exemption
+- [x] #2 A test poisons the cache mutex and asserts the next spawn surfaces a step failure rather than silently continuing
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.05 (code-review-rust run, 2026-11-18).
+
+The WorkspaceCanonicalCache locks now go through ops_core::sync::lock, and recover_workspace_cache is deleted. Test build::tests::poisoned_workspace_cache_surfaces_as_a_step_failure poisons the cache, runs exec_command with a spec cwd, and asserts a failed step carrying the BuildTaskFailed message. It also asserts the poison stays set.
+
 <!-- SECTION:NOTES:END -->

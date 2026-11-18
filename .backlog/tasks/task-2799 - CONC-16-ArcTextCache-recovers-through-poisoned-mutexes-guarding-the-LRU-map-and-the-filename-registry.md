@@ -1,10 +1,10 @@
 ---
 id: TASK-2799
 title: 'CONC-16: ArcTextCache recovers through poisoned mutexes guarding the LRU map and the filename registry'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:54'
 labels:
   - code-review-rust
   - CONC
@@ -30,12 +30,16 @@ dedup_key: 'CONC-16:extensions/about/src/manifest_cache.rs:ArcTextCache::read'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Per the TASK-2672 decision, manifest_cache.rs lock sites either propagate poison (.lock().expect(...)) or cite the recorded exemption
-- [ ] #2 Poison-recovery tests in manifest_cache.rs are updated to the chosen policy
+- [x] #1 Per the TASK-2672 decision, manifest_cache.rs lock sites either propagate poison (.lock().expect(...)) or cite the recorded exemption
+- [x] #2 Poison-recovery tests in manifest_cache.rs are updated to the chosen policy
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.22 (code-review-rust run, 2026-11-18).
+
+Following the TASK-2672 decision (propagate), read, invalidate and for_filename use ops_core::sync::lock, with the panic naming the filename. poison_recovery_keeps_cache_usable is replaced by poisoned_cache_lock_is_propagated, which asserts that read and invalidate both panic naming manifest.txt and that the poison is not cleared.
+
 <!-- SECTION:NOTES:END -->

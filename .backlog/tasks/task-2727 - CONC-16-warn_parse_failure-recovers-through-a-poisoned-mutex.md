@@ -1,10 +1,10 @@
 ---
 id: TASK-2727
 title: 'CONC-16: warn_parse_failure recovers through a poisoned mutex'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:35'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:54'
 labels:
   - code-review-rust
   - concurrency
@@ -29,12 +29,16 @@ dedup_key: 'CONC-16:extensions-node/about/src/package_json.rs:warn_parse_failure
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 warn_parse_failure no longer calls PoisonError::into_inner; poisoning is propagated (expect with a message under a reasoned #[expect]) or the lock is removed
-- [ ] #2 Existing warn-once test (malformed_package_json_warns_once_across_both_providers) still passes
+- [x] #1 warn_parse_failure no longer calls PoisonError::into_inner; poisoning is propagated (expect with a message under a reasoned #[expect]) or the lock is removed
+- [x] #2 Existing warn-once test (malformed_package_json_warns_once_across_both_providers) still passes
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.09 (code-review-rust run, 2026-11-18).
+
+warn_parse_failure locks WARNED through ops_core::sync::lock, which is the shared policy and holds the scoped #[expect(clippy::panic)]. PoisonError is no longer imported. malformed_package_json_warns_once_across_both_providers passes.
+
 <!-- SECTION:NOTES:END -->

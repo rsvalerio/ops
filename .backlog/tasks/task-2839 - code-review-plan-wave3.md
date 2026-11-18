@@ -1,10 +1,10 @@
 ---
 id: TASK-2839
 title: 'code-review-plan-wave3'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:57'
 labels:
   - code-review-wave
 dependencies:
@@ -48,4 +48,8 @@ Grouping: poisoned-lock recovery policy across core/runner/about/node/sqlite (on
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2842 (crates/runner/src/command/build.rs); TASK-2853 (extensions/sqlite/src/connection.rs, extensions/sqlite/src/sql/ingest/orchestrator.rs)
+
+Branch: code-review/TASK-2839
+Worktree: /home/rsvalerio/projects/.wave-TASK-2839
+
 <!-- SECTION:NOTES:END -->

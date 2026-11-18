@@ -1,10 +1,10 @@
 ---
 id: TASK-2672
 title: 'CONC-16: shared poison-recovery policy reaches inside poisoned Mutex/RwLock guards and clears the poison'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:54'
 labels:
   - code-review-rust
   - CONC
@@ -36,12 +36,16 @@ The justification in the docs ("every state of the protected map is valid") is t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either poisoned locks are propagated (.lock().expect("<name> poisoned")) at every listed site, or a recorded decision documents the exemption from CONC-16 with its scope
-- [ ] #2 No production site calls clear_poison() or PoisonError::into_inner without that decision
+- [x] #1 Either poisoned locks are propagated (.lock().expect("<name> poisoned")) at every listed site, or a recorded decision documents the exemption from CONC-16 with its scope
+- [x] #2 No production site calls clear_poison() or PoisonError::into_inner without that decision
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.03 (code-review-rust run, 2026-11-18).
+
+Decision: adopt CONC-16 workspace-wide, no exemption. ops_core::sync now exposes one helper, lock(m, name), which panics naming the lock when the lock is poisoned. lock_recover, lock_recover_warn and lock_recover_with are deleted. Every production caller has moved to it: expand.rs, stack/detect.rs, about manifest_cache, rust-about typed manifest/coverage/workspace-root caches. global.rs uses .expect on the RwLock, split out as cached_global_config_path so the behaviour is tested on a stack-local lock. Tests that poisoned process-global caches and asserted recovery are deleted (detect.rs, rust-about typed_manifest_cache): poisoning a global would now break every later test in the process. The runner SPAWN_LOCK and the rust-loc record sink were moved to the same policy in this wave. Test-support sites were filed as TASK-2871.
+
 <!-- SECTION:NOTES:END -->

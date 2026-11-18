@@ -1,10 +1,10 @@
 ---
 id: TASK-2832
 title: 'CONC-16: per-table ingest locks recover through poisoned mutexes via into_inner and clear_poison'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:50'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:54'
 labels:
   - code-review-rust
   - CONC
@@ -32,12 +32,16 @@ The per-table mutex does not guard just a `()`: it serialises the drop → probe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Neither ingest_mutex_for nor provide_via_ingestor calls PoisonError::into_inner or clear_poison; poisoning propagates (DbError::MutexPoisoned / an error from provide_via_ingestor, or .expect with a message)
-- [ ] #2 The poison-recovery tests (e.g. ingest_mutex_for_clears_poison_so_recovery_warns_once) are replaced by tests asserting the poisoned lock surfaces as an error
+- [x] #1 Neither ingest_mutex_for nor provide_via_ingestor calls PoisonError::into_inner or clear_poison; poisoning propagates (DbError::MutexPoisoned / an error from provide_via_ingestor, or .expect with a message)
+- [x] #2 The poison-recovery tests (e.g. ingest_mutex_for_clears_poison_so_recovery_warns_once) are replaced by tests asserting the poisoned lock surfaces as an error
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+ingest_mutex_for now returns DbResult and maps poison to DbError::MutexPoisoned. provide_via_ingestor maps the per-table lock poison to DbError::MutexPoisoned, with context naming the table. Replaced tests: ingest_mutex_for_surfaces_a_poisoned_registry_as_an_error, and panic_in_collect_surfaces_as_poisoned_ingest_lock_error, which replaces panic_in_collect_does_not_brick, poison_recovery_emits_warn_log and poison_recovery_warns_once. The rebase conflicted with TASK-2853's ops-sqlite rewrite; it was resolved keeping 2853's wording and changes.
+
 <!-- SECTION:NOTES:END -->
