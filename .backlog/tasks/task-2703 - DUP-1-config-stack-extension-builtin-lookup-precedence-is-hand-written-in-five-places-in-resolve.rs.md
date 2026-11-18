@@ -1,10 +1,10 @@
 ---
 id: TASK-2703
 title: 'DUP-1: config → stack → extension → builtin lookup precedence is hand-written in five places in resolve.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:31'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:22'
 labels:
   - code-review-rust
   - DUP
@@ -29,12 +29,16 @@ dedup_key: 'DUP-1:crates/runner/src/command/resolve.rs:canonical_with_spec'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The store precedence is defined once (e.g. a helper iterating the stores in order, returning key, spec and CommandSource) and find_in_stores / canonical_with_spec / resolve_alias / locate are built on it
-- [ ] #2 Existing resolution, alias and shadowing tests pass unchanged
+- [x] #1 The store precedence is defined once (e.g. a helper iterating the stores in order, returning key, spec and CommandSource) and find_in_stores / canonical_with_spec / resolve_alias / locate are built on it
+- [x] #2 Existing resolution, alias and shadowing tests pass unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.05 (code-review-rust run, 2026-11-18).
+
+locate() now reports the store the resolved spec actually came from (single canonical_entry walk), so a non-config alias whose target name also exists in config no longer reports Config while running the stack spec.
+
 <!-- SECTION:NOTES:END -->

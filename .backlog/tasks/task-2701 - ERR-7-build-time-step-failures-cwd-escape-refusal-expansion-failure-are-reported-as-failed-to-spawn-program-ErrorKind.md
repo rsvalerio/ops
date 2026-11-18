@@ -1,10 +1,10 @@
 ---
 id: TASK-2701
 title: 'ERR-7: build-time step failures (cwd-escape refusal, expansion failure) are reported as ''failed to spawn <program>: <ErrorKind>'''
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:31'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:27'
 labels:
   - code-review-rust
   - ERR
@@ -30,12 +30,16 @@ dedup_key: 'ERR-7:crates/runner/src/command/exec.rs:capture'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A Deny-policy cwd refusal, an expansion failure and a non-UTF-8 cwd each produce a distinct user-facing StepFailed message naming the cause, without paths or variable names, and none of them says 'failed to spawn'
-- [ ] #2 Real spawn failures (NotFound, PermissionDenied on exec) keep the existing redacted 'failed to spawn' text; tests cover both groups
+- [x] #1 A Deny-policy cwd refusal, an expansion failure and a non-UTF-8 cwd each produce a distinct user-facing StepFailed message naming the cause, without paths or variable names, and none of them says 'failed to spawn'
+- [x] #2 Real spawn failures (NotFound, PermissionDenied on exec) keep the existing redacted 'failed to spawn' text; tests cover both groups
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.05 (code-review-rust run, 2026-11-18).
+
+Build failures carry a BuildFailure inner error (CwdEscapesWorkspace, VariableExpansion, NonUtf8Cwd, BuildTaskFailed); redact_spawn_error renders them as 'cannot run `<program>`: <cause>'. Paths/var names now only at tracing::debug. Also covered the blocking-pool panic path.
+
 <!-- SECTION:NOTES:END -->

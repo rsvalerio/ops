@@ -1,10 +1,10 @@
 ---
 id: TASK-2702
 title: 'API-14: CommandRunner::run and run_raw # Errors claim step build/spawn failures return Err'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:31'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:22'
 labels:
   - code-review-rust
   - API
@@ -30,7 +30,8 @@ dedup_key: 'API-14:crates/runner/src/command/mod.rs:CommandRunner::run'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The # Errors sections of run and run_raw list only plan-expansion failures, and say that build/spawn failures come back as failed StepResult entries inside Ok
+- [x] #1 The # Errors sections of run and run_raw list only plan-expansion failures, and say that build/spawn failures come back as failed StepResult entries inside Ok
+
 <!-- AC:END -->
 
 ## Implementation Notes

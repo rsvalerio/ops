@@ -1,10 +1,10 @@
 ---
 id: TASK-2842
 title: 'code-review-plan-wave6'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:33'
 labels:
   - code-review-wave
 dependencies:
@@ -43,4 +43,8 @@ Grouping: ops-runner error reporting, docs and dedup
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2839 (crates/runner/src/command/build.rs); TASK-2840 (crates/runner/src/command/exec.rs)
+
+Branch: code-review/TASK-2842
+Worktree: /home/rsvalerio/projects/.wave-TASK-2842
+
 <!-- SECTION:NOTES:END -->

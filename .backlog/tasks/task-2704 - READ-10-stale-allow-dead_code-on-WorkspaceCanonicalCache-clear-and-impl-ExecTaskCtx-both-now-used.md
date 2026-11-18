@@ -1,10 +1,10 @@
 ---
 id: TASK-2704
 title: 'READ-10: stale #[allow(dead_code)] on WorkspaceCanonicalCache::clear and impl ExecTaskCtx, both now used'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:31'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:22'
 labels:
   - code-review-rust
   - READ
@@ -30,7 +30,8 @@ dedup_key: 'READ-10:crates/runner/src/command/build.rs:WorkspaceCanonicalCache::
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both #[allow(dead_code)] attributes are removed (or replaced by #[expect(..., reason)] only where the lint still fires under some cfg), and the crate builds warning-free under the workspace lint policy
+- [x] #1 Both #[allow(dead_code)] attributes are removed (or replaced by #[expect(..., reason)] only where the lint still fires under some cfg), and the crate builds warning-free under the workspace lint policy
+
 <!-- AC:END -->
 
 ## Implementation Notes
