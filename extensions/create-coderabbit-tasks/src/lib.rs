@@ -327,8 +327,12 @@ fn file_findings(
         let opts = finding::task_options(filer.target_name, &file, item);
         match create_task(filer.backlog.store, filer.backlog.cfg, &opts, filer.stamp)? {
             Created::New(id) => {
-                writeln!(out, "created {id} {}", opts.title)?;
+                // Record the id before propagating a failed report: a closed
+                // `out` must not hide a task already on disk from the
+                // recovery commit.
+                let reported = writeln!(out, "created {id} {}", opts.title);
                 filing.filed.push(id);
+                reported?;
             }
             Created::Exists(id) => {
                 writeln!(out, "exists {id} {}", opts.title)?;
@@ -528,6 +532,45 @@ mod tests {
         assert_eq!((filing.existing, filing.skipped), (0, 1), "{out}");
         assert!(out.contains("skipped: coderabbit named a file outside the repository"), "{out}");
         assert!(out.contains("/tmp/wt2/b.rs"), "{out}");
+    }
+
+    /// A writer whose every write fails, as stdout does once its reader has
+    /// gone away.
+    struct ClosedPipe;
+
+    impl Write for ClosedPipe {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failed_report_still_records_the_task_it_filed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join(".backlog/tasks")).expect("tasks");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let cfg = BacklogConfig::default();
+        let stream = concat!(
+            "{\"type\":\"finding\",\"severity\":\"minor\",\"fileName\":\"a.rs\",\"comment\":\"First.\"}\n",
+            "{\"type\":\"complete\"}\n",
+        );
+        let findings = finding::parse_agent_output(stream).expect("parses");
+        let mut filing = Filing::default();
+        let stamp = UtcStamp::now().expect("clock");
+        let filer = Filer {
+            backlog: Backlog { store: &store, cfg: &cfg },
+            target_name: "ops-core",
+            worktree_root: Path::new("/tmp/wt"),
+            stamp: &stamp,
+        };
+        let err = file_findings(&filer, &findings, &mut filing, &mut ClosedPipe)
+            .expect_err("the report write fails");
+        assert!(err.to_string().contains("pipe"), "{err}");
+        assert_eq!(filing.filed.len(), 1, "the task on disk must be recorded");
     }
 
     #[test]
