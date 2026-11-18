@@ -11,14 +11,14 @@
 //!
 //! 1. **[`TableName`]** / **[`JsonColumn`]**: const-validated at construction
 //!    (build-time for statics), the ingest side's currency.
-//! 2. **`QueryTableName` / `ColumnAlias` / `ColumnName`**: runtime-validated
-//!    wrappers for the per-crate query scaffolding.
+//! 2. **`ColumnAlias` / `ColumnName`**: the same const validation for the
+//!    per-crate query scaffolding's aliases and columns.
 //! 3. **`quoted_ident`**: validate-and-quote in one step for the remaining
 //!    dynamic-identifier sites.
 
 pub mod ingest;
 pub mod query;
-// ARCH-9 / TASK-1862: crate-private. A `pub mod` would make the granular
+// Crate-private: a `pub mod` would make the granular
 // validators reachable as `ops_sqlite::sql::validation::*` regardless of the
 // curated re-export list below, handing downstream callers a shortcut past
 // the `TableName` / `quoted_ident` gates.
@@ -125,10 +125,11 @@ pub fn relativize_path(path: &std::path::Path, workspace_root: &std::path::Path)
 }
 
 pub use ingest::{
-    data_dir_for_db, default_db_path, execute_json_load, external_err, load_json_string,
-    provide_via_ingestor, query_rows_to_json, read_workspace_sidecar, remove_workspace_sidecar,
-    sidecar_name, table_has_data, write_workspace_sidecar, CreateTableSql, CreateViewSql,
-    IngestDir, JsonColumn, JsonColumnType, JsonLoadShape, JsonTableLoad,
+    data_dir_for_db, default_db_path, execute_json_load, external_err, in_transaction,
+    load_json_string, provide_via_ingestor, query_rows_to_json, read_workspace_sidecar,
+    remove_workspace_sidecar, sidecar_name, source_is_loaded, table_has_data,
+    write_workspace_sidecar, CreateTableSql, CreateViewSql, IngestDir, JsonColumn, JsonColumnType,
+    JsonLoadShape, JsonTableLoad,
 };
 pub use query::{
     query_crate_coverage, query_crate_dep_counts, query_crate_deps, query_crate_file_count,
@@ -137,9 +138,9 @@ pub use query::{
     query_rust_loc_summary, CrateCoverage, RustLocStat,
 };
 // These three are the crate's entire public validation surface: the module
-// itself is `pub(crate)` (ARCH-9 / TASK-1862), so the granular helpers
+// itself is `pub(crate)`, so the granular helpers
 // (`validate_identifier`, `validate_path_chars`, `validate_no_traversal`)
-// are reachable inside this crate only. `quoted_ident` is the SEC-12
+// are reachable inside this crate only. `quoted_ident` is the
 // defense-in-depth wrapper and is needed at every site that interpolates an
 // identifier into a hand-written SQL string (e.g.
 // `extensions/tokei/src/views::tokei_languages_view_sql`).

@@ -1,9 +1,8 @@
 //! `DataIngestor` trait for loading data into `Sqlite`.
 
 use crate::connection::Sqlite;
-// READ-4 / TASK-1875: `DbError` is imported for the intra-doc links in the
-// `# Errors` sections below; without it `[`DbError::Io`]` and friends did not
-// resolve. The `use` is doc-only, hence the narrow `expect`.
+// `DbError` is imported for the intra-doc links in the `# Errors` sections
+// below; the `use` is doc-only, hence the narrow `expect`.
 #[expect(unused_imports, reason = "referenced only by intra-doc links in this module")]
 use crate::error::DbError;
 use crate::error::DbResult;
@@ -112,64 +111,55 @@ impl SidecarIngestorConfig {
     /// # Steps and side effects
     ///
     /// 1. `init_schema(db)` — idempotent; creates `data_sources` if absent.
-    /// 2. Read the workspace sidecar (file I/O, no lock held). Failure here
-    ///    aborts before any DB mutation.
-    /// 3. Acquire the connection lock, read `<json_filename>` through the
-    ///    verified anchor, execute the `load` DDL batch, insert the staged
-    ///    bytes as a bound parameter, then execute `view_sql`. On failure,
-    ///    the table/view created up to the failing statement remain in
-    ///    `SQLite` (partial state).
-    /// 4. `SELECT COUNT(*) FROM count_table` runs **under the same lock**
-    ///    acquired in step 3, so a concurrent ingestor cannot replace the
-    ///    table between load and count and make the reported `record_count`
-    ///    describe a different table than the one this call wrote. Failure
-    ///    leaves table/view intact.
-    /// 5. Drop the lock; compute the checksum of `<json_filename>` through
-    ///    the anchor (file I/O).
-    /// 6. `upsert_data_source(...)` — upserts the tracking row.
-    /// 7. Rename `<json_filename>` to `<json_filename>.done`, then unlink it
+    /// 2. Read the workspace sidecar and checksum `<json_filename>` through
+    ///    the verified anchor (file I/O, no lock held). Failure here aborts
+    ///    before any DB mutation.
+    /// 3. Acquire the connection lock and, in **one transaction**
+    ///    ([`in_transaction`](crate::sql::in_transaction)): execute the
+    ///    `load` DDL batch, insert the staged bytes as a bound parameter,
+    ///    execute `view_sql`, `SELECT COUNT(*) FROM count_table`, and upsert
+    ///    the `data_sources` provenance row. Holding the lock across all of
+    ///    it means the recorded `record_count` describes the table this call
+    ///    wrote, not one a concurrent ingestor replaced in between.
+    /// 4. Rename `<json_filename>` to `<json_filename>.done`, then unlink it
     ///    — best-effort. If the rename fails the original name is unlinked
     ///    directly.
-    /// 8. Remove the workspace sidecar — best-effort, and only once the
+    /// 5. Remove the workspace sidecar — best-effort, and only once the
     ///    staged JSON is gone.
     ///
     /// # Failure semantics
     ///
-    /// On error, this function is **idempotent on retry**: every step that
-    /// can be safely re-run on the next invocation is re-run.
+    /// A failure in step 3 rolls the whole step back: the database keeps
+    /// whatever table, view and provenance row it had before the call (none,
+    /// on a first load). No populated table is ever left without its view and
+    /// provenance row, so the orchestrator's load probe
+    /// ([`source_is_loaded`](crate::sql::source_is_loaded)) sees the source
+    /// as not loaded and the next run collects and loads again. Failures
+    /// before step 4 leave the JSON file and sidecar on disk, so calling
+    /// `load_with_sidecar` again retries from the staged files.
     ///
-    /// - Failures before step 7 leave the JSON file and sidecar on disk so
-    ///   that a retry can recompute the checksum and re-upsert.
-    /// - `load` and `view_sql` are idempotent by construction (DROP IF
-    ///   EXISTS + CREATE batches), so a partially created table is
-    ///   replaced on retry.
-    /// - `upsert_data_source` is idempotent by design (`ON CONFLICT DO
-    ///   UPDATE`).
+    /// # Crash during steps 4-5
     ///
-    /// Callers retrying after a failure should not call any cleanup helper
-    /// in between; just call `load_with_sidecar` again.
-    ///
-    /// # Crash during steps 7-8
-    ///
-    /// The `data_sources` row written in step 6 is the durable source of
-    /// truth; steps 7 and 8 only clear staging debris. A host crash
-    /// (`kill -9`, OOM, power loss) after step 6 leaves one of these states
+    /// The `data_sources` row committed in step 3 is the durable source of
+    /// truth; steps 4 and 5 only clear staging debris. A host crash
+    /// (`kill -9`, OOM, power loss) after step 3 leaves one of these states
     /// in the ingest directory:
     ///
     /// - before the rename: `<json_filename>` and the sidecar;
     /// - between the rename and the unlink: `<json_filename>.done` and the
     ///   sidecar;
-    /// - between the unlink and step 8: the sidecar alone.
+    /// - between the unlink and step 5: the sidecar alone.
     ///
     /// A `*.done` file is therefore always post-load debris, never a staged
     /// file in flight. All three states are safe to delete by hand, and none
-    /// blocks the next invocation: `provide_via_ingestor` sees the table
-    /// populated and skips collect and load.
+    /// blocks the next invocation: `provide_via_ingestor` sees the source
+    /// loaded and skips collect and load.
     ///
     /// # Errors
     ///
-    /// If schema initialisation, the sidecar load, or the create/view SQL
-    /// fails; see [`DbError`] for the specific variants.
+    /// If schema initialisation, the sidecar read, the checksum, the table
+    /// load, the view SQL, the count or the provenance upsert fails; see
+    /// [`DbError`] for the specific variants.
     pub fn load_with_sidecar(
         &self,
         db: &Sqlite,
@@ -183,28 +173,39 @@ impl SidecarIngestorConfig {
         // quoted form needs no runtime identifier check.
         let quoted = self.count_table.quoted();
         let workspace_root = crate::sql::read_workspace_sidecar(dir, self.name)?;
+        // The checksum reads the staged file, not the database, so it runs
+        // before the lock is taken and before anything is published. It is
+        // computed over the file opened *through the anchor*, so the bytes
+        // recorded in `data_sources` are the bytes this pipeline staged.
+        let checksum = dir.checksum(self.json_filename)?;
 
         let record_count = {
-            // Hold the lock for the entire create→count critical section. Two
-            // separate `db.lock()` calls would let a concurrent ingestor
-            // replace the table in between, producing a record_count from a
-            // different table than the one written here.
             let conn = db.lock()?;
-            self.load_tables_with(&conn, dir, load, view_sql)?;
-            self.count_records_with(&conn, &quoted)?
+            crate::sql::in_transaction(&conn, self.name, |conn| {
+                self.load_tables_with(conn, dir, load, view_sql)?;
+                let record_count = self.count_records_with(conn, &quoted)?;
+                crate::schema::upsert_data_source_with(
+                    conn,
+                    &crate::schema::DataSourceMetadata::new(
+                        crate::schema::SourceName::new(self.name),
+                        crate::schema::WorkspaceRoot::new(workspace_root.as_os_str()),
+                        &dir.entry_path(self.json_filename),
+                        record_count,
+                        &checksum,
+                    ),
+                )?;
+                Ok(record_count)
+            })?
         };
 
-        self.persist_record(db, workspace_root.as_os_str(), dir, record_count)?;
         self.cleanup_artifacts(dir);
 
         Ok(LoadResult::success(self.name, record_count))
     }
 
-    /// Step 3 of [`Self::load_with_sidecar`]: execute the table load (DDL
-    /// batch + bound-parameter insert) and the view batch on the
-    /// already-locked connection. Callers hold the lock across this *and*
-    /// `count_records_with` so the row count is guaranteed to describe the
-    /// table written by this call.
+    /// Table load (DDL batch + bound-parameter insert) and view batch of
+    /// [`Self::load_with_sidecar`], on the connection whose lock and
+    /// transaction the caller holds.
     fn load_tables_with(
         &self,
         conn: &rusqlite::Connection,
@@ -220,9 +221,9 @@ impl SidecarIngestorConfig {
         Ok(())
     }
 
-    /// Step 4 of [`Self::load_with_sidecar`]: read the row count from the
-    /// loaded count table on the already-locked connection. `quoted` must be
-    /// the double-quoted identifier returned by `self.count_table.quoted()`.
+    /// Row count of the loaded count table, read inside the same transaction
+    /// as the load. `quoted` must be the double-quoted identifier returned by
+    /// `self.count_table.quoted()`.
     fn count_records_with(&self, conn: &rusqlite::Connection, quoted: &str) -> DbResult<u64> {
         let raw_count: i64 = conn
             .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row: &rusqlite::Row<'_>| {
@@ -240,34 +241,7 @@ impl SidecarIngestorConfig {
         })
     }
 
-    /// Steps 5-6 of [`Self::load_with_sidecar`]: compute the staged file's
-    /// checksum (no lock held) and upsert the `data_sources` tracking row.
-    ///
-    /// The checksum is computed over the file opened *through the anchor*, so
-    /// the bytes recorded in `data_sources` are the bytes of the file this
-    /// pipeline staged. The path stored on the provenance row is a label an
-    /// operator reads, never something this code opens.
-    fn persist_record(
-        &self,
-        db: &Sqlite,
-        workspace_root: &std::ffi::OsStr,
-        dir: &IngestDir,
-        record_count: u64,
-    ) -> DbResult<()> {
-        let checksum = dir.checksum(self.json_filename)?;
-        crate::schema::upsert_data_source(
-            db,
-            &crate::schema::DataSourceMetadata::new(
-                crate::schema::SourceName::new(self.name),
-                crate::schema::WorkspaceRoot::new(workspace_root),
-                &dir.entry_path(self.json_filename),
-                record_count,
-                &checksum,
-            ),
-        )
-    }
-
-    /// Steps 7-8 of [`Self::load_with_sidecar`]: rename the staged JSON to
+    /// Steps 4-5 of [`Self::load_with_sidecar`]: rename the staged JSON to
     /// `.done`, unlink it, then remove the sidecar.
     ///
     /// Every removal is best-effort: data is already persisted in `SQLite` by
@@ -291,7 +265,7 @@ impl SidecarIngestorConfig {
     }
 }
 
-/// Step 7, first half: rename the staging JSON to a `.done` suffix before
+/// Step 4, first half: rename the staging JSON to a `.done` suffix before
 /// it is unlinked.
 ///
 /// A `kill -9` between rename and unlink leaves a single `*.done` file on
@@ -327,7 +301,7 @@ fn rename_json_to_done(source: &'static str, dir: &IngestDir, json_name: &str) -
     }
 }
 
-/// Step 7, second half, and step 8: unlink the post-rename staging file,
+/// Step 4, second half, and step 5: unlink the post-rename staging file,
 /// then remove the workspace sidecar. Both go through the verified anchor.
 ///
 /// The sidecar is only removed once the JSON is gone, so a transient

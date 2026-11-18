@@ -19,15 +19,15 @@ mod ingestor;
 mod schema;
 pub mod sql;
 
-// READ-10 / TASK-1873: no `#[allow(unused_imports)]` here. A `pub use` in a
-// library crate is a re-export and is never "unused", so the four
-// suppressions this block used to carry silenced nothing.
 pub use connection::Sqlite;
 pub use error::{io_context, DbError, DbResult};
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
-// SEC-25 / TASK-2054: `IngestDir` is in `DataIngestor`'s signature, so it must
-// be reachable wherever the trait is implemented.
-pub use schema::{init_schema, upsert_data_source, DataSourceMetadata, SourceName, WorkspaceRoot};
+// `IngestDir` is in `DataIngestor`'s signature, so it must be reachable
+// wherever the trait is implemented.
+pub use schema::{
+    init_schema, upsert_data_source, upsert_data_source_with, DataSourceMetadata, SourceName,
+    WorkspaceRoot,
+};
 pub use sql::IngestDir;
 
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
@@ -88,9 +88,6 @@ pub fn get_db(ctx: &Context) -> Option<&Sqlite> {
     downcast_sqlite(ctx.db())
 }
 
-// READ-10 / TASK-1873: these are `pub const`s in a library crate, i.e. part of
-// the public surface — `dead_code` never fires on them, so the two
-// suppressions they used to carry silenced nothing.
 /// Extension identifier used to register this crate in the engine's
 /// extension registry.
 pub const NAME: &str = "sqlite";
@@ -102,11 +99,8 @@ pub const SHORTNAME: &str = "db";
 /// the key the about code/loc subpages look the database handle up by.
 pub const DATA_PROVIDER_NAME: &str = "sqlite";
 
-// TRAIT-9 / TASK-1227: `SqliteHandle` now has a blanket impl over
-// `'static + Send + Sync` in `ops_extension::data`, so the explicit
-// `impl SqliteHandle for Sqlite` block is no longer needed (and can no
-// longer customise the `as_any` body — the canonical `self` body is
-// the compile-time-enforced contract).
+// `Sqlite` gets `SqliteHandle` from the blanket impl over
+// `'static + Send + Sync` in `ops_extension::data`.
 
 /// Datasource extension opening the per-project `SQLite` database at the
 /// configured path and attaching it to the run's [`Context`].

@@ -4,7 +4,7 @@ use crate::sql::validation::quoted_ident;
 use crate::Sqlite;
 
 use super::dir::{data_dir_for_db, IngestDir};
-use super::sql::table_has_data;
+use super::sql::source_is_loaded;
 
 // Thread-local set of `&'static str` table names that the current thread
 // already holds the ingest mutex for.
@@ -30,7 +30,7 @@ impl ReentryGuard {
                 let inserted = set.borrow_mut().insert(table);
                 debug_assert!(
                     inserted,
-                    "CONC-2 / TASK-1143: provide_via_ingestor re-entered on the same thread for table `{table}`; std::sync::Mutex is non-reentrant and would deadlock in release builds"
+                    "provide_via_ingestor re-entered on the same thread for table `{table}`; std::sync::Mutex is non-reentrant and would deadlock in release builds"
                 );
             });
             Self { table }
@@ -54,8 +54,15 @@ impl Drop for ReentryGuard {
 
 /// Refresh an ingestor (collect + load) and return query results.
 ///
-/// Orchestrates the full pipeline: check if table has data, if not collect and load,
-/// then query.
+/// Orchestrates the full pipeline: check whether the source is loaded, if
+/// not collect and load, then query.
+///
+/// "Loaded" means `table_name` exists **and** `data_sources` holds a
+/// provenance row for `ingestor.name()` (see
+/// [`source_is_loaded`](super::sql::source_is_loaded)). The row count is not
+/// the signal: a source that legitimately loaded zero rows stays loaded and
+/// is not re-collected on every call, and a table left without its
+/// provenance row by an incomplete load is collected and loaded again.
 ///
 /// A per-table ingest lock prevents duplicate collect+load cycles AND
 /// extends across the trailing `query_fn` so a concurrent refresh cannot
@@ -95,7 +102,7 @@ where
             table = %table_name,
             "per-table ingest mutex was poisoned by a prior panic; recovered"
         );
-        // VER-4: the mutex only guards a `()` token, so recovery
+        // The mutex only guards a `()` token, so recovery
         // re-establishes its invariant — clear the poison flag so later
         // ingests for this table do not re-enter this branch and re-emit
         // the warn.
@@ -114,15 +121,15 @@ where
     // `?`; benign on the cold ingest path.
 
     // drop_table_if_exists MUST run inside the per-table ingest_mutex
-    // critical section, before the table_has_data probe.
+    // critical section, before the load probe.
     if ctx.is_refreshing() {
         drop_table_if_exists(db, table_name)
             .with_context(|| format!("provide_via_ingestor({table_name}): drop phase"))?;
     }
 
-    let has_data = table_has_data(db, table_name)
-        .with_context(|| format!("provide_via_ingestor({table_name}): table_has_data probe"))?;
-    if !has_data {
+    let loaded = source_is_loaded(db, table_name, ingestor.name())
+        .with_context(|| format!("provide_via_ingestor({table_name}): load probe"))?;
+    if !loaded {
         // An in-memory handle has no staging area; deriving the relative
         // `:memory:.ingest` from the sentinel would litter the process
         // working directory.
@@ -196,7 +203,7 @@ pub(super) fn drop_table_if_exists(db: &Sqlite, table_name: &str) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sql::{execute_json_load, JsonColumn, JsonTableLoad};
+    use crate::sql::{execute_json_load, in_transaction, JsonColumn, JsonTableLoad};
     use crate::DbError;
     use crate::{init_schema, DbResult};
     use std::path::PathBuf;
@@ -207,6 +214,40 @@ mod tests {
     /// is not rvalue-promotable (const-fn calls never are), so the slice is
     /// a named `const`.
     const ID_COLS: &[JsonColumn] = &[JsonColumn::integer("id", "$.id")];
+
+    /// Loads the staged `file` into `table` and records the `data_sources`
+    /// provenance row for `source` in one transaction, the way the real
+    /// loaders publish, so `provide_via_ingestor` sees the source as loaded.
+    fn mock_load(
+        dir: &IngestDir,
+        db: &Sqlite,
+        table: &'static str,
+        file: &'static str,
+        source: &'static str,
+    ) -> DbResult<crate::LoadResult> {
+        let load = JsonTableLoad::flat_array(table, ID_COLS);
+        let conn = db.lock()?;
+        let rows = in_transaction(&conn, source, |conn| {
+            execute_json_load(conn, dir, &load, file)?;
+            let rows: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .map_err(|e| DbError::query_failed("mock count", e))?;
+            let rows = u64::try_from(rows).unwrap_or(0);
+            crate::upsert_data_source_with(
+                conn,
+                &crate::DataSourceMetadata::new(
+                    crate::SourceName::new(source),
+                    crate::WorkspaceRoot::new(std::ffi::OsStr::new("/ws")),
+                    &dir.entry_path(file),
+                    rows,
+                    "checksum",
+                ),
+            )?;
+            Ok(rows)
+        })?;
+        drop(conn);
+        Ok(crate::LoadResult::success(source, rows))
+    }
 
     // --- drop_table_if_exists validation ---
 
@@ -259,11 +300,7 @@ mod tests {
                 Ok(())
             }
             fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                let load = JsonTableLoad::flat_array("counting_test", ID_COLS);
-                let conn = db.lock()?;
-                execute_json_load(&conn, dir, &load, "counting.json")?;
-                drop(conn);
-                Ok(crate::LoadResult::success("counting", 1))
+                mock_load(dir, db, "counting_test", "counting.json", "counting")
             }
         }
 
@@ -320,11 +357,7 @@ mod tests {
                 Ok(())
             }
             fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                let load = JsonTableLoad::flat_array("trivial_table", ID_COLS);
-                let conn = db.lock()?;
-                execute_json_load(&conn, dir, &load, "trivial.json")?;
-                drop(conn);
-                Ok(crate::LoadResult::success("trivial", 1))
+                mock_load(dir, db, "trivial_table", "trivial.json", "trivial")
             }
         }
 
@@ -390,11 +423,7 @@ mod tests {
                 Ok(())
             }
             fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                let load = JsonTableLoad::flat_array("panicky_table", ID_COLS);
-                let conn = db.lock()?;
-                execute_json_load(&conn, dir, &load, "panicky.json")?;
-                drop(conn);
-                Ok(crate::LoadResult::success("panicky", 1))
+                mock_load(dir, db, "panicky_table", "panicky.json", "panicky")
             }
         }
 
@@ -452,11 +481,7 @@ mod tests {
                 Ok(())
             }
             fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                let load = JsonTableLoad::flat_array("panicky_warn_table", ID_COLS);
-                let conn = db.lock()?;
-                execute_json_load(&conn, dir, &load, "panicky_warn.json")?;
-                drop(conn);
-                Ok(crate::LoadResult::success("panicky_warn", 1))
+                mock_load(dir, db, "panicky_warn_table", "panicky_warn.json", "panicky_warn")
             }
         }
 
@@ -524,11 +549,7 @@ mod tests {
                 Ok(())
             }
             fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                let load = JsonTableLoad::flat_array("panicky_once_table", ID_COLS);
-                let conn = db.lock()?;
-                execute_json_load(&conn, dir, &load, "panicky_once.json")?;
-                drop(conn);
-                Ok(crate::LoadResult::success("panicky_once", 1))
+                mock_load(dir, db, "panicky_once_table", "panicky_once.json", "panicky_once")
             }
         }
 
@@ -584,11 +605,7 @@ mod tests {
                 Ok(())
             }
             fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
-                let load = JsonTableLoad::flat_array("race_table", ID_COLS);
-                let conn = db.lock()?;
-                execute_json_load(&conn, dir, &load, "race.json")?;
-                drop(conn);
-                Ok(crate::LoadResult::success("race", 1))
+                mock_load(dir, db, "race_table", "race.json", "race")
             }
         }
 
@@ -799,5 +816,118 @@ mod tests {
             "the pipeline created {}/:memory:.ingest",
             cwd.display()
         );
+    }
+
+    fn file_backed_ctx() -> ops_extension::Context {
+        ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::empty()),
+            PathBuf::from("/tmp"),
+        )
+    }
+
+    /// A source that loaded zero rows is still loaded: the provenance row,
+    /// not the row count, is the marker, so a second call does not collect
+    /// again.
+    #[test]
+    fn empty_dataset_is_collected_once_across_calls() {
+        use crate::DataIngestor;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct EmptyIngestor {
+            collects: AtomicUsize,
+        }
+        impl DataIngestor for EmptyIngestor {
+            fn name(&self) -> &'static str {
+                "empty"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
+                self.collects.fetch_add(1, Ordering::SeqCst);
+                dir.write_atomic("empty.json", b"[]")
+            }
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                mock_load(dir, db, "empty_table", "empty.json", "empty")
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db = Sqlite::open(&db_dir.path().join("empty.db")).expect("db");
+        let ingestor = EmptyIngestor { collects: AtomicUsize::new(0) };
+        for _ in 0..2 {
+            provide_via_ingestor(&db, &file_backed_ctx(), "empty_table", &ingestor, |_| {
+                Ok(serde_json::Value::Null)
+            })
+            .expect("ingest");
+        }
+        assert_eq!(ingestor.collects.load(Ordering::SeqCst), 1, "an empty load must stick");
+    }
+
+    /// A sidecar load whose view batch fails after the table insert rolls
+    /// back completely, so the next call collects and loads again instead of
+    /// skipping over a half-built table.
+    #[test]
+    fn failed_sidecar_load_is_retried_by_the_next_call() {
+        use crate::sql::CreateViewSql;
+        use crate::{DataIngestor, SidecarIngestorConfig};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        const CONFIG: SidecarIngestorConfig =
+            SidecarIngestorConfig::new("flaky", "flaky.json", "flaky_table");
+
+        struct FlakyViewIngestor {
+            collects: AtomicUsize,
+            fail_view: AtomicBool,
+        }
+        impl DataIngestor for FlakyViewIngestor {
+            fn name(&self) -> &'static str {
+                CONFIG.name
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
+                self.collects.fetch_add(1, Ordering::SeqCst);
+                CONFIG.collect_sidecar(
+                    dir,
+                    &serde_json::json!([{ "id": 1 }, { "id": 2 }]),
+                    std::path::Path::new("/ws"),
+                )
+            }
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let view = if self.fail_view.swap(false, Ordering::SeqCst) {
+                    CreateViewSql::from_literal_for_tests("CREATE VIEW flaky_v AS SELEC 1")
+                } else {
+                    CreateViewSql::from_literal_for_tests(
+                        "DROP VIEW IF EXISTS flaky_v; \
+                         CREATE VIEW flaky_v AS SELECT * FROM flaky_table",
+                    )
+                };
+                let load = JsonTableLoad::flat_array("flaky_table", ID_COLS);
+                CONFIG.load_with_sidecar(db, dir, &load, &view)
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db = Sqlite::open(&db_dir.path().join("flaky.db")).expect("db");
+        let ingestor =
+            FlakyViewIngestor { collects: AtomicUsize::new(0), fail_view: AtomicBool::new(true) };
+
+        provide_via_ingestor(&db, &file_backed_ctx(), "flaky_table", &ingestor, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect_err("the broken view batch must fail the load");
+        let conn = db.lock().expect("lock");
+        assert!(
+            !super::super::sql::table_exists(&conn, "flaky_table").expect("probe"),
+            "the failed load must leave no populated table behind"
+        );
+        drop(conn);
+
+        let rows = provide_via_ingestor(&db, &file_backed_ctx(), "flaky_table", &ingestor, |db| {
+            let conn = db.lock().expect("lock");
+            let n: i64 =
+                conn.query_row("SELECT COUNT(*) FROM flaky_v", [], |r| r.get(0)).expect("view");
+            drop(conn);
+            Ok(serde_json::json!(n))
+        })
+        .expect("the retry must load");
+        assert_eq!(ingestor.collects.load(Ordering::SeqCst), 2, "the retry must collect again");
+        assert_eq!(rows, serde_json::json!(2));
     }
 }

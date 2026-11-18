@@ -8,7 +8,9 @@
 //! [`crate::IngestDir`] anchor and there is no path to interpolate or swap.
 
 use crate::error::{DbError, DbResult};
-use crate::sql::validation::{is_valid_identifier_const, quoted_ident, TableName};
+use crate::sql::validation::{
+    is_identifier_tail, is_valid_identifier_const, quoted_ident, TableName,
+};
 use crate::Sqlite;
 use std::io::Read;
 
@@ -26,7 +28,7 @@ use std::io::Read;
 /// REPLACE` — callers must execute it via `Connection::execute_batch`, not
 /// `Connection::execute` (which rejects multiple statements).
 #[derive(Debug, Clone)]
-#[must_use = "SEC-12: the built statement is the only gated form; discarding it means nothing is executed"]
+#[must_use = "the built statement is the only gated form; discarding it means nothing is executed"]
 pub struct CreateTableSql(String);
 
 impl CreateTableSql {
@@ -57,7 +59,7 @@ impl std::fmt::Display for CreateTableSql {
 /// connection lock and the database is a disposable cache, so the transient
 /// no-view window between the two statements is not observable.
 #[derive(Debug, Clone)]
-#[must_use = "SEC-12: the built statement is the only gated form; discarding it means nothing is executed"]
+#[must_use = "the built statement is the only gated form; discarding it means nothing is executed"]
 pub struct CreateViewSql(String);
 
 impl CreateViewSql {
@@ -212,27 +214,12 @@ impl JsonColumn {
 }
 
 const fn is_valid_json_path_const(s: &str) -> bool {
-    // "$." + at least one identifier character, walked with slice patterns
+    // "$." + at least one `[A-Za-z0-9_]` key byte, walked with slice patterns
     // (const-stable, and index/arithmetic-free — clippy-clean in const fn).
     match s.as_bytes() {
-        [b'$', b'.', tail @ ..] => is_nonempty_identifier_bytes(tail),
+        [b'$', b'.', tail @ ..] => !tail.is_empty() && is_identifier_tail(tail),
         _ => false,
     }
-}
-
-/// `true` when `bytes` is non-empty and every byte is `[A-Za-z0-9_]` —
-/// the tail rule shared by column names and single-level JSON paths.
-const fn is_nonempty_identifier_bytes(mut bytes: &[u8]) -> bool {
-    if bytes.is_empty() {
-        return false;
-    }
-    while let [b, tail @ ..] = bytes {
-        if !(b.is_ascii_alphanumeric() || *b == b'_') {
-            return false;
-        }
-        bytes = tail;
-    }
-    true
 }
 
 /// How a staged JSON file maps onto a table's rows.
@@ -403,6 +390,85 @@ pub fn load_json_string(
     Ok(())
 }
 
+/// Runs `body` inside one transaction on `conn`, committing when it returns
+/// `Ok` and rolling back when it returns `Err` (or unwinds).
+///
+/// Loaders publish a table, its view and its `data_sources` provenance row
+/// through this, so a failure at any step leaves the database as it was
+/// before the load: a first load leaves no table behind, and a reload keeps
+/// the previous consistent table, view and provenance row. `SQLite` DDL is
+/// transactional, so the `DROP`/`CREATE` batches roll back too.
+///
+/// `stage` names the load in the event emitted if the rollback itself fails;
+/// the caller's error is still the one returned.
+///
+/// # Errors
+///
+/// [`DbError::QueryFailed`] if the transaction cannot begin or commit, or
+/// whatever error `body` returns.
+pub fn in_transaction<T>(
+    conn: &rusqlite::Connection,
+    stage: &'static str,
+    body: impl FnOnce(&rusqlite::Connection) -> DbResult<T>,
+) -> DbResult<T> {
+    // `unchecked_transaction` because the caller holds the connection behind
+    // a shared `MutexGuard`; the lock already rules out a concurrent
+    // transaction on this connection.
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| DbError::query_failed(format!("{stage} begin transaction"), e))?;
+    match body(&tx) {
+        Ok(value) => {
+            tx.commit().map_err(|e| DbError::query_failed(format!("{stage} commit"), e))?;
+            Ok(value)
+        }
+        Err(err) => {
+            if let Err(rollback) = tx.rollback() {
+                tracing::warn!(
+                    stage,
+                    error = %rollback,
+                    "ingest rollback failed; the next run may see a partial load"
+                );
+            }
+            Err(err)
+        }
+    }
+}
+
+/// Whether `source_name` has completed a load into `table_name`: the table
+/// (or view) exists **and** `data_sources` holds a provenance row for the
+/// source.
+///
+/// The provenance row is the load marker, not the row count, so a source
+/// that legitimately loaded zero rows counts as loaded. Loaders write the
+/// table and the provenance row in one transaction ([`in_transaction`]), so
+/// a table without its row is a load that never completed and is re-run.
+///
+/// # Errors
+///
+/// If the database lock is poisoned or a catalog query fails.
+pub fn source_is_loaded(
+    db: &Sqlite,
+    table_name: &str,
+    source_name: &str,
+) -> Result<bool, anyhow::Error> {
+    use anyhow::Context;
+
+    let conn = db.lock().context("acquiring db lock")?;
+    if !table_exists(&conn, table_name)? || !table_exists(&conn, "data_sources")? {
+        return Ok(false);
+    }
+    let rows: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM data_sources WHERE source_name = ?1",
+            rusqlite::params![source_name],
+            |row: &rusqlite::Row<'_>| row.get(0),
+        )
+        .with_context(|| format!("looking up the {source_name:?} provenance row"))?;
+    drop(conn);
+    Ok(rows > 0)
+}
+
 /// Check if a table or view exists in the database.
 ///
 /// SQLite's `sqlite_master` catalog lists tables and views in one place, so
@@ -416,7 +482,7 @@ pub fn table_exists(conn: &rusqlite::Connection, table_name: &str) -> Result<boo
             rusqlite::params![table_name],
             |row: &rusqlite::Row<'_>| row.get(0),
         )
-        // ERR-7: render the identifier via Debug so any embedded control
+        // Render the identifier via Debug so any embedded control
         // characters (\n, \t, NULs, ANSI escapes …) are escaped and cannot
         // forge log lines or smuggle stray formatting into the error chain.
         .with_context(|| format!("checking if {table_name:?} exists"))?;
@@ -441,7 +507,7 @@ pub fn table_has_data(db: &Sqlite, table_name: &str) -> Result<bool, anyhow::Err
         .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row: &rusqlite::Row<'_>| {
             row.get(0)
         })
-        // ERR-7 (TASK-0521): Debug-format the table name to defang
+        // Debug-format the table name to defang
         // control-character/log-injection.
         .with_context(|| format!("counting rows in {table_name:?}"))?;
     drop(conn);
@@ -470,7 +536,7 @@ where
     for row in rows {
         results.push(row.context("reading row")?);
     }
-    // CONC-1: release the connection guard before building the JSON value.
+    // Release the connection guard before building the JSON value.
     // `stmt` borrows `conn`, so it has to go first.
     drop(stmt);
     drop(conn);
