@@ -272,7 +272,7 @@ fn a_symlinked_config_dir_is_refused() {
 
 #[cfg(unix)]
 #[test]
-fn a_member_symlinked_out_of_the_repo_is_refused() {
+fn a_member_dir_symlinked_out_of_the_repo_is_left_alone() {
     let dir = workspace();
     let outside = tempfile::tempdir().expect("outside");
     let manifest = "[package]\nname = \"elsewhere\"\nversion = \"0.1.0\"\n";
@@ -281,9 +281,25 @@ fn a_member_symlinked_out_of_the_repo_is_refused() {
         .expect("symlink");
     let root = WORKSPACE.replace("[\"crates/*\"]", "[\"crates/a\", \"crates/x\"]");
     std::fs::write(dir.path().join("Cargo.toml"), root).expect("literal members");
-    let err = scaffold(dir.path(), false).expect_err("member outside the repo");
-    assert!(format!("{err:#}").contains("outside the repo"), "{err:#}");
+    let written = scaffold(dir.path(), false).expect("scaffold");
+    assert!(written.iter().all(|w| !w.target.starts_with("crates/x")), "{written:?}");
     assert_eq!(std::fs::read_to_string(outside.path().join("Cargo.toml")).expect("read"), manifest);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_member_manifest_symlinked_out_of_the_repo_is_refused() {
+    let dir = workspace();
+    let outside = tempfile::tempdir().expect("outside");
+    let manifest = "[package]\nname = \"elsewhere\"\nversion = \"0.1.0\"\n";
+    let target = outside.path().join("Cargo.toml");
+    std::fs::write(&target, manifest).expect("outside manifest");
+    let member = dir.path().join("crates/a/Cargo.toml");
+    std::fs::remove_file(&member).expect("rm member manifest");
+    std::os::unix::fs::symlink(&target, &member).expect("symlink");
+    let err = scaffold(dir.path(), false).expect_err("member manifest outside the repo");
+    assert!(format!("{err:#}").contains("outside the repo"), "{err:#}");
+    assert_eq!(std::fs::read_to_string(&target).expect("read"), manifest);
     assert!(!dir.path().join("clippy.toml").exists(), "refused before any write");
 }
 
