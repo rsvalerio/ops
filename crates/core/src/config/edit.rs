@@ -190,22 +190,50 @@ where
 /// If `path` has no resolvable parent directory or file name, or if any
 /// step of the write fails: creating the temp file, writing, `fsync`,
 /// or the final rename. The temp file is cleaned up on failure.
+///
+/// Every error names the destination path, and the sibling temp path when
+/// the failing step touched it (a read-only parent directory fails at the
+/// temp-file create, not at the destination), while keeping the original
+/// [`std::io::ErrorKind`] so callers can still classify it. Paths are
+/// Debug-formatted so a hostile file name cannot forge log lines.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let (parent, file_name) = resolve_parent_and_filename(path)?;
+    let (parent, file_name) = resolve_parent_and_filename(path).map_err(|e| {
+        with_write_context(&e, format_args!("atomic write to {:?}", path.display()))
+    })?;
     let tmp = parent.join(build_tmp_basename(file_name));
 
     if let Err(e) = write_tmp_and_sync(&tmp, path, bytes) {
         cleanup_tmp(&tmp, false, "leaked atomic_write temp file after write/sync failure");
-        return Err(e);
+        return Err(with_write_context(
+            &e,
+            format_args!(
+                "atomic write to {:?}: writing temp file {:?}",
+                path.display(),
+                tmp.display()
+            ),
+        ));
     }
 
     if let Err(e) = std::fs::rename(&tmp, path) {
         cleanup_tmp(&tmp, true, "leaked atomic_write temp file after rename failure");
-        return Err(e);
+        return Err(with_write_context(
+            &e,
+            format_args!(
+                "atomic write to {:?}: renaming temp file {:?} into place",
+                path.display(),
+                tmp.display()
+            ),
+        ));
     }
 
     sync_parent_dir(parent);
     Ok(())
+}
+
+/// Prefix an `atomic_write` step's error with what it was doing and which
+/// paths it touched, keeping the original kind.
+fn with_write_context(e: &std::io::Error, what: std::fmt::Arguments<'_>) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("{what}: {e}"))
 }
 
 // `Path::parent()` returns `Some("")` — not `None` —
@@ -502,7 +530,10 @@ mod tests {
         FAIL_AFTER_SYNC.with(|c| c.set(false));
 
         let err = result.expect_err("expected injected failure to propagate");
-        assert_eq!(err.to_string(), "injected post-sync failure");
+        let msg = err.to_string();
+        assert!(msg.ends_with(": injected post-sync failure"), "cause must survive, got: {msg}");
+        assert!(msg.contains("target.toml"), "error must name the destination, got: {msg}");
+        assert!(msg.contains(".target.toml.tmp."), "error must name the temp file, got: {msg}");
 
         assert!(!path.exists(), "target should not exist on inner failure");
         let leftovers: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
@@ -518,6 +549,45 @@ mod tests {
             leftovers.is_empty(),
             "expected tmp cleanup on inner failure, leftovers: {leftovers:?}"
         );
+    }
+
+    /// An unwritable parent directory fails at the temp-file create; the
+    /// error must name the destination and the temp path and keep the
+    /// `PermissionDenied` kind, rather than surfacing a bare
+    /// `Permission denied (os error 13)`.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_error_names_destination_in_unwritable_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let locked = crate::test_utils::canonical_root(&dir).join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let path = locked.join("dest.toml");
+
+        let result = atomic_write(&path, b"data");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        // Root ignores directory permissions; nothing to assert there.
+        let Err(err) = result else { return };
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        let msg = err.to_string();
+        assert!(msg.contains(&format!("{:?}", path.display())), "must name the destination: {msg}");
+        assert!(msg.contains(".dest.toml.tmp."), "must name the temp file: {msg}");
+    }
+
+    /// A rename failure names both the destination and the temp path.
+    #[test]
+    fn atomic_write_rename_error_names_both_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_dir = crate::test_utils::canonical_root(&dir).join("occupied");
+        std::fs::create_dir(&target_dir).unwrap();
+        std::fs::write(target_dir.join("inside"), b"x").unwrap();
+
+        let msg = atomic_write(&target_dir, b"data").unwrap_err().to_string();
+        assert!(msg.contains("renaming temp file"), "must name the failing step: {msg}");
+        assert!(msg.contains("occupied"), "must name the destination: {msg}");
+        assert!(msg.contains(".occupied.tmp."), "must name the temp file: {msg}");
     }
 
     #[test]
