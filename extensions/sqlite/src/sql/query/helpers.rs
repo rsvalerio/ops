@@ -4,25 +4,35 @@ use crate::Sqlite;
 use std::collections::HashMap;
 
 use super::super::ingest::table_exists;
-use super::super::validation::{validate_identifier, validate_path_chars, SqlError};
+use super::super::validation::{is_valid_identifier_const, validate_path_chars, TableName};
 
-/// Validated SQL identifier wrappers. Constructing one runs
-/// `validate_identifier` exactly once; downstream code can interpolate the
-/// inner `&str` without re-validating.
+/// Const-validated SQL identifier wrappers for the per-crate query
+/// scaffolding. Built with `from_static` in a `const` item, so an invalid
+/// literal fails the build and the inner `&str` can be interpolated without
+/// re-validation or an error path.
 macro_rules! sql_ident_newtype {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Copy)]
         pub struct $name(&'static str);
 
         impl $name {
-            /// Construct from a `&'static str`, validating the identifier shape.
-            pub(crate) fn new(s: &'static str) -> Result<Self, SqlError> {
-                validate_identifier(s)?;
-                Ok(Self(s))
+            /// Wraps `s`, which must be a valid SQL identifier
+            /// (`[A-Za-z_][A-Za-z0-9_]*`).
+            ///
+            /// # Panics
+            ///
+            /// If `s` is not a valid identifier. In a `const` context this
+            /// is a compile-time error.
+            pub(crate) const fn from_static(s: &'static str) -> Self {
+                assert!(
+                    is_valid_identifier_const(s),
+                    "SQL identifier must match [A-Za-z_][A-Za-z0-9_]*"
+                );
+                Self(s)
             }
 
-            pub(crate) const fn as_str(&self) -> &'static str {
+            pub(crate) const fn as_str(self) -> &'static str {
                 self.0
             }
         }
@@ -35,21 +45,15 @@ macro_rules! sql_ident_newtype {
     };
 }
 
-sql_ident_newtype!(
-    QueryTableName,
-    "READ-1 / TASK-1624: runtime-validated SQL table name for per-crate \
-     query scaffolding. Distinct from `crate::sql::validation::TableName`, \
-     which is a *compile-time* validated `&'static str` newtype for the \
-     ingest side; both share the SEC-12 \"identifier is allowlisted before \
-     interpolation\" contract but cover different lifetimes."
-);
 sql_ident_newtype!(ColumnAlias, "A validated SQL column/table alias.");
 sql_ident_newtype!(ColumnName, "A validated SQL column name.");
 
 /// Per-crate coverage data from `coverage_files`.
 ///
-/// The counts are crate totals — regions do not overlap, each source line
-/// is attributed to exactly one crate.
+/// The counts are crate totals. Each file is attributed to exactly one
+/// crate — the member with the longest matching path prefix — so nested
+/// members do not double-count and the per-crate totals sum to at most the
+/// project total.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CrateCoverage {
@@ -81,9 +85,7 @@ impl CrateCoverage {
 /// so callers cannot forward an unvalidated alias into the formatted SQL.
 /// `None` produces direct column references (e.g. `SUM(lines_count)`),
 /// `Some(alias)` produces `SUM(<alias>.lines_count)` after the alias has
-/// already been validated by `ColumnAlias::new`. Aligns with the
-/// `TableName` / `ColumnAlias` / `ColumnName` newtype pattern adopted
-/// elsewhere in this module.
+/// already been validated by `ColumnAlias::from_static`.
 pub(super) fn coverage_col_select(prefix: Option<&ColumnAlias>) -> String {
     let prefix = prefix.map_or_else(String::new, |alias| format!("{}.", alias.as_str()));
     format!(
@@ -129,7 +131,7 @@ where
         let v = row.with_context(|| format!("reading {label} row"))?;
         fold_fn(&mut acc, v);
     }
-    // CONC-1: release the connection guard before handing the accumulator
+    // Release the connection guard before handing the accumulator
     // back to the caller. `stmt` borrows `conn`, so it has to go first.
     drop(stmt);
     drop(conn);
@@ -161,10 +163,8 @@ where
     }
 
     conn.query_row(spec.sql, [], row_mapper)
-        // PERF-3 / TASK-2115: lazy `with_context` so the success path of
-        // every project-level query allocates nothing — same house style as
-        // the other `?` sites in this module. The failure message is
-        // unchanged: still the bare query label.
+        // Lazy `with_context`, so the success path of every project-level
+        // query allocates nothing.
         .with_context(|| label.to_string())
 }
 
@@ -215,7 +215,7 @@ pub(super) fn prepare_per_crate<'a>(
         return Ok(PerCrateSetup::NoTable);
     }
 
-    // PERF-3 / TASK-0968: build the placeholder string in place. A
+    // Build the placeholder string in place. A
     // `iter().map(...).collect::<Vec<_>>().join(", ")` shape would allocate
     // an intermediate `Vec<&'static str>` per call, and this path is hit
     // once per per-crate query and multiple times per about-units render.
@@ -289,11 +289,10 @@ where
     let mut result = HashMap::new();
     for row in rows {
         let (path, val) = row.with_context(|| format!("reading {label} row"))?;
-        // ERR-1: a duplicate key is a query-shape invariant violation
-        // (workspace glob bug, dropped GROUP BY). The map still takes the
-        // later value — `HashMap::insert` overwrites — so this warns *and*
-        // overwrites; it does not prevent the overwrite (READ-4 /
-        // TASK-1875).
+        // A duplicate key is a query-shape invariant violation (workspace
+        // glob bug, dropped GROUP BY). The map still takes the later value —
+        // `HashMap::insert` overwrites — so this warns *and* overwrites; it
+        // does not prevent the overwrite.
         if result.insert(path.clone(), val).is_some() {
             tracing::warn!(
                 label,
@@ -310,7 +309,7 @@ where
 /// error and validation is enforced once at construction time.
 pub(super) struct PerCrateI64Query<'a> {
     pub db: &'a Sqlite,
-    pub table: QueryTableName,
+    pub table: TableName,
     pub member_paths: &'a [&'a str],
     /// a SQL fragment interpolated alongside
     /// the surrounding `TableName` / `ColumnAlias` / `ColumnName`
@@ -340,17 +339,12 @@ pub(super) fn query_per_crate_i64(
         (q.table.as_str(), q.select_expr, q.join_alias.as_str(), q.join_column.as_str(), q.label);
 
     let cte = members_cte_prefix(&placeholders);
-    // SQLite port note: DuckDB's `starts_with(x, p)` has no SQLite
-    // equivalent; the prefix test is expressed as a `substr` comparison
-    // instead. The trailing '/' is part of the prefix, so a member
-    // "crates/foo" does not match "crates/foobar/…" (same boundary
-    // semantics the DuckDB form had).
+    let owns = member_owns_file(&format!("{join_alias}.{join_column}"));
     let sql = format!(
         "{cte} \
          SELECT m.path, {select_expr} \
          FROM members m \
-         LEFT JOIN {table} {join_alias} \
-             ON substr({join_alias}.{join_column}, 1, length(m.path || '/')) = m.path || '/' \
+         LEFT JOIN {table} {join_alias} ON {owns} \
          GROUP BY m.path",
     );
 
@@ -359,6 +353,25 @@ pub(super) fn query_per_crate_i64(
         let value = clamp_non_negative_i64(row.get::<_, i64>(1)?, label, &path);
         Ok((path, value))
     })
+}
+
+/// Join condition attributing the file in `file_expr` (a workspace-relative
+/// path) to the member `m` that owns it: the member whose path is the
+/// **longest** prefix of the file. Without the `NOT EXISTS`, a file under a
+/// nested member (`a/b/src/lib.rs` with members `a` and `a/b`) would match
+/// both and be counted twice. `query_rust_loc_files` applies the same
+/// longest-prefix rule in Rust.
+///
+/// The prefix test is a `substr` comparison with the trailing '/' included,
+/// so a member "crates/foo" does not match "crates/foobar/…". `file_expr`
+/// must be a vetted column reference, never input.
+pub(super) fn member_owns_file(file_expr: &str) -> String {
+    format!(
+        "substr({file_expr}, 1, length(m.path || '/')) = m.path || '/' \
+         AND NOT EXISTS (SELECT 1 FROM members inner_m \
+             WHERE length(inner_m.path) > length(m.path) \
+             AND substr({file_expr}, 1, length(inner_m.path || '/')) = inner_m.path || '/')"
+    )
 }
 
 /// SUM(...)/COUNT(*) over a per-crate LEFT JOIN cannot legitimately
@@ -397,8 +410,8 @@ mod tests {
     /// Legitimate aliased form uses the validated alias.
     #[test]
     fn coverage_col_select_with_validated_alias() {
-        let alias = ColumnAlias::new("c").expect("static alias is valid");
-        let sql = coverage_col_select(Some(&alias));
+        const ALIAS: ColumnAlias = ColumnAlias::from_static("c");
+        let sql = coverage_col_select(Some(&ALIAS));
         assert!(sql.contains("SUM(c.lines_count)"));
         assert!(sql.contains("SUM(c.lines_covered)"));
     }
@@ -463,16 +476,18 @@ mod tests {
         assert_eq!(res.get("b").copied(), Some(5));
     }
 
-    /// an attacker-shaped "prefix" cannot reach the formatted
-    /// SQL because `ColumnAlias::new` rejects non-identifier strings before
-    /// a value can be passed in. This is the regression guard the typed
-    /// signature is meant to provide.
+    /// An attacker-shaped "prefix" cannot reach the formatted SQL: the
+    /// identifier rule `ColumnAlias::from_static` asserts rejects it.
     #[test]
     fn column_alias_rejects_non_identifier_prefix() {
-        assert!(ColumnAlias::new("c.").is_err());
-        assert!(ColumnAlias::new("c; DROP TABLE coverage_files; --").is_err());
-        assert!(ColumnAlias::new("").is_err());
-        assert!(ColumnAlias::new("1c").is_err());
-        assert!(ColumnAlias::new("c d").is_err());
+        for bad in ["c.", "c; DROP TABLE coverage_files; --", "", "1c", "c d"] {
+            assert!(!is_valid_identifier_const(bad), "{bad:?} must be rejected");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL identifier must match")]
+    fn column_alias_from_static_panics_on_an_invalid_identifier() {
+        let _ = ColumnAlias::from_static("c d");
     }
 }

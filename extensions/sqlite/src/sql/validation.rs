@@ -35,8 +35,7 @@ pub enum SqlError {
     /// The path contains a control character.
     #[error("invalid character in path: {0:?}")]
     InvalidPathChar(char),
-    /// The path escapes its intended directory via `..` or an absolute
-    /// prefix.
+    /// The path contains a parent-directory (`..`) component.
     #[error("path traversal not allowed: {}", .0.display())]
     PathTraversalNotAllowed(std::path::PathBuf),
     /// The identifier does not match the `[a-zA-Z_][a-zA-Z0-9_]*` shape.
@@ -62,19 +61,11 @@ pub enum SqlError {
 /// other than an ASCII letter or `_`, or contains a character outside
 /// `[A-Za-z0-9_]`.
 pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return Err(SqlError::InvalidIdentifier(name.to_string()));
-    };
-    if !first.is_ascii_alphabetic() && first != '_' {
-        return Err(SqlError::InvalidIdentifier(name.to_string()));
+    if is_valid_identifier_const(name) {
+        Ok(())
+    } else {
+        Err(SqlError::InvalidIdentifier(name.to_string()))
     }
-    for ch in chars {
-        if !ch.is_ascii_alphanumeric() && ch != '_' {
-            return Err(SqlError::InvalidIdentifier(name.to_string()));
-        }
-    }
-    Ok(())
 }
 
 /// Const-validated wrapper for SQL identifiers.
@@ -84,12 +75,6 @@ pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
 /// runtime `quoted_ident` failure. Carries the validated `&'static str`
 /// for diagnostics; the quoted form is built on demand and is safe to
 /// interpolate into SQL without re-validation.
-///
-/// Not to be confused with
-/// `crate::sql::query::helpers::QueryTableName`, which is a *runtime*-
-/// validated equivalent used by the per-crate query scaffolding. Both
-/// share the "identifier allowlist before interpolation" contract
-/// but differ in when validation runs (build-time vs. runtime).
 #[derive(Debug, Clone, Copy)]
 pub struct TableName(&'static str);
 
@@ -126,21 +111,30 @@ impl TableName {
     }
 }
 
+/// The identifier rule, `[A-Za-z_][A-Za-z0-9_]*`. Every identifier check in
+/// the crate — [`validate_identifier`], [`TableName::from_static`], the
+/// query-side alias and column newtypes, and `JsonColumn`'s name — goes
+/// through this one function, so the checks cannot drift apart.
 pub(super) const fn is_valid_identifier_const(s: &str) -> bool {
     // Slice patterns walk the bytes without any indexing, so the empty and
     // out-of-bounds cases are handled by construction.
-    let (first, mut rest) = match s.as_bytes() {
-        [] => return false,
-        [first, rest @ ..] => (*first, rest),
-    };
-    if !(first.is_ascii_alphabetic() || first == b'_') {
-        return false;
+    match s.as_bytes() {
+        [first, rest @ ..] => {
+            (first.is_ascii_alphabetic() || *first == b'_') && is_identifier_tail(rest)
+        }
+        [] => false,
     }
-    while let [b, tail @ ..] = rest {
+}
+
+/// `true` when every byte of `bytes` is `[A-Za-z0-9_]` (vacuously for an
+/// empty slice): the part of the identifier rule after the first character,
+/// shared with `JsonColumn`'s single-level `$.<key>` path check.
+pub(super) const fn is_identifier_tail(mut bytes: &[u8]) -> bool {
+    while let [b, tail @ ..] = bytes {
         if !(b.is_ascii_alphanumeric() || *b == b'_') {
             return false;
         }
-        rest = tail;
+        bytes = tail;
     }
     true
 }
