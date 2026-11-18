@@ -1,10 +1,10 @@
 ---
 id: TASK-2841
 title: 'code-review-plan-wave5'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:19'
 labels:
   - code-review-wave
 dependencies:
@@ -45,4 +45,8 @@ Grouping: ops-core bounded reads and sanitising, plus ops-git hardened open
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2861 (extensions/git/src/config.rs)
+
+Branch: code-review/TASK-2841
+Worktree: /home/rsvalerio/projects/.wave-TASK-2841
+
 <!-- SECTION:NOTES:END -->

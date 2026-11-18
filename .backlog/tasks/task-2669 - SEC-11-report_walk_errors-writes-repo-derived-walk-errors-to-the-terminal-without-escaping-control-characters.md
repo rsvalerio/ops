@@ -1,10 +1,10 @@
 ---
 id: TASK-2669
 title: 'SEC-11: report_walk_errors writes repo-derived walk errors to the terminal without escaping control characters'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:14'
 labels:
   - code-review-rust
   - SEC
@@ -29,9 +29,10 @@ dedup_key: 'SEC-11:crates/core/src/bounded_read.rs:report_walk_errors'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 report_walk_errors renders each walk error through the same escaping helper record_failure uses
-- [ ] #2 The report still adopts the raw (unescaped) error strings for programmatic consumers
-- [ ] #3 A unit test feeds a walk error containing a newline and an ESC sequence and asserts the written line contains only escaped forms
+- [x] #1 report_walk_errors renders each walk error through the same escaping helper record_failure uses
+- [x] #2 The report still adopts the raw (unescaped) error strings for programmatic consumers
+- [x] #3 A unit test feeds a walk error containing a newline and an ESC sequence and asserts the written line contains only escaped forms
+
 <!-- AC:END -->
 
 ## Implementation Notes

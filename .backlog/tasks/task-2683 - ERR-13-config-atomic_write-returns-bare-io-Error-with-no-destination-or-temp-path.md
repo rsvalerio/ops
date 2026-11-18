@@ -1,10 +1,10 @@
 ---
 id: TASK-2683
 title: 'ERR-13: config::atomic_write returns bare io::Error with no destination or temp path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:14'
 labels:
   - code-review-rust
   - ERR
@@ -29,8 +29,9 @@ dedup_key: 'ERR-13:crates/core/src/config/edit.rs:atomic_write'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every error atomic_write returns names the destination path, and the temp path when the failing step touched it, while preserving the original io::ErrorKind
-- [ ] #2 A test asserts the error message of a failing atomic_write (e.g. unwritable parent directory) contains the destination path
+- [x] #1 Every error atomic_write returns names the destination path, and the temp path when the failing step touched it, while preserving the original io::ErrorKind
+- [x] #2 A test asserts the error message of a failing atomic_write (e.g. unwritable parent directory) contains the destination path
+
 <!-- AC:END -->
 
 ## Implementation Notes

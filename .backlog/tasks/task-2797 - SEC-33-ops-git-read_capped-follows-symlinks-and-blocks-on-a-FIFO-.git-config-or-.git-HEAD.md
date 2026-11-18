@@ -1,10 +1,10 @@
 ---
 id: TASK-2797
 title: 'SEC-33: ops-git read_capped follows symlinks and blocks on a FIFO .git/config or .git/HEAD'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:14'
 labels:
   - code-review-rust
   - security
@@ -34,9 +34,10 @@ No test covers a FIFO or symlinked `.git/config` / `.git/HEAD`.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Opening .git/config and .git/HEAD refuses symlinks and non-regular files (FIFO, socket, device) without blocking, e.g. by reusing a public ops_core::text byte-capped reader that takes an explicit cap
-- [ ] #2 A refused open is reported as absent with one tracing::warn! naming the file, matching the existing read_capped error handling
-- [ ] #3 Unix tests cover a FIFO and a symlink planted at .git/HEAD and .git/config; GitInfo::collect returns promptly with the affected fields None
+- [x] #1 Opening .git/config and .git/HEAD refuses symlinks and non-regular files (FIFO, socket, device) without blocking, e.g. by reusing a public ops_core::text byte-capped reader that takes an explicit cap
+- [x] #2 A refused open is reported as absent with one tracing::warn! naming the file, matching the existing read_capped error handling
+- [x] #3 Unix tests cover a FIFO and a symlink planted at .git/HEAD and .git/config; GitInfo::collect returns promptly with the affected fields None
+
 <!-- AC:END -->
 
 ## Implementation Notes
