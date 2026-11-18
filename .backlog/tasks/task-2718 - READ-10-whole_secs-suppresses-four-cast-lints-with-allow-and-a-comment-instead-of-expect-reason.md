@@ -1,10 +1,10 @@
 ---
 id: TASK-2718
 title: 'READ-10: whole_secs suppresses four cast lints with #[allow] and a comment instead of #[expect(reason)]'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - readability
@@ -29,8 +29,9 @@ dedup_key: 'review-2667.06-7'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 whole_secs uses #[expect(<only the lints that actually fire>, reason = "...")] in place of #[allow(...)], with the rationale condensed into the reason
-- [ ] #2 cargo clippy for ops-theme passes with no unfulfilled_lint_expectations warning
+- [x] #1 whole_secs uses #[expect(<only the lints that actually fire>, reason = "...")] in place of #[allow(...)], with the rationale condensed into the reason
+- [x] #2 cargo clippy for ops-theme passes with no unfulfilled_lint_expectations warning
+
 <!-- AC:END -->
 
 ## Implementation Notes

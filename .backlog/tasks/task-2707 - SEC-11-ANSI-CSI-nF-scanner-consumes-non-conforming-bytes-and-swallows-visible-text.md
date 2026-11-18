@@ -1,10 +1,10 @@
 ---
 id: TASK-2707
 title: 'SEC-11: ANSI CSI/nF scanner consumes non-conforming bytes and swallows visible text'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:03'
 labels:
   - code-review-rust
   - security
@@ -29,9 +29,10 @@ dedup_key: 'review-2667.06-2'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 consume_csi ends the sequence as a Raw piece (without consuming it) on the first byte outside 0x20..=0x3F that is not a final byte, so following visible text is re-emitted by the main loop
-- [ ] #2 consume_nf leaves the out-of-range byte unconsumed so it is re-emitted as a Char piece
-- [ ] #3 Unit tests cover ESC [ followed by non-ASCII text and ESC ( followed by a non-ASCII char for strip_ansi, strip_ansi_preserving_raw and visible_width
+- [x] #1 consume_csi ends the sequence as a Raw piece (without consuming it) on the first byte outside 0x20..=0x3F that is not a final byte, so following visible text is re-emitted by the main loop
+- [x] #2 consume_nf leaves the out-of-range byte unconsumed so it is re-emitted as a Char piece
+- [x] #3 Unit tests cover ESC [ followed by non-ASCII text and ESC ( followed by a non-ASCII char for strip_ansi, strip_ansi_preserving_raw and visible_width
+
 <!-- AC:END -->
 
 ## Implementation Notes

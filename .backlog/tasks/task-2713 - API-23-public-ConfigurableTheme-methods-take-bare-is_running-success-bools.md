@@ -1,10 +1,10 @@
 ---
 id: TASK-2713
 title: 'API-23: public ConfigurableTheme methods take bare is_running/success bools'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - api-design
@@ -30,12 +30,16 @@ dedup_key: 'review-2667.06-5'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The listed public methods take a named enum (or derive the state from an argument already passed, e.g. StepLine::status) instead of a bare bool
-- [ ] #2 Call sites across the workspace are updated and read without consulting the signature
+- [x] #1 The listed public methods take a named enum (or derive the state from an argument already passed, e.g. StepLine::status) instead of a bare bool
+- [x] #2 Call sites across the workspace are updated and read without consulting the signature
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.06 (code-review-rust run, 2026-11-18).
+
+Added RowState {Running, Finished} (RowState::of(StepStatus)) and RunOutcome {Success, Failure} (RunOutcome::from_success). Also converted SlotLine::is_running -> state and BoxSnapshot::success -> outcome.
+
 <!-- SECTION:NOTES:END -->

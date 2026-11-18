@@ -1,10 +1,10 @@
 ---
 id: TASK-2711
 title: 'API-13: ops-theme exposes style helpers under two public paths'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - api-design
@@ -30,8 +30,9 @@ dedup_key: 'review-2667.06-4'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each style helper has exactly one public path: either style becomes a private module whose items are lifted to the root, or the root re-exports are removed and callers import from ops_theme::style
-- [ ] #2 Workspace callers (runner, cargo-update, others found by grep) use the single remaining path and cargo build --workspace passes
+- [x] #1 Each style helper has exactly one public path: either style becomes a private module whose items are lifted to the root, or the root re-exports are removed and callers import from ops_theme::style
+- [x] #2 Workspace callers (runner, cargo-update, others found by grep) use the single remaining path and cargo build --workspace passes
+
 <!-- AC:END -->
 
 ## Implementation Notes
