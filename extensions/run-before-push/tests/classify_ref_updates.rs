@@ -16,6 +16,9 @@ use ops_run_before_push::{
 const SHA1_A: &str = "1111111111111111111111111111111111111111";
 const SHA1_B: &str = "2222222222222222222222222222222222222222";
 const ZERO: &str = "0000000000000000000000000000000000000000";
+const SHA256_A: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+const SHA256_B: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 // -- classify_ref_updates --
 
@@ -49,6 +52,34 @@ fn classify_runs_when_a_delete_is_mixed_with_an_update() {
         "(delete) {ZERO} refs/heads/old {SHA1_A}\nrefs/heads/main {SHA1_A} refs/heads/main {ZERO}\n"
     );
     assert_eq!(classify_ref_updates(Some(&stream)), PushRefs::Run);
+}
+
+#[test]
+fn classify_runs_for_a_sha256_ref_update() {
+    let line = format!("refs/heads/main {SHA256_A} refs/heads/main {SHA256_B}\n");
+    assert_eq!(classify_ref_updates(Some(&line)), PushRefs::Run);
+}
+
+#[test]
+fn classify_reports_delete_only_for_a_sha256_deletion() {
+    let line = format!("(delete) {ZERO_SHA256} refs/heads/old {SHA256_A}\n");
+    assert_eq!(classify_ref_updates(Some(&line)), PushRefs::DeleteOnly);
+}
+
+/// git pairs the `(delete)` local ref with an all-zero local oid. A zero
+/// oid under any other local ref is not a deletion git would send, so it
+/// must not count toward a delete-only skip.
+#[test]
+fn classify_runs_for_a_zero_local_oid_without_the_delete_marker() {
+    let line = format!("refs/heads/old {ZERO} refs/heads/old {SHA1_A}\n");
+    assert_eq!(classify_ref_updates(Some(&line)), PushRefs::Run);
+}
+
+/// The converse mismatch: a `(delete)` local ref with a real local oid.
+#[test]
+fn classify_runs_for_the_delete_marker_with_a_non_zero_local_oid() {
+    let line = format!("(delete) {SHA1_B} refs/heads/old {SHA1_A}\n");
+    assert_eq!(classify_ref_updates(Some(&line)), PushRefs::Run);
 }
 
 #[test]
