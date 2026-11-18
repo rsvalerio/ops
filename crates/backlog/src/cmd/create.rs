@@ -6,8 +6,12 @@ use anyhow::Context as _;
 
 use crate::clock::UtcStamp;
 use crate::cmd::cleanup::terminal_status;
+use crate::cmd::{atomic_write_noclobber, DestinationTaken};
 use crate::config::BacklogConfig;
-use crate::model::{render_body, AcItem, Body, Frontmatter, TaskDoc, DEDUP_KEY};
+use crate::model::{
+    render_body, validate_list_item, validate_priority, AcItem, Body, Frontmatter, TaskDoc,
+    DEDUP_KEY,
+};
 use crate::store::{format_task_id, main_task_file_name, Store};
 
 /// Everything `task create` can set; clap fills this in the CLI crate.
@@ -44,13 +48,19 @@ const CREATE_ATTEMPTS: usize = 8;
 /// but the configured terminal one) already carries the same key, nothing
 /// is created and `Exists TASK-NNNN` is printed instead — with
 /// [`CreateOptions::parent`] requested, the existing task's
-/// `parent_task_id` is left untouched and the `Exists` line says so. The
-/// check and the write happen under the store's allocation lock, so
-/// concurrent keyed creates file exactly one task.
+/// `parent_task_id` is left untouched and the `Exists` line says so.
+///
+/// Every create — keyed or not — scans for the next number and publishes
+/// the file under the store's allocation lock, so concurrent creates never
+/// hand out one id twice and concurrent keyed creates file exactly one
+/// task. The file is staged and published atomically, so a concurrent
+/// scan never sees it empty or half-written.
 ///
 /// # Errors
 ///
-/// The clock is unreadable, the key is blank, the parent id resolves to
+/// The clock is unreadable, the key is blank, a label, assignee,
+/// dependency, modified file or the priority cannot be stored in
+/// frontmatter (the error names the field), the parent id resolves to
 /// nothing, the allocation lock cannot be taken, a task file does not parse
 /// during the key check, or the file cannot be written — errors name the
 /// path.
@@ -94,6 +104,7 @@ pub fn create_task(
     opts: &CreateOptions,
 ) -> anyhow::Result<Created> {
     let stamp = UtcStamp::now()?;
+    validate_frontmatter_inputs(opts)?;
     // Resolve --parent before anything is written (the dedup check
     // included): the link must name an existing task, stored in the
     // parent's canonical id — `find` normalizes case, prefix padding and
@@ -110,25 +121,24 @@ pub fn create_task(
         ),
         _ => None,
     };
-    // Held until this function returns: the key check and the file write
-    // must be one critical section, or two runs both see "no task" and both
-    // file.
-    let _lock = match opts.unless_exists.as_deref() {
-        Some(key) => {
-            anyhow::ensure!(!key.trim().is_empty(), "--unless-exists needs a non-blank key");
-            let lock = store.lock_allocation()?;
-            if let Some(id) = open_task_with_key(store, cfg, key)? {
-                return Ok(Created::Exists(id));
-            }
-            Some(lock)
+    if let Some(key) = opts.unless_exists.as_deref() {
+        anyhow::ensure!(!key.trim().is_empty(), "--unless-exists needs a non-blank key");
+    }
+    // Held until this function returns: the number scan and the publish
+    // must be one critical section for every create, not just keyed ones.
+    // The filename carries the title slug, so two unlocked creates with
+    // different titles derive different paths for the same number and the
+    // no-clobber publish cannot tell them apart. Keyed creates also need it
+    // around the key check, or two runs both see "no task" and both file.
+    let _lock = store.lock_allocation()?;
+    if let Some(key) = opts.unless_exists.as_deref() {
+        if let Some(id) = open_task_with_key(store, cfg, key)? {
+            return Ok(Created::Exists(id));
         }
-        None => None,
-    };
-    // The create must be exclusive: two concurrent runs can scan the same
-    // highest number and derive the same path, and a plain `fs::write`
-    // would let the later run truncate the earlier task. `File::create_new`
-    // refuses to clobber; on `AlreadyExists`, re-scan and take the next
-    // number (the same invariant `create-review-tasks` documents).
+    }
+    // Publish without clobbering: a writer that does not take the lock (a
+    // hand-copied file, an older binary) can still own the derived name.
+    // On `DestinationTaken`, re-scan and take the next number.
     let mut attempts_left = CREATE_ATTEMPTS;
     loop {
         attempts_left = attempts_left.saturating_sub(1);
@@ -138,22 +148,37 @@ pub fn create_task(
         let path = store.task_path(&file_name);
         let rendered = render_new_task(opts, cfg, &id, &stamp, parent_id.as_deref());
 
-        let mut handle = match std::fs::File::create_new(&path) {
-            Ok(handle) => handle,
-            // Another run claimed this number between scan and create;
-            // try the next one until the attempts run out.
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempts_left > 0 => {
-                continue;
-            }
-            Err(e) => {
-                return Err(e).with_context(|| format!("creating {}", path.display()));
-            }
-        };
-        handle
-            .write_all(rendered.as_bytes())
-            .with_context(|| format!("writing {}", path.display()))?;
-        return Ok(Created::New(id));
+        match atomic_write_noclobber(&path, &rendered) {
+            Ok(()) => return Ok(Created::New(id)),
+            Err(e) if e.downcast_ref::<DestinationTaken>().is_some() && attempts_left > 0 => {}
+            Err(e) => return Err(e),
+        }
     }
+}
+
+/// Refuse every option that lands in frontmatter as a bare token — list
+/// items and the priority — when it cannot be written and read back
+/// unchanged, before anything is locked or written.
+///
+/// # Errors
+///
+/// The first offending value; the error names its field.
+fn validate_frontmatter_inputs(opts: &CreateOptions) -> anyhow::Result<()> {
+    let lists: [(&str, &[String]); 4] = [
+        ("assignee", &opts.assignees),
+        ("labels", &opts.labels),
+        ("dependencies", &opts.dependencies),
+        ("modified_files", &opts.modified_files),
+    ];
+    for (field, items) in lists {
+        for item in items {
+            validate_list_item(field, item)?;
+        }
+    }
+    if let Some(priority) = &opts.priority {
+        validate_priority(priority)?;
+    }
+    Ok(())
 }
 
 /// The rendered task file for a would-be `id`: the frontmatter with every
@@ -364,6 +389,67 @@ mod tests {
         assert_eq!(task_count(&dir), 1);
         assert_eq!(outputs.iter().filter(|o| o.starts_with("Created ")).count(), 1);
         assert_eq!(outputs.iter().filter(|o| *o == "Exists TASK-0001\n").count(), 7);
+    }
+
+    /// Unkeyed creates with distinct titles derive distinct filenames, so
+    /// only the allocation lock keeps them from sharing a number.
+    #[test]
+    fn concurrent_unkeyed_creates_get_distinct_ids() {
+        const RACERS: usize = 12;
+        let (dir, store, cfg) = scratch();
+        let barrier = std::sync::Barrier::new(RACERS);
+        let ids: std::collections::BTreeSet<String> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..RACERS)
+                .map(|i| {
+                    let (store, cfg, barrier) = (&store, &cfg, &barrier);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        let opts = CreateOptions {
+                            title: format!("title {i}"),
+                            ..CreateOptions::default()
+                        };
+                        match create_task(store, cfg, &opts).expect("create") {
+                            Created::New(id) => id,
+                            Created::Exists(id) => panic!("unkeyed create reported {id}"),
+                        }
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().expect("join")).collect()
+        });
+        assert_eq!(ids.len(), RACERS, "every create got its own id: {ids:?}");
+        assert_eq!(task_count(&dir), RACERS);
+        let ids_on_disk: std::collections::BTreeSet<String> = store
+            .scan_tasks()
+            .expect("every published file parses")
+            .into_iter()
+            .map(|entry| entry.doc.frontmatter.id)
+            .collect();
+        assert_eq!(ids_on_disk, ids);
+    }
+
+    /// A list item or priority that would inject a key or leave an
+    /// unparseable file is refused before anything is written.
+    #[test]
+    fn hostile_list_items_and_priority_are_refused_before_writing() {
+        let (dir, store, cfg) = scratch();
+        for opts in [
+            CreateOptions {
+                title: "y".to_string(),
+                labels: vec!["a\nstatus: Done".to_string()],
+                ..CreateOptions::default()
+            },
+            CreateOptions {
+                title: "x".to_string(),
+                priority: Some(String::new()),
+                ..CreateOptions::default()
+            },
+        ] {
+            let mut out = Vec::new();
+            run_create(&store, &cfg, &opts, &mut out).expect_err("must refuse");
+        }
+        assert_eq!(task_count(&dir), 0);
+        store.scan_tasks().expect("the backlog stays scannable");
     }
 
     fn seed_parent(dir: &tempfile::TempDir) {
