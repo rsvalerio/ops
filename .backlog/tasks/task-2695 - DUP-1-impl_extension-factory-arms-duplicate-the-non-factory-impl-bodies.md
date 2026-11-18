@@ -1,10 +1,10 @@
 ---
 id: TASK-2695
 title: 'DUP-1: impl_extension! factory arms duplicate the non-factory impl bodies'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:28'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - DUP
@@ -31,9 +31,10 @@ dedup_key: 'DUP-1:crates/extension/src/macros.rs:impl_extension'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Extension impl body is written once per form; factory arms delegate to the non-factory arm and add only the registry static
-- [ ] #2 The @accessors rule takes no unused fragments
-- [ ] #3 All impl_extension! invocations in the workspace still compile and their tests pass
+- [x] #1 The Extension impl body is written once per form; factory arms delegate to the non-factory arm and add only the registry static
+- [x] #2 The @accessors rule takes no unused fragments
+- [x] #3 All impl_extension! invocations in the workspace still compile and their tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes

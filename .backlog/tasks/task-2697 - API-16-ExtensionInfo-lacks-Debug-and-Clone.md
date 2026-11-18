@@ -1,10 +1,10 @@
 ---
 id: TASK-2697
 title: 'API-16: ExtensionInfo lacks Debug and Clone'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:29'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - API
@@ -29,8 +29,9 @@ dedup_key: 'API-16:crates/extension/src/extension.rs:ExtensionInfo'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ExtensionInfo derives Debug, Clone and, where all fields allow it, Copy, PartialEq and Eq
-- [ ] #2 A public_api test exercises Debug/Clone on an ExtensionInfo built via Extension::info
+- [x] #1 ExtensionInfo derives Debug, Clone and, where all fields allow it, Copy, PartialEq and Eq
+- [x] #2 A public_api test exercises Debug/Clone on an ExtensionInfo built via Extension::info
+
 <!-- AC:END -->
 
 ## Implementation Notes

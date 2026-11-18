@@ -1,10 +1,10 @@
 ---
 id: TASK-2694
 title: 'MACRO-3: impl_extension! expansion assumes caller depends on linkme'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:28'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - MACRO
@@ -32,9 +32,10 @@ dedup_key: 'MACRO-3:crates/extension/src/macros.rs:impl_extension'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 impl_extension! factory arms resolve linkme through a $crate-relative re-export, not a bare linkme:: path
-- [ ] #2 Extension crates no longer need a direct linkme dependency nor a cargo-machete ignore for it
-- [ ] #3 Workspace builds and extension registration tests pass
+- [x] #1 impl_extension! factory arms resolve linkme through a $crate-relative re-export, not a bare linkme:: path
+- [x] #2 Extension crates no longer need a direct linkme dependency nor a cargo-machete ignore for it
+- [x] #3 Workspace builds and extension registration tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes

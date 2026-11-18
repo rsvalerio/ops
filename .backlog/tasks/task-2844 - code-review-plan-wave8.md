@@ -1,10 +1,10 @@
 ---
 id: TASK-2844
 title: 'code-review-plan-wave8'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:14'
 labels:
   - code-review-wave
 dependencies:
@@ -46,4 +46,8 @@ Grouping: ops-extension: impl_extension! macro, docs, deadline clock seam
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2844
+Worktree: /home/rsvalerio/projects/.wave-TASK-2844
+
 <!-- SECTION:NOTES:END -->
