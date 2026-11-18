@@ -94,11 +94,9 @@ pub fn run_about(
             // stream being tested is the one being rendered to. Prompt gates
             // use `is_prompt_tty` instead, because `inquire` renders to stderr
             // and reads stdin.
-            let opts = ops_about::AboutOptions::new(
-                refresh,
-                config.about.fields.clone(),
-                crate::tty::is_stdout_tty(),
-            );
+            let opts = ops_about::AboutOptions::new(config.about.fields.clone())
+                .with_refresh(refresh)
+                .with_tty(crate::tty::is_stdout_tty());
             ops_about::run_about(&registry, &opts, &cwd, &mut std::io::stdout())
         }
     }
