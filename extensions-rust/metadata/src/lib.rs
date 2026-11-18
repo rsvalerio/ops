@@ -238,7 +238,7 @@ const STDERR_TAIL_LINES: usize = 5;
 ///
 /// The error string carries the numeric exit code (or `signal` when there is
 /// none) so a SIGKILL/OOM kill is distinguishable from a real cargo failure.
-/// Mirrors `interpret_deny_result` / `interpret_upgrade_output` in the deps
+/// Mirrors `interpret_deny_output` / `interpret_upgrade_output` in the deps
 /// crate.
 pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {

@@ -48,24 +48,18 @@ use ops_extension::{
 };
 use std::time::Duration;
 
-pub use format::build_report;
-
-// The published parse surface is the *guarded* one. Each tool exposes the same
-// pair: a `run_cargo_*` entry point that spawns, and an
-// `interpret_*_output` / `interpret_*_result` entry point that applies every
-// format-drift guard to an already-collected `(exit code, output)` triple.
-// The unguarded table slicer is crate-private on purpose — it discards the
-// parse diagnostics, so an unrecognised table would read as "no upgrades
-// available", and publishing it would make opting out of the crate's
-// fail-closed posture the path of least resistance.
-pub use parse::{
-    categorize_upgrades, interpret_deny_result, interpret_machete_output, interpret_upgrade_output,
-    parse_deny_output, run_cargo_deny, run_cargo_machete, run_cargo_upgrade_dry_run,
-};
-
-// An explicit re-export list rather than `pub use types::*`, so adding a type
-// to `types.rs` is not a public API change by default.
-pub use types::{
+// The published surface is what the CLI calls (`run_deps`, `DepsOptions`,
+// `external_tools` and the `ExternalTool` it returns) plus the extension
+// identity every extension crate exports (`NAME`, `DESCRIPTION`, `SHORTNAME`,
+// `DATA_PROVIDER_NAME`, `DepsExtension`). The parsers, report builder and
+// report types stay crate-private: each tool's parse is reached through a
+// `run_cargo_*` entry point that spawns and an `interpret_*_output` one that
+// applies every format-drift guard to the collected `(exit code, stdout,
+// stderr)` triple, and the unguarded slicers are test-only, so a caller
+// cannot opt out of the crate's fail-closed posture.
+use format::build_report;
+use parse::{categorize_upgrades, run_cargo_deny, run_cargo_machete, run_cargo_upgrade_dry_run};
+use types::{
     AdvisoryEntry, BanEntry, DenyEntry, DenyResult, DepsReport, LicenseEntry, SourceEntry,
     UnusedDepEntry, UnusedDepsResult, UpgradeEntry, UpgradeResult,
 };
@@ -236,7 +230,7 @@ pub(crate) fn probe_tool_in(
 ///
 /// If any tool in `REQUIRED_CARGO_TOOLS` is not installed, naming the tool
 /// and the command that installs it.
-pub fn ensure_tools(working_dir: &std::path::Path) -> anyhow::Result<()> {
+pub(crate) fn ensure_tools(working_dir: &std::path::Path) -> anyhow::Result<()> {
     for tool in REQUIRED_CARGO_TOOLS {
         check_tool_in(tool, working_dir)?;
     }
@@ -257,7 +251,7 @@ pub struct ExternalTool {
 }
 
 /// Every external binary `ops deps` spawns, derived from the same tool table
-/// [`ensure_tools`] probes, so the report cannot drift from the check.
+/// `ensure_tools` probes, so the report cannot drift from the check.
 #[must_use]
 pub fn external_tools() -> Vec<ExternalTool> {
     let cargo_tool = |tool: &CargoTool, optional| ExternalTool {
@@ -287,7 +281,7 @@ pub fn external_tools() -> Vec<ExternalTool> {
 /// # Errors
 ///
 /// If the current working directory cannot be determined.
-pub fn build_user_context() -> anyhow::Result<Context> {
+pub(crate) fn build_user_context() -> anyhow::Result<Context> {
     let cwd =
         std::env::current_dir().context("deps: failed to determine current working directory")?;
     let config = ops_core::config::load_config_or_default_at(&cwd, "deps");
@@ -297,7 +291,7 @@ pub fn build_user_context() -> anyhow::Result<Context> {
 /// Options for the deps command.
 ///
 /// `#[non_exhaustive]`, like every other public type this crate exports
-/// (`UpgradeEntry`, `DenyResult`, `DepsReport`, `DepsExtension`, …), so the
+/// (`ExternalTool`, `DepsExtension`), so the
 /// next `ops deps` flag stays an additive change. Construct via
 /// [`DepsOptions::new`] or [`DepsOptions::default`]: the attribute also rules
 /// out struct-update syntax (`DepsOptions { refresh: true,
@@ -615,7 +609,7 @@ fn collect_unused(working_dir: &std::path::Path) -> anyhow::Result<UnusedDepsRes
 ///
 /// Shells out to `cargo upgrade --dry-run`, `cargo deny check` and, when
 /// installed, `cargo machete`.
-pub struct DepsProvider;
+pub(crate) struct DepsProvider;
 
 impl DataProvider for DepsProvider {
     fn name(&self) -> &'static str {

@@ -1,7 +1,7 @@
 //! Data types for the dependency health report.
 //!
-//! Re-exported from the crate root, so `ops_deps::UpgradeEntry` and friends
-//! keep their published paths.
+//! Crate-private: the report reaches other crates only as the provider's
+//! JSON, never as these Rust types.
 
 use serde::{Deserialize, Serialize};
 

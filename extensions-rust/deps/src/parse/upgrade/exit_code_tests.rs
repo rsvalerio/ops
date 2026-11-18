@@ -11,7 +11,7 @@ use super::*;
 #[test]
 fn interpret_upgrade_output_errs_on_exit_one() {
     let stderr = b"error: failed to update registry: connection timed out\n";
-    let result = crate::parse::interpret_upgrade_output(Some(1), b"", stderr);
+    let result = interpret_upgrade_output(Some(1), b"", stderr);
     let err = result.expect_err("non-zero exit must surface");
     let msg = err.to_string();
     assert!(msg.contains("status 1"), "expected exit-1 in error: {msg}");
@@ -23,7 +23,7 @@ fn interpret_upgrade_output_errs_on_exit_one() {
 #[test]
 fn interpret_upgrade_output_errs_on_exit_one_oh_one() {
     let stderr = b"thread 'main' panicked at 'assertion failed: ...'\n";
-    let result = crate::parse::interpret_upgrade_output(Some(101), b"", stderr);
+    let result = interpret_upgrade_output(Some(101), b"", stderr);
     let err = result.expect_err("panic exit must surface");
     let msg = err.to_string();
     assert!(msg.contains("status 101"), "expected exit-101 in error: {msg}");
@@ -32,7 +32,7 @@ fn interpret_upgrade_output_errs_on_exit_one_oh_one() {
 
 #[test]
 fn interpret_upgrade_output_errs_on_signal_kill() {
-    let result = crate::parse::interpret_upgrade_output(None, b"", b"");
+    let result = interpret_upgrade_output(None, b"", b"");
     let err = result.expect_err("None exit must surface");
     assert!(err.to_string().contains("signal"), "error must name signal-kill case, got: {err}");
 }
@@ -42,8 +42,7 @@ fn interpret_upgrade_output_parses_on_clean_exit() {
     let stdout = b"name   old req compatible latest  new req note\n\
                    ====   ======= ========== ======  ======= ====\n\
                    serde  1.0.100 1.0.228    1.0.228 1.0.228\n";
-    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
-        .expect("clean exit must parse");
+    let result = interpret_upgrade_output(Some(0), stdout, b"").expect("clean exit must parse");
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "serde");
 }
@@ -64,7 +63,7 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
                    serde   1.0.100     1.0.228   1.0.228 1.0.228\n";
 
     let (logged, result) = crate::test_support::capture_tracing(tracing::Level::WARN, || {
-        crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        interpret_upgrade_output(Some(0), stdout, b"")
     });
 
     let err = result
@@ -111,7 +110,7 @@ fn interpret_upgrade_output_bails_on_row_shape_drift() {
                    serde  1.0.100 1.0.228\n\
                    tokio  1.35.0  1.38.0\n";
 
-    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"");
+    let result = interpret_upgrade_output(Some(0), stdout, b"");
     let err = result.expect_err("row-shape drift must bail, not silently parse as authoritative");
     let msg = err.to_string();
     assert!(
@@ -133,7 +132,7 @@ fn interpret_upgrade_output_bails_on_partial_row_loss() {
                    bad-b  2.0.0   2.0.1\n\
                    bad-c  3.0.0   3.0.1\n";
 
-    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"");
+    let result = interpret_upgrade_output(Some(0), stdout, b"");
     let err = result.expect_err("partial row loss must bail, not return the survivor");
     let msg = err.to_string();
     assert!(
@@ -154,7 +153,7 @@ fn interpret_upgrade_output_tolerates_one_dropped_row_among_many() {
                    tokio  1.35.0  1.38.0     1.38.0  1.38.0\n\
                    clap   3.0.0   3.2.25     4.6.0   3.2.25\n";
 
-    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+    let result = interpret_upgrade_output(Some(0), stdout, b"")
         .expect("1-in-4 dropped rows must stay tolerated");
     assert_eq!(result.len(), 3);
 }
@@ -168,7 +167,7 @@ fn interpret_upgrade_output_preamble_does_not_inflate_body_lines() {
                    Some other preamble line\n\
                    name   old req compatible latest  new req\n\
                    ====   ======= ========== ======  =======\n";
-    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+    let result = interpret_upgrade_output(Some(0), stdout, b"")
         .expect("preamble + header + separator + zero body rows must be Ok");
     assert!(result.is_empty());
 }
@@ -187,7 +186,7 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
                    tokio  1.35.0  1.38.0     1.38.0  1.38.0\n";
 
     let (logged, result) = crate::test_support::capture_tracing(tracing::Level::WARN, || {
-        crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        interpret_upgrade_output(Some(0), stdout, b"")
     });
 
     let err = result.expect_err("missing separator must bail, not score as `no upgrades`");
@@ -210,23 +209,23 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
 /// `cargo upgrade --dry-run` printing nothing is "no upgrades", not drift.
 #[test]
 fn interpret_upgrade_output_empty_stdout_is_not_separator_drift() {
-    let result = crate::parse::interpret_upgrade_output(Some(0), b"", b"")
-        .expect("empty stdout must stay Ok([])");
+    let result =
+        interpret_upgrade_output(Some(0), b"", b"").expect("empty stdout must stay Ok([])");
     assert!(result.is_empty());
 }
 
 // -- stderr tail Debug-escapes control bytes --
 
-/// `interpret_upgrade_output` and `interpret_deny_result` must format the
+/// `interpret_upgrade_output` and `interpret_deny_output` must format the
 /// stderr tail through the `?` formatter so embedded ANSI / newlines /
 /// NULs from cargo-edit / cargo-deny cannot forge log records or repaint
 /// the operator terminal. Pin the value-level escape on the unrecognised
-/// upgrade-exit arm; the `interpret_deny_result` arms are pinned in
+/// upgrade-exit arm; the `interpret_deny_output` arms are pinned in
 /// `deny/tests.rs`.
 #[test]
 fn interpret_upgrade_output_unrecognised_exit_debug_escapes_stderr_tail() {
     let stderr = b"warn\nerror: \x1b[31mhi\x1b[0m\nbye\n";
-    let result = crate::parse::interpret_upgrade_output(Some(7), b"", stderr);
+    let result = interpret_upgrade_output(Some(7), b"", stderr);
     let err = result.expect_err("unrecognised exit must surface");
     let msg = err.to_string();
     assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
