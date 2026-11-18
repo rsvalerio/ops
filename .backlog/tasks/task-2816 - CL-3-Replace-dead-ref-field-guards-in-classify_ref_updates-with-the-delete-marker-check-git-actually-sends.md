@@ -1,10 +1,10 @@
 ---
 id: TASK-2816
 title: 'CL-3: Replace dead ref-field guards in classify_ref_updates with the (delete) marker check git actually sends'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:47'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:00'
 labels:
   - code-review-rust
   - CL
@@ -30,9 +30,10 @@ dedup_key: 'CL-3:extensions/run-before-push/src/lib.rs:classify_ref_updates'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The unreachable is_empty() checks on local_ref/remote_ref are removed
-- [ ] #2 A line counts as a deletion only when local_ref is "(delete)" AND local oid is all zeros; a mismatch between the two returns PushRefs::Run
-- [ ] #3 Tests cover a zero local oid with a non-(delete) local ref, and a (delete) local ref with a non-zero oid, both classifying as Run
+- [x] #1 The unreachable is_empty() checks on local_ref/remote_ref are removed
+- [x] #2 A line counts as a deletion only when local_ref is "(delete)" AND local oid is all zeros; a mismatch between the two returns PushRefs::Run
+- [x] #3 Tests cover a zero local oid with a non-(delete) local ref, and a (delete) local ref with a non-zero oid, both classifying as Run
+
 <!-- AC:END -->
 
 ## Implementation Notes

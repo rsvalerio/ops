@@ -1,10 +1,10 @@
 ---
 id: TASK-2817
 title: 'TEST-8: Cover SHA-256 object ids and the exact MAX_REF_UPDATE_LINES boundary in classify_ref_updates tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:47'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:00'
 labels:
   - code-review-rust
   - TEST
@@ -30,8 +30,9 @@ dedup_key: 'TEST-8:extensions/run-before-push/src/lib.rs:classify_ref_updates'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tests classify a SHA-256 update line as Run and a SHA-256 (64 zero) deletion line as DeleteOnly
-- [ ] #2 A test asserts a stream of exactly MAX_REF_UPDATE_LINES deletions classifies as DeleteOnly, alongside the existing +1 => Run test
+- [x] #1 Tests classify a SHA-256 update line as Run and a SHA-256 (64 zero) deletion line as DeleteOnly
+- [x] #2 A test asserts a stream of exactly MAX_REF_UPDATE_LINES deletions classifies as DeleteOnly, alongside the existing +1 => Run test
+
 <!-- AC:END -->
 
 ## Implementation Notes
