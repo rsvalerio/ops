@@ -316,6 +316,51 @@ fn missing_drain() -> std::io::Error {
     std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
 }
 
+/// Spawn `cmd` under [`SPAWN_LOCK`] on the blocking pool and arm its
+/// [`ChildGroup`].
+///
+/// Waiting for the lock, and the spawn itself (which can stall on a slow
+/// filesystem), happen on a blocking-pool thread, so steps queued behind a
+/// slow spawn never occupy a runtime worker that other steps need for pipe
+/// reads, timeouts and cancellation. The group is armed on that thread
+/// before the result is handed back: if this future is dropped while the
+/// spawn is in flight, the returned guard is dropped with the task output
+/// and still tears the new group down. `cmd` is moved onto the blocking
+/// thread for the call and put back afterwards, so callers keep their
+/// configured command. A poisoned lock panics there under the shared
+/// `ops_core::sync` policy and comes back as an `io::Error`, failing this
+/// step rather than the runner.
+async fn spawn_serialized(
+    cmd: &mut tokio::process::Command,
+) -> std::io::Result<(tokio::process::Child, ChildGroup)> {
+    let mut owned = std::mem::replace(cmd, tokio::process::Command::new(""));
+    let joined = tokio::task::spawn_blocking(move || {
+        let spawned = {
+            let _serialized = ops_core::sync::lock(&SPAWN_LOCK, "spawn serialization lock");
+            owned.spawn()
+        };
+        let armed = spawned.map(|child| {
+            let group = ChildGroup::new(&child);
+            (child, group)
+        });
+        (owned, armed)
+    })
+    .await;
+    match joined {
+        Ok((owned, armed)) => {
+            *cmd = owned;
+            armed
+        }
+        Err(join_err) => {
+            tracing::error!(
+                error = %join_err,
+                "spawn panicked on blocking pool; converting to step failure"
+            );
+            Err(std::io::Error::other("spawn task failed"))
+        }
+    }
+}
+
 /// Spawn `cmd` with piped stdio, stream both pipes through
 /// `read_capped`, and assemble a `CommandOutput`. Replaces `cmd.output()` so
 /// runaway children cannot peak the runner's RSS at the full output size — the
@@ -357,15 +402,7 @@ async fn spawn_capped_with_graces(
     // CONC-9 / TASK-1919: make the child its own process-group leader so
     // cancellation can address the tree it forks, not just the leader.
     configure_process_group(cmd);
-    let mut child = {
-        // Poison propagates via the shared `ops_core::sync` policy (CONC-16);
-        // the panic surfaces as this step's task failure.
-        let _serialized = ops_core::sync::lock(&SPAWN_LOCK, "spawn serialization lock");
-        cmd.spawn()?
-    };
-    // Armed for the whole body: every early return and every drop of this
-    // future (timeout, `JoinSet::abort_all`) now tears the group down.
-    let mut group = ChildGroup::new(&child);
+    let (mut child, mut group) = spawn_serialized(cmd).await?;
     // ERR-5 / TASK-0906: tokio guarantees the handles are populated when
     // stdio is set to `piped` immediately above, but a future refactor
     // moving the stdio setup upward (or feeding partially-configured
