@@ -228,7 +228,7 @@ fn is_yaml_file(name: &str) -> bool {
 
 /// Heuristically decide whether `path` is a Kubernetes manifest. Generic k8s
 /// YAML is indistinguishable from any other YAML by filename, so we sniff a
-/// bounded prefix for the two top-level keys every manifest declares —
+/// bounded prefix for the two root-mapping keys every manifest declares —
 /// `apiVersion:` and `kind:`. Reading is capped so a giant YAML data file can't
 /// turn detection into a full-file read.
 fn is_k8s_manifest(path: &Path) -> bool {
@@ -244,13 +244,30 @@ fn is_k8s_manifest(path: &Path) -> bool {
     }
     let mut has_api_version = false;
     let mut has_kind = false;
+    // Indentation of the current document's root mapping, fixed by its first
+    // content line. YAML allows a uniformly indented root, so the root is not
+    // assumed to sit at column zero.
+    let mut root_indent: Option<usize> = None;
     for line in buf.lines() {
-        // Only top-level mapping keys count, and those are unindented: an
-        // indented `kind:` / `apiVersion:` belongs to a nested mapping (a CI
-        // config, an OpenAPI spec, Helm values) and is not a signature. A
-        // `---` document marker on its own line is just another line; one
-        // written inline (`--- apiVersion: v1`) is stripped first.
-        let key = line.strip_prefix("--- ").unwrap_or(line);
+        // Only root mapping keys count: a `kind:` / `apiVersion:` indented
+        // deeper than the root belongs to a nested mapping (a CI config, an
+        // OpenAPI spec, Helm values) and is not a signature. A `---` document
+        // marker starts a new document whose root is measured afresh; one
+        // written inline (`--- apiVersion: v1`) puts that root at column zero.
+        let (key, indent) = if line == "---" || line.starts_with("--- ") {
+            root_indent = None;
+            let rest = line.get(3..).unwrap_or_default().trim_start();
+            (rest, 0)
+        } else {
+            let rest = line.trim_start_matches(' ');
+            (rest, line.len().saturating_sub(rest.len()))
+        };
+        if key.is_empty() || key.starts_with('#') {
+            continue;
+        }
+        if *root_indent.get_or_insert(indent) != indent {
+            continue;
+        }
         if key.starts_with("apiVersion:") {
             has_api_version = true;
         } else if key.starts_with("kind:") {
@@ -1081,6 +1098,32 @@ mod tests {
         std::fs::write(dir.path().join("b.yaml"), "--- apiVersion: v1\nkind: Service\n").unwrap();
         assert!(is_k8s_manifest(&dir.path().join("a.yaml")));
         assert!(is_k8s_manifest(&dir.path().join("b.yaml")));
+    }
+
+    #[test]
+    fn a_uniformly_indented_root_mapping_is_a_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pod.yaml"),
+            "# demo pod\n  apiVersion: v1\n  kind: Pod\n  metadata:\n    name: demo\n",
+        )
+        .unwrap();
+        let plan = build_plan(dir.path(), &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(misconfig.selected, "an indented root mapping must enable the misconfig scan");
+    }
+
+    #[test]
+    fn keys_nested_under_an_indented_root_or_a_list_item_are_not_a_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("nested.yaml"),
+            "  spec:\n    apiVersion: v1\n    kind: Pod\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("list.yaml"), "- apiVersion: v1\n  kind: Pod\n").unwrap();
+        assert!(!is_k8s_manifest(&dir.path().join("nested.yaml")));
+        assert!(!is_k8s_manifest(&dir.path().join("list.yaml")));
     }
 
     #[test]
