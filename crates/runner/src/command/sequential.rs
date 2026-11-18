@@ -109,8 +109,9 @@ impl CommandRunner {
     ///
     /// # Errors
     ///
-    /// If `command_id` cannot be expanded, or if a step cannot be built or
-    /// spawned.
+    /// Only when plan expansion fails, as for [`CommandRunner::run`]. A step
+    /// that cannot be built or spawned does not return `Err`: it comes back
+    /// inside `Ok` as a [`StepResult`] with `success == false`.
     // Same `!Send` reasoning as `run_plan_parallel`: the tree executor's
     // `on_event` sink is backed by non-`Send` `indicatif` state
     // (docs/clippy.md layer 3), even though raw mode passes a no-op sink.
