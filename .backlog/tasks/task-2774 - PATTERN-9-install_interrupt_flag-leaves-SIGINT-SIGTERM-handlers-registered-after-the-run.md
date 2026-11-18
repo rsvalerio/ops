@@ -1,10 +1,10 @@
 ---
 id: TASK-2774
 title: 'PATTERN-9: install_interrupt_flag leaves SIGINT/SIGTERM handlers registered after the run'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:05'
 labels:
   - code-review-rust
   - PATTERN
@@ -29,12 +29,16 @@ dedup_key: 'PATTERN-9:extensions/create-coderabbit-tasks/src/lib.rs:install_inte
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The handler registration is held in a guard whose Drop calls signal_hook::low_level::unregister for every SigId it registered
-- [ ] #2 The guard lives exactly as long as the review loop in run_coderabbit_reviews
+- [x] #1 The handler registration is held in a guard whose Drop calls signal_hook::low_level::unregister for every SigId it registered
+- [x] #2 The guard lives exactly as long as the review loop in run_coderabbit_reviews
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.24 (code-review-rust run, 2026-11-18).
+
+Fixed in wave TASK-2860: InterruptGuard holds every SigId and unregisters them on Drop (also on a half-failed install); installed right before the review loop in run_coderabbit_reviews and dropped when it returns.
+
 <!-- SECTION:NOTES:END -->

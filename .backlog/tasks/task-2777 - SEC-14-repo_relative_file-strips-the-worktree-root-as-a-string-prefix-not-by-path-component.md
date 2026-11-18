@@ -1,10 +1,10 @@
 ---
 id: TASK-2777
 title: 'SEC-14: repo_relative_file strips the worktree root as a string prefix, not by path component'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:44'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:05'
 labels:
   - code-review-rust
   - SEC
@@ -29,13 +29,17 @@ dedup_key: 'SEC-14:extensions/create-coderabbit-tasks/src/finding.rs:repo_relati
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The worktree root is stripped with Path::strip_prefix (component-wise), and an absolute path not under the root is refused
-- [ ] #2 The escape check rejects Component::ParentDir, RootDir and Prefix rather than only the literal string '..'
-- [ ] #3 A unit test asserts that /tmp/wt2/x with root /tmp/wt is refused
+- [x] #1 The worktree root is stripped with Path::strip_prefix (component-wise), and an absolute path not under the root is refused
+- [x] #2 The escape check rejects Component::ParentDir, RootDir and Prefix rather than only the literal string '..'
+- [x] #3 A unit test asserts that /tmp/wt2/x with root /tmp/wt is refused
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.24 (code-review-rust run, 2026-11-18).
+
+Fixed in wave TASK-2860: repo_relative_file takes &Path, strips the root with Path::strip_prefix, refuses absolute paths outside it, and rejects ParentDir/RootDir/Prefix components. Test: a_sibling_directory_sharing_the_root_as_a_string_prefix_is_refused.
+
 <!-- SECTION:NOTES:END -->
