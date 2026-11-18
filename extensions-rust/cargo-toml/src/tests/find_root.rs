@@ -623,6 +623,8 @@ fn content_declares_workspace_rejects_non_headers() {
         "[\"workspace-ish\"]\n",
         // An unterminated header is not a header.
         "[workspace\nmembers = []\n",
+        // A row of a multi-line array that reads like a header.
+        "[package]\nx = [\n  [\"workspace\"]\n]\n",
     ] {
         assert!(
             !content_declares_workspace(content),
@@ -644,6 +646,12 @@ fn content_declares_workspace_accepts_root_table_keys() {
         "'workspace' = { resolver = \"2\" }\n",
         // A multi-line array element starting with `[` does not end the root table.
         "matrix = [\n  [1, 2],\n]\nworkspace.members = []\n",
+        // The same without a trailing comma: the last row's blank tail does
+        // not make it a header either.
+        "matrix = [\n  [1, 2]\n]\nworkspace.members = []\n",
+        "package.metadata.matrix = [\n  [1, 2],\n  [3, 4]\n]\nworkspace = { members = [] }\n",
+        // Brackets inside strings and comments do not unbalance the depth.
+        "names = [\n  \"]\", # ]]\n  ['[']\n]\nworkspace.members = []\n",
     ] {
         assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
