@@ -29,7 +29,7 @@ fn resolve_field(
 pub(super) fn resolve_identity_fields(
     pkg: Option<&ops_cargo_toml::Package>,
     ws_pkg: Option<&ops_cargo_toml::WorkspacePackage>,
-    cwd: &Path,
+    project_root: &Path,
 ) -> ResolvedFields {
     macro_rules! r {
         ($pg:ident, $wg:ident) => {
@@ -37,8 +37,10 @@ pub(super) fn resolve_identity_fields(
         };
     }
 
-    let repository =
-        ops_git::provider::resolve_repository_with_git_fallback(cwd, r!(repository, repository));
+    let repository = ops_git::provider::resolve_repository_with_git_fallback(
+        project_root,
+        r!(repository, repository),
+    );
 
     let authors = pkg
         .and_then(|p| p.authors.value())
