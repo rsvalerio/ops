@@ -1,10 +1,10 @@
 ---
 id: TASK-2749
 title: 'SEC-14: Member opt-in write follows a symlinked member directory out of the repo'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:40'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:45'
 labels:
   - code-review-rust
   - security
@@ -32,12 +32,16 @@ The same module already refuses to write through a symlinked `.config` directory
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 scaffold refuses (error or skip with a reported outcome) to write a member manifest whose member directory or manifest path resolves outside the repo root, e.g. through a symlink
-- [ ] #2 A test with a member directory symlinked outside the temp workspace shows the outside Cargo.toml is left unchanged
+- [x] #1 scaffold refuses (error or skip with a reported outcome) to write a member manifest whose member directory or manifest path resolves outside the repo root, e.g. through a symlink
+- [x] #2 A test with a member directory symlinked outside the temp workspace shows the outside Cargo.toml is left unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.16 (code-review-rust run, 2026-11-18).
+
+scaffold canonicalizes the root and every member manifest before any write and refuses (error) one resolving outside the repo; in-repo symlinked members still work. Tests: a_member_symlinked_out_of_the_repo_is_refused (outside Cargo.toml unchanged, nothing written), a_member_symlinked_inside_the_repo_is_written.
+
 <!-- SECTION:NOTES:END -->

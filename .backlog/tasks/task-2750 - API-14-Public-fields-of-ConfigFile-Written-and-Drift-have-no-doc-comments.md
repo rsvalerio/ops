@@ -1,10 +1,10 @@
 ---
 id: TASK-2750
 title: 'API-14: Public fields of ConfigFile, Written and Drift have no doc comments'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:40'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:45'
 labels:
   - code-review-rust
   - api
@@ -30,7 +30,8 @@ dedup_key: 'API-14:extensions-rust/foundation/src/lib.rs:ConfigFile'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public field of ConfigFile, Written and Drift has a one-line doc summary
+- [x] #1 Every public field of ConfigFile, Written and Drift has a one-line doc summary
+
 <!-- AC:END -->
 
 ## Implementation Notes
