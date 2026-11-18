@@ -137,7 +137,7 @@ fn expand_to_leaves_via_alias() {
 /// The test seeds a config with a command + alias, deletes the command,
 /// and verifies the alias resolves to a stack default of the same name.
 /// It also exercises the orphan-fallthrough branch added to
-/// `resolve_alias` and `canonical_with_spec` by repopulating the
+/// `canonical_entry` (behind `resolve` and `canonical_with_spec`) by repopulating the
 /// non-config alias map after deletion (matching what
 /// `register_commands` would do for an extension that owns the alias).
 #[test]
