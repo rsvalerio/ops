@@ -1,10 +1,10 @@
 ---
 id: TASK-2677
 title: 'SEC-11: lint-actions allow prefixes match across owner boundaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - SEC
@@ -29,13 +29,17 @@ dedup_key: 'SEC-11:crates/cli/src/lint_actions_cmd.rs:uses_problem'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An allow prefix matches only at a path boundary (prefix ends with '/', or the next char of the value is '/' or '@')
-- [ ] #2 Or prefixes without a trailing '/' are rejected or normalised at load time with a clear message
-- [ ] #3 A test shows allow 'my-org' does not exempt 'my-org-other/x@main'
+- [x] #1 An allow prefix matches only at a path boundary (prefix ends with '/', or the next char of the value is '/' or '@')
+- [x] #2 Or prefixes without a trailing '/' are rejected or normalised at load time with a clear message
+- [x] #3 A test shows allow 'my-org' does not exempt 'my-org-other/x@main'
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.02 (code-review-rust run, 2026-11-18).
+
+Implemented AC #1 (boundary match: prefix ends with '/', or the next char is '/' or '@', or an exact match; empty entries exempt nothing). AC #2 is the stated alternative and was not needed.
+
 <!-- SECTION:NOTES:END -->

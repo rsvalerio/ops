@@ -1,10 +1,10 @@
 ---
 id: TASK-2684
 title: 'READ-10: test-only CommandSelector::Fixed kept in production via allow(dead_code)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - READ
@@ -29,7 +29,8 @@ dedup_key: 'READ-10:crates/cli/src/hook_shared.rs:CommandSelector'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The suppression is either removed (variant used in production), or replaced by #[cfg_attr(not(test), expect(dead_code, reason = "..."))] or a #[cfg(test)]-gated variant
+- [x] #1 The suppression is either removed (variant used in production), or replaced by #[cfg_attr(not(test), expect(dead_code, reason = "..."))] or a #[cfg(test)]-gated variant
+
 <!-- AC:END -->
 
 ## Implementation Notes

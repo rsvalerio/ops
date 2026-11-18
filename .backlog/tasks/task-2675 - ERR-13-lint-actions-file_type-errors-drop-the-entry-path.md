@@ -1,10 +1,10 @@
 ---
 id: TASK-2675
 title: 'ERR-13: lint-actions file_type errors drop the entry path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - ERR
@@ -29,7 +29,8 @@ dedup_key: 'ERR-13:crates/cli/src/lint_actions_cmd.rs:workflow_files'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both entry.file_type() calls attach the entry path as context
+- [x] #1 Both entry.file_type() calls attach the entry path as context
+
 <!-- AC:END -->
 
 ## Implementation Notes
