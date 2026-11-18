@@ -81,11 +81,17 @@ impl DataProvider for RustDuplicatesProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let Some(metadata) = ctx.cached("metadata").cloned() else {
+        let Some(metadata) = ctx.cached(ops_metadata::DATA_PROVIDER_NAME).cloned() else {
             return Ok(serde_json::to_value(DuplicateReport::default())?);
         };
         let working_dir = ctx.working_directory().to_path_buf();
-        let platforms = platform_filter(ctx.arg(DUPLICATES_TARGET_ARG), &working_dir)?;
+        // The process-environment boundary: `$RUSTC` is read once here and
+        // the probe handed to `platform_filter`, so tests drive every probe
+        // outcome without touching process env.
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let platforms = platform_filter(ctx.arg(DUPLICATES_TARGET_ARG), &|args: &[&str]| {
+            rustc_stdout(&rustc, args, &working_dir)
+        })?;
         let report = find_duplicates(
             &metadata,
             self.include_dev,
@@ -161,17 +167,18 @@ impl PlatformFilter {
 /// comma-separated triple with its `rustc --print cfg --target` atoms. The
 /// host is always probed too: host-compiled edges are matched against it.
 ///
-/// `rustc` is `$RUSTC` or `rustc` on PATH, run in `working_dir` so a
-/// `rust-toolchain.toml` there picks the project's toolchain.
+/// `rustc` runs `rustc <args>` and returns its stdout; in production it is
+/// [`rustc_stdout`] over `$RUSTC` (or `rustc` on PATH) in the working
+/// directory, so a `rust-toolchain.toml` there picks the project's toolchain.
 ///
 /// # Errors
 ///
 /// [`DataProviderError::ComputationMessage`] when a rustc probe fails —
-/// including an unknown triple — rather than silently widening the report
-/// to every platform.
+/// including an unknown triple — or `rustc -vV` names no host triple, rather
+/// than silently widening the report to every platform.
 fn platform_filter(
     arg: Option<&str>,
-    working_dir: &Path,
+    rustc: &dyn Fn(&[&str]) -> Result<String, DataProviderError>,
 ) -> Result<PlatformFilter, DataProviderError> {
     let requested: Vec<&str> = arg
         .into_iter()
@@ -182,15 +189,13 @@ fn platform_filter(
     if requested.contains(&DUPLICATES_ALL_TARGETS) {
         return Ok(PlatformFilter::All);
     }
-    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let probe = |triple: String| -> Result<TargetPlatform, DataProviderError> {
-        let cfg = rustc_stdout(&rustc, &["--print", "cfg", "--target", &triple], working_dir)?;
+        let cfg = rustc(&["--print", "cfg", "--target", &triple])?;
         Ok(TargetPlatform { cfg: parse_rustc_cfg(&cfg), triple })
     };
-    let host_triple =
-        parse_rustc_host(&rustc_stdout(&rustc, &["-vV"], working_dir)?).ok_or_else(|| {
-            DataProviderError::computation_failed("`rustc -vV` printed no host triple")
-        })?;
+    let host_triple = parse_rustc_host(&rustc(&["-vV"])?).ok_or_else(|| {
+        DataProviderError::computation_failed("`rustc -vV` printed no host triple")
+    })?;
     let host = probe(host_triple)?;
     let targets =
         if requested.is_empty() {
@@ -970,15 +975,77 @@ mod tests {
     /// without probing rustc.
     #[test]
     fn platform_filter_all_needs_no_rustc() {
-        let dir = std::path::Path::new("/nonexistent-ops-dir");
+        let no_rustc = |args: &[&str]| -> Result<String, ops_extension::DataProviderError> {
+            panic!("`all` must not probe rustc, got {args:?}")
+        };
         assert_eq!(
-            super::platform_filter(Some("all"), dir).expect("all"),
+            super::platform_filter(Some("all"), &no_rustc).expect("all"),
             super::PlatformFilter::All
         );
         assert_eq!(
-            super::platform_filter(Some("x86_64-pc-windows-msvc,all"), dir).expect("all"),
+            super::platform_filter(Some("x86_64-pc-windows-msvc,all"), &no_rustc).expect("all"),
             super::PlatformFilter::All
         );
+    }
+
+    const HOST: &str = "x86_64-unknown-linux-gnu";
+
+    /// A fake rustc: `-vV` prints `vv`, `--print cfg --target <t>` prints
+    /// `unix` for the host and fails for any other triple. Records each call.
+    fn fake_rustc<'a>(
+        vv: &'a str,
+        calls: &'a std::cell::RefCell<Vec<String>>,
+    ) -> impl Fn(&[&str]) -> Result<String, ops_extension::DataProviderError> + 'a {
+        move |args: &[&str]| {
+            calls.borrow_mut().push(args.join(" "));
+            match args {
+                ["-vV"] => Ok(vv.to_string()),
+                ["--print", "cfg", "--target", t] if *t == HOST => Ok("unix\n".to_string()),
+                _ => Err(ops_extension::DataProviderError::computation_failed(format!(
+                    "`rustc {}` failed: unknown target",
+                    args.join(" ")
+                ))),
+            }
+        }
+    }
+
+    /// A failing probe (an unknown triple) is an error naming the
+    /// command — never a silent `PlatformFilter::All` that would widen the
+    /// report to every platform.
+    #[test]
+    fn platform_filter_failing_probe_is_an_error_not_all() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let rustc = fake_rustc("rustc 1.90.0\nhost: x86_64-unknown-linux-gnu\n", &calls);
+        let err = super::platform_filter(Some("bogus-triple"), &rustc)
+            .expect_err("an unknown triple must fail");
+        assert!(err.to_string().contains("bogus-triple"), "error names the probe: {err}");
+
+        let failing = |_: &[&str]| -> Result<String, ops_extension::DataProviderError> {
+            Err(ops_extension::DataProviderError::computation_failed("rustc not found"))
+        };
+        assert!(super::platform_filter(None, &failing).is_err(), "a failed host probe errors");
+    }
+
+    /// `rustc -vV` with no `host:` line is an error, not a guess.
+    #[test]
+    fn platform_filter_missing_host_triple_is_an_error() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let rustc = fake_rustc("rustc 1.90.0\nrelease: 1.90.0\n", &calls);
+        let err = super::platform_filter(None, &rustc).expect_err("no host triple");
+        assert!(err.to_string().contains("no host triple"), "got: {err}");
+    }
+
+    /// A requested triple equal to the host reuses the host probe instead
+    /// of running `rustc --print cfg` for it a second time.
+    #[test]
+    fn platform_filter_requested_host_triple_reuses_the_host_probe() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let rustc = fake_rustc("rustc 1.90.0\nhost: x86_64-unknown-linux-gnu\n", &calls);
+        let filter = super::platform_filter(Some(HOST), &rustc).expect("host target");
+        let host = platform(HOST, &["unix"]);
+        assert_eq!(filter, super::PlatformFilter::Targets { targets: vec![host.clone()], host });
+        let cfg_probes = calls.borrow().iter().filter(|c| c.starts_with("--print cfg")).count();
+        assert_eq!(cfg_probes, 1, "the host cfg is probed once, got {:?}", calls.borrow());
     }
 
     #[test]

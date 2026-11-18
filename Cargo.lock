@@ -1468,6 +1468,7 @@ dependencies = [
  "ops-core",
  "ops-extension",
  "ops-git",
+ "ops-metadata",
  "ops-sqlite",
  "serde",
  "serde_json",

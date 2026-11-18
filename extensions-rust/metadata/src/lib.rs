@@ -38,7 +38,12 @@ use std::time::Duration;
 const NAME: &str = "metadata";
 const DESCRIPTION: &str = "Cargo metadata provider (workspace info, dependencies)";
 const SHORTNAME: &str = "meta";
-const DATA_PROVIDER_NAME: &str = "metadata";
+/// Registry and context-cache key of the `cargo metadata` data provider.
+///
+/// Public so consumers reading the warmed document (`ctx.cached(..)`) key on
+/// the producer's own constant: a cache miss is the documented "not warmed"
+/// fallback, so a drifted literal would compile and silently read nothing.
+pub const DATA_PROVIDER_NAME: &str = "metadata";
 
 /// Default timeout for `cargo metadata`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
