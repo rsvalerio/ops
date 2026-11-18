@@ -129,7 +129,7 @@ pub fn query_crate_dep_counts(db: &Sqlite) -> anyhow::Result<HashMap<String, i64
         tracing::debug!(
             crate_name = name,
             occurrences = count,
-            "ERR-2 / TASK-1253: crate_name maps to multiple manifest_paths; dep_counts are keyed by crate_manifest_path"
+            "crate_name maps to multiple manifest_paths; dep_counts are keyed by crate_manifest_path"
         );
     }
 
