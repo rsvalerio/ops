@@ -477,38 +477,158 @@ pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
 /// Used by unit tests to exercise the cap-handling behaviour without
 /// depending on the process-global memoised [`manifest_max_bytes`] value.
 fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> {
-    // Attach the path to io::Error propagation so a
-    // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
-    // file name, matching the oversize InvalidData branch below.
-    let mut file = open_refusing_symlinks(path).map_err(|e| with_path(&e, path))?;
-    // Read **bytes**, not a `String`. `read_to_string`
-    // decodes the truncated `cap + 1` window and fails with "stream did not
-    // contain valid UTF-8" whenever byte `cap` lands inside a multi-byte
-    // sequence — which any oversized non-ASCII file does routinely. That
-    // error short-circuited the size check below, so the one input that
-    // needs the "raise OPS_MANIFEST_MAX_BYTES" hint was exactly the input
-    // that never got it. Size first, decode second.
-    let mut bytes = Vec::new();
-    let limit = cap.saturating_add(1);
-    (&mut file).take(limit).read_to_end(&mut bytes).map_err(|e| with_path(&e, path))?;
-    // `usize` is never wider than `u64` on any target rustc supports, so the
-    // widening is total and the fallback is unreachable; saturating to
-    // `u64::MAX` would report the file as oversize, which is the safe
-    // direction for a size cap.
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        return Err(std::io::Error::new(
+    // Attach the path to every io::Error so a bare
+    // `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the file
+    // name, matching the oversize `InvalidData` branch.
+    read_capped_utf8_with_policy(path, cap, SymlinkPolicy::Refuse).map_err(|e| match e {
+        CappedReadError::NotFound(e) | CappedReadError::Open(e) | CappedReadError::Read(e) => {
+            with_path(&e, path)
+        }
+        CappedReadError::TooLarge { cap } => std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
                 "file exceeds {cap}-byte cap at {} (override via {MANIFEST_MAX_BYTES_ENV})",
                 path.display()
             ),
-        ));
-    }
-    // Under the cap: a UTF-8 failure here is a genuinely corrupt file, and
-    // keeps the same `InvalidData` kind `read_to_string` produced before.
-    String::from_utf8(bytes).map_err(|e| {
-        with_path(&std::io::Error::new(std::io::ErrorKind::InvalidData, e.utf8_error()), path)
+        ),
+        // Under the cap: a genuinely corrupt file, with the same
+        // `InvalidData` kind `read_to_string` produced before.
+        CappedReadError::InvalidUtf8(e) => {
+            with_path(&std::io::Error::new(std::io::ErrorKind::InvalidData, e), path)
+        }
     })
+}
+
+/// Whether a byte-capped open refuses symlinks, and the trust boundary that
+/// decides it.
+///
+/// [`SymlinkPolicy::Refuse`] goes through [`open_refusing_symlinks`], which
+/// refuses a symlink at any path component and a non-regular final component
+/// (FIFO, socket, device) without blocking. [`SymlinkPolicy::Follow`] is a
+/// plain `File::open`, for paths the user owns rather than the repository.
+/// The config loader is the one caller with both kinds of path, and its
+/// **two paths are not the same trust boundary**:
+///
+/// - **Workspace-relative** (`.ops.toml`, `.ops.d/*.toml`) is content supplied
+///   by whatever repository `ops` happens to be run inside. It is attacker
+///   controlled, and a symlink there is refused ([`SymlinkPolicy::Refuse`]).
+/// - **The global config** (`~/.config/ops/config.toml`) belongs to the user
+///   running `ops`. It is not a privilege boundary — a user who can symlink
+///   inside their own `$HOME` can equally well edit the file — and a symlink
+///   there is the *normal* state under GNU Stow, chezmoi, and nix
+///   home-manager, the mainstream dotfile managers. Applying the repo policy
+///   there bought no security and broke the whole layered load, because
+///   `load_config_at` propagates the refusal with `?` **before** the local
+///   layers are read: a symlinked global config cost the user every command,
+///   theme, and stack setting from the repo's own `.ops.toml` and `.ops.d`.
+///   So the global layer follows ([`SymlinkPolicy::Follow`]).
+///
+/// Do not widen `Follow` back over the workspace paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SymlinkPolicy {
+    /// Refuse to open through a symlink (workspace-relative config paths).
+    Refuse,
+    /// Follow symlinks (the user's own global config).
+    Follow,
+}
+
+/// Why a byte-capped read produced no content.
+///
+/// The variants carry no path: each caller names the file in its own error
+/// shape (an `io::Error` message, an `anyhow` context, a `tracing` field).
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CappedReadError {
+    /// The file (or a component on the way to it) does not exist.
+    NotFound(std::io::Error),
+    /// The open failed for any other reason, including a refused symlink or
+    /// non-regular file (`InvalidInput`, see [`open_refusing_symlinks`]).
+    Open(std::io::Error),
+    /// The open succeeded but reading the bytes failed.
+    Read(std::io::Error),
+    /// The file holds more than `cap` bytes; nothing past `cap + 1` bytes
+    /// was read.
+    TooLarge {
+        /// The byte cap the file exceeded.
+        cap: u64,
+    },
+    /// The file is within the cap but is not valid UTF-8.
+    InvalidUtf8(std::str::Utf8Error),
+}
+
+impl std::fmt::Display for CappedReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(e) | Self::Open(e) => write!(f, "open failed: {e}"),
+            Self::Read(e) => write!(f, "read failed: {e}"),
+            Self::TooLarge { cap } => write!(f, "file exceeds {cap}-byte cap"),
+            Self::InvalidUtf8(e) => write!(f, "not valid UTF-8: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for CappedReadError {}
+
+/// Read at most `cap` bytes of `path`, refusing symlinks at any component and
+/// non-regular files (FIFO, socket, device) without blocking.
+///
+/// The cap is enforced on the raw bytes before any decoding, so callers that
+/// decode lossily cannot be pushed past it by replacement-character
+/// expansion.
+///
+/// # Errors
+///
+/// [`CappedReadError::NotFound`] when the file is absent,
+/// [`CappedReadError::Open`] for a refused or failed open,
+/// [`CappedReadError::Read`] for a failed read, and
+/// [`CappedReadError::TooLarge`] when the file exceeds `cap`.
+pub fn read_capped_bytes(path: &Path, cap: u64) -> Result<Vec<u8>, CappedReadError> {
+    read_capped_bytes_with_policy(path, cap, SymlinkPolicy::Refuse)
+}
+
+/// The one open + capped read + size check shared by every `read_capped_*`
+/// entry point, so the cap semantics cannot drift between them.
+pub(crate) fn read_capped_bytes_with_policy(
+    path: &Path,
+    cap: u64,
+    symlinks: SymlinkPolicy,
+) -> Result<Vec<u8>, CappedReadError> {
+    let opened = match symlinks {
+        SymlinkPolicy::Refuse => open_refusing_symlinks(path),
+        SymlinkPolicy::Follow => std::fs::File::open(path),
+    };
+    let file = opened.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CappedReadError::NotFound(e)
+        } else {
+            CappedReadError::Open(e)
+        }
+    })?;
+    // Read **bytes**, not a `String`. `read_to_string` decodes the truncated
+    // `cap + 1` window and fails with "stream did not contain valid UTF-8"
+    // whenever byte `cap` lands inside a multi-byte sequence — which any
+    // oversized non-ASCII file does routinely — so the size check would
+    // never report the cap. Size first, decode second.
+    let mut bytes = Vec::new();
+    file.take(cap.saturating_add(1)).read_to_end(&mut bytes).map_err(CappedReadError::Read)?;
+    // `usize` is never wider than `u64` on any target rustc supports, so the
+    // widening is total and the fallback is unreachable; saturating to
+    // `u64::MAX` would report the file as oversize, which is the safe
+    // direction for a size cap.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
+        return Err(CappedReadError::TooLarge { cap });
+    }
+    Ok(bytes)
+}
+
+/// [`read_capped_bytes_with_policy`] followed by a strict UTF-8 decode.
+pub(crate) fn read_capped_utf8_with_policy(
+    path: &Path,
+    cap: u64,
+    symlinks: SymlinkPolicy,
+) -> Result<String, CappedReadError> {
+    let bytes = read_capped_bytes_with_policy(path, cap, symlinks)?;
+    String::from_utf8(bytes).map_err(|e| CappedReadError::InvalidUtf8(e.utf8_error()))
 }
 
 fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
