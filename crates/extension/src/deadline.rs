@@ -79,9 +79,20 @@ impl Deadline {
     }
 
     /// Whether the budget has already run out.
+    ///
+    /// Reads the clock once and delegates to [`Deadline::is_expired_at`].
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        Instant::now() >= self.expires_at
+        self.is_expired_at(Instant::now())
+    }
+
+    /// Whether the budget has run out as of `now`.
+    ///
+    /// The deadline is expired from [`Deadline::expires_at`] onwards,
+    /// inclusive.
+    #[must_use]
+    pub fn is_expired_at(&self, now: Instant) -> bool {
+        now >= self.expires_at
     }
 
     /// The cooperative cancellation point, for code that holds a detached
@@ -92,7 +103,18 @@ impl Deadline {
     /// [`DataProviderError::TimedOut`], naming the provider that owns the
     /// budget, once the deadline has passed.
     pub fn check(&self) -> Result<(), DataProviderError> {
-        if self.is_expired() {
+        self.check_at(Instant::now())
+    }
+
+    /// [`Deadline::check`] evaluated as of `now` rather than the current
+    /// clock reading.
+    ///
+    /// # Errors
+    ///
+    /// [`DataProviderError::TimedOut`], naming the provider that owns the
+    /// budget, when `now` is at or past the deadline.
+    pub fn check_at(&self, now: Instant) -> Result<(), DataProviderError> {
+        if self.is_expired_at(now) {
             return Err(DataProviderError::TimedOut {
                 provider: self.provider.clone(),
                 budget: self.budget,
@@ -115,5 +137,50 @@ pub const fn configured_provider_budget(config: &Config) -> Option<Duration> {
         None => Some(DEFAULT_PROVIDER_BUDGET),
         Some(0) => None,
         Some(secs) => Some(Duration::from_secs(secs)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BUDGET: Duration = Duration::from_millis(20);
+
+    fn deadline_at(expires_at: Instant) -> Deadline {
+        Deadline::from_parts("slow".to_string(), BUDGET, expires_at)
+    }
+
+    #[test]
+    fn not_expired_just_before_the_deadline() {
+        let expires_at = Instant::now() + BUDGET;
+        let deadline = deadline_at(expires_at);
+        let just_before = expires_at
+            .checked_sub(Duration::from_nanos(1))
+            .expect("expires_at is a budget past now");
+        assert!(!deadline.is_expired_at(just_before));
+        assert!(deadline.check_at(just_before).is_ok());
+    }
+
+    #[test]
+    fn expired_exactly_at_the_deadline() {
+        let expires_at = Instant::now() + BUDGET;
+        let deadline = deadline_at(expires_at);
+        assert!(deadline.is_expired_at(expires_at));
+        match deadline.check_at(expires_at) {
+            Err(DataProviderError::TimedOut { provider, budget }) => {
+                assert_eq!(provider, "slow");
+                assert_eq!(budget, BUDGET);
+            }
+            other => panic!("expected TimedOut, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn expired_after_the_deadline() {
+        let expires_at = Instant::now() + BUDGET;
+        let deadline = deadline_at(expires_at);
+        let after = expires_at + Duration::from_nanos(1);
+        assert!(deadline.is_expired_at(after));
+        assert!(deadline.check_at(after).is_err());
     }
 }
