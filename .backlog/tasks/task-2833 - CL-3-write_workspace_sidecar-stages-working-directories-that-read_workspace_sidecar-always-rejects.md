@@ -1,10 +1,10 @@
 ---
 id: TASK-2833
 title: 'CL-3: write_workspace_sidecar stages working directories that read_workspace_sidecar always rejects'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:50'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - CL
@@ -29,12 +29,16 @@ dedup_key: 'CL-3:extensions/sqlite/src/sql/ingest/sidecar.rs:write_workspace_sid
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 write_workspace_sidecar applies the same acceptance rules as read_workspace_sidecar and fails before staging, naming the workspace path, when the path would be rejected on read
-- [ ] #2 A test round-trips an accepted path and asserts a path with a control byte is refused at write time
+- [x] #1 write_workspace_sidecar applies the same acceptance rules as read_workspace_sidecar and fails before staging, naming the workspace path, when the path would be rejected on read
+- [x] #2 A test round-trips an accepted path and asserts a path with a control byte is refused at write time
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+TASK-2853: writer and reader share sidecar_bytes_problem; write_workspace_sidecar refuses with InvalidInput naming the path before staging. Fail-before-collect follow-up filed as TASK-2870.
+
 <!-- SECTION:NOTES:END -->

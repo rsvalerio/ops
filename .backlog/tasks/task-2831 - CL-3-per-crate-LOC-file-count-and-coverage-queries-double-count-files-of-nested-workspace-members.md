@@ -1,10 +1,10 @@
 ---
 id: TASK-2831
 title: 'CL-3: per-crate LOC, file-count and coverage queries double-count files of nested workspace members'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:50'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - CL
@@ -31,13 +31,17 @@ dedup_key: 'CL-3:extensions/sqlite/src/sql/query/helpers.rs:query_per_crate_i64'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each file is attributed to at most one member, the one with the longest matching member-path prefix, in query_crate_loc, query_crate_file_count and query_crate_coverage
-- [ ] #2 A test with members 'a' and 'a/b' asserts a file under a/b/ counts only toward 'a/b' and that per-crate sums equal the project total
-- [ ] #3 The CrateCoverage doc claim of non-overlapping attribution holds or is corrected
+- [x] #1 Each file is attributed to at most one member, the one with the longest matching member-path prefix, in query_crate_loc, query_crate_file_count and query_crate_coverage
+- [x] #2 A test with members 'a' and 'a/b' asserts a file under a/b/ counts only toward 'a/b' and that per-crate sums equal the project total
+- [x] #3 The CrateCoverage doc claim of non-overlapping attribution holds or is corrected
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2853: shared member_owns_file join condition (longest member-path prefix via NOT EXISTS) used by query_per_crate_i64 and query_crate_coverage; coverage normalises absolute filenames to workspace-relative first. CrateCoverage doc corrected.
+
 <!-- SECTION:NOTES:END -->

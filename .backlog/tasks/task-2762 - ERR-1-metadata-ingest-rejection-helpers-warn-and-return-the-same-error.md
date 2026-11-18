@@ -1,10 +1,10 @@
 ---
 id: TASK-2762
 title: 'ERR-1: metadata ingest rejection helpers warn and return the same error'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:42'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - ERR
@@ -31,12 +31,16 @@ dedup_key: 'ERR-1:extensions-rust/metadata/src/ingestor.rs:reject_non_singleton,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 reject_non_singleton and reject_non_object return their error without a duplicate warn event for the same breach
-- [ ] #2 The returned error still names the observed row count or shape and states that metadata_raw was dropped
+- [x] #1 reject_non_singleton and reject_non_object return their error without a duplicate warn event for the same breach
+- [x] #2 The returned error still names the observed row count or shape and states that metadata_raw was dropped
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.18 (code-review-rust run, 2026-11-18).
+
+TASK-2853: warns removed. The rejection no longer drops the table itself: it propagates out of the load transaction, which rolls back. The error therefore says the metadata_raw load was rolled back (the accurate statement) rather than dropped; AC #2 intent (state that no metadata_raw remains) is met by that wording.
+
 <!-- SECTION:NOTES:END -->

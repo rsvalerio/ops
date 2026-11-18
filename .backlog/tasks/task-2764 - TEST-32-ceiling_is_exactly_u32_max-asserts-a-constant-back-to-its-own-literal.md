@@ -1,10 +1,10 @@
 ---
 id: TASK-2764
 title: 'TEST-32: ceiling_is_exactly_u32_max asserts a constant back to its own literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:42'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - TEST
@@ -30,8 +30,9 @@ dedup_key: 'TEST-32:extensions-rust/metadata/src/tests/payload_cap.rs:ceiling_is
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 METADATA_MAX_BYTES_CEILING is expressed in terms of u32::MAX at its declaration (or a compile-time assert)
-- [ ] #2 The tautological ceiling_is_exactly_u32_max test is removed; clamping behaviour remains covered by above_ceiling_warns_and_clamps
+- [x] #1 METADATA_MAX_BYTES_CEILING is expressed in terms of u32::MAX at its declaration (or a compile-time assert)
+- [x] #2 The tautological ceiling_is_exactly_u32_max test is removed; clamping behaviour remains covered by above_ceiling_warns_and_clamps
+
 <!-- AC:END -->
 
 ## Implementation Notes

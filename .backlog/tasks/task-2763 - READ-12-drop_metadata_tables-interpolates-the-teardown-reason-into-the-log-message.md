@@ -1,10 +1,10 @@
 ---
 id: TASK-2763
 title: 'READ-12: drop_metadata_tables interpolates the teardown reason into the log message'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:42'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - READ
@@ -29,11 +29,15 @@ dedup_key: 'READ-12:extensions-rust/metadata/src/ingestor.rs:drop_metadata_table
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The teardown-failure warn records reason as a named field (e.g. reason = reason) and uses a constant message
+- [x] #1 The teardown-failure warn records reason as a named field (e.g. reason = reason) and uses a constant message
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.18 (code-review-rust run, 2026-11-18).
+
+TASK-2853: AC substituted. TASK-2760's transactional load removed drop_metadata_tables and its warn entirely. The only remaining teardown-failure event is the rollback-failure warn in ops_sqlite::sql::in_transaction, which records the load as a named stage field with a constant message.
+
 <!-- SECTION:NOTES:END -->

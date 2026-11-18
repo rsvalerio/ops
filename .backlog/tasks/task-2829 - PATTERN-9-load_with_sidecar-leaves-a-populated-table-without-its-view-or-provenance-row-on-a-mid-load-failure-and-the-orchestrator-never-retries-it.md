@@ -1,10 +1,10 @@
 ---
 id: TASK-2829
 title: 'PATTERN-9: load_with_sidecar leaves a populated table without its view or provenance row on a mid-load failure, and the orchestrator never retries it'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:50'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - PATTERN
@@ -35,13 +35,17 @@ This is the same sticky-failure mode TASK-2760 reports for `MetadataIngestor::lo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The table load, view batch, count and data_sources upsert in load_with_sidecar run inside one transaction (or a disarmable guard drops the table on any failure after the INSERT)
-- [ ] #2 A failure after the table is populated leaves no populated data table behind, so the next provide_via_ingestor call re-collects and re-loads
-- [ ] #3 A test forces the view batch (or the upsert) to fail after the insert and asserts that a subsequent provide_via_ingestor call re-runs collect and load
+- [x] #1 The table load, view batch, count and data_sources upsert in load_with_sidecar run inside one transaction (or a disarmable guard drops the table on any failure after the INSERT)
+- [x] #2 A failure after the table is populated leaves no populated data table behind, so the next provide_via_ingestor call re-collects and re-loads
+- [x] #3 A test forces the view batch (or the upsert) to fail after the insert and asserts that a subsequent provide_via_ingestor call re-runs collect and load
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2853: load_with_sidecar runs table load, view batch, count and upsert_data_source_with in one transaction; checksum moved before the lock. Test: orchestrator failed_sidecar_load_is_retried_by_the_next_call.
+
 <!-- SECTION:NOTES:END -->

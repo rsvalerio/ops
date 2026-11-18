@@ -1,10 +1,10 @@
 ---
 id: TASK-2760
 title: 'PATTERN-9: metadata load leaves metadata_raw published when the crate_dependencies view build fails'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - PATTERN
@@ -29,13 +29,17 @@ dedup_key: 'PATTERN-9:extensions-rust/metadata/src/ingestor.rs:MetadataIngestor:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A failure of the crate_dependencies view batch after metadata_raw is populated leaves no populated metadata_raw table behind
-- [ ] #2 Teardown on every post-publish failure in load goes through one mechanism (a disarmable guard or a single transaction), not per-exit calls
-- [ ] #3 A test forces the view build to fail after the table load and asserts metadata_raw is absent or empty afterwards
+- [x] #1 A failure of the crate_dependencies view batch after metadata_raw is populated leaves no populated metadata_raw table behind
+- [x] #2 Teardown on every post-publish failure in load goes through one mechanism (a disarmable guard or a single transaction), not per-exit calls
+- [x] #3 A test forces the view build to fail after the table load and asserts metadata_raw is absent or empty afterwards
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.18 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2853: load now builds metadata_raw, the crate_dependencies view, runs the invariant checks and upserts data_sources inside one transaction (ops_sqlite::sql::in_transaction). Any failure rolls the whole publication back; the per-exit drop_metadata_tables calls are gone. Test: metadata_load_view_failure_leaves_no_metadata_raw.
+
 <!-- SECTION:NOTES:END -->

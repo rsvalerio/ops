@@ -1,10 +1,10 @@
 ---
 id: TASK-2761
 title: 'ERR-1: metadata cap guards both warn and return the same error'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - ERR
@@ -31,8 +31,9 @@ dedup_key: 'ERR-1:extensions-rust/metadata/src/lib.rs:check_metadata_not_capped,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 check_metadata_not_capped and query_metadata_raw_with_cap return their error without also emitting a warn-level event for the same failure
-- [ ] #2 Fields that exist only in the warn event (kept_bytes, cap, env) are preserved in the returned error message
+- [x] #1 check_metadata_not_capped and query_metadata_raw_with_cap return their error without also emitting a warn-level event for the same failure
+- [x] #2 Fields that exist only in the warn event (kept_bytes, cap, env) are preserved in the returned error message
+
 <!-- AC:END -->
 
 ## Implementation Notes

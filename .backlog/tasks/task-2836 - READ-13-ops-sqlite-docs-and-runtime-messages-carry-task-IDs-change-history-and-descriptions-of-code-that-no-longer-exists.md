@@ -1,10 +1,10 @@
 ---
 id: TASK-2836
 title: 'READ-13: ops-sqlite docs and runtime messages carry task IDs, change history and descriptions of code that no longer exists'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:51'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - READ
@@ -42,9 +42,10 @@ dedup_key: 'READ-13:extensions/sqlite/src:crate-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No rule or task ID appears in a rustdoc string, panic/assert message or log message in ops-sqlite production code
-- [ ] #2 Module and item docs describe the current behaviour only; history narration and 'used to' comments are removed
-- [ ] #3 MAX_SIDECAR_BYTES, SqlError::PathTraversalNotAllowed, Sqlite::path and the Cargo.toml libc comment describe what the code does today
+- [x] #1 No rule or task ID appears in a rustdoc string, panic/assert message or log message in ops-sqlite production code
+- [x] #2 Module and item docs describe the current behaviour only; history narration and 'used to' comments are removed
+- [x] #3 MAX_SIDECAR_BYTES, SqlError::PathTraversalNotAllowed, Sqlite::path and the Cargo.toml libc comment describe what the code does today
+
 <!-- AC:END -->
 
 ## Implementation Notes

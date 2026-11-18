@@ -1,10 +1,10 @@
 ---
 id: TASK-2853
 title: 'code-review-plan-wave17'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:50'
 labels:
   - code-review-wave
 dependencies:
@@ -63,4 +63,8 @@ Grouping: sqlite ingest atomicity and queries, plus metadata ingestor (shared ha
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2839 (extensions/sqlite/src/connection.rs, extensions/sqlite/src/sql/ingest/orchestrator.rs)
+
+Branch: code-review/TASK-2853
+Worktree: /home/rsvalerio/projects/.wave-TASK-2853
+
 <!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2830
 title: 'CL-3: provide_via_ingestor treats an empty table as never ingested, so a legitimately empty dataset re-runs collect on every invocation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:50'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - CL
@@ -30,12 +30,16 @@ dedup_key: 'CL-3:extensions/sqlite/src/sql/ingest/orchestrator.rs:provide_via_in
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 provide_via_ingestor decides whether to collect from a load marker that distinguishes 'loaded, zero rows' from 'never loaded' (e.g. the data_sources row for the source, or table existence plus provenance), not from row_count > 0
-- [ ] #2 A test with an ingestor that stages an empty array asserts collect runs once across two provide_via_ingestor calls
+- [x] #1 provide_via_ingestor decides whether to collect from a load marker that distinguishes 'loaded, zero rows' from 'never loaded' (e.g. the data_sources row for the source, or table existence plus provenance), not from row_count > 0
+- [x] #2 A test with an ingestor that stages an empty array asserts collect runs once across two provide_via_ingestor calls
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+Fixed in TASK-2853: provide_via_ingestor probes source_is_loaded (table exists AND a data_sources row exists for ingestor.name()) instead of table_has_data. Test: empty_dataset_is_collected_once_across_calls.
+
 <!-- SECTION:NOTES:END -->

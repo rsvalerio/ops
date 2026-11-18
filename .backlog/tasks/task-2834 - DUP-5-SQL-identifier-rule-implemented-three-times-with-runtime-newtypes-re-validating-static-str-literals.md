@@ -1,10 +1,10 @@
 ---
 id: TASK-2834
 title: 'DUP-5: SQL identifier rule implemented three times, with runtime newtypes re-validating &''static str literals'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:50'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - DUP
@@ -33,12 +33,16 @@ dedup_key: 'DUP-5:extensions/sqlite/src/sql/validation.rs:validate_identifier'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One function owns the identifier rule; validate_identifier and the JsonColumn path check delegate to it
-- [ ] #2 Query identifiers built from literals are const-validated (TableName-style), so query_crate_loc / query_crate_file_count / query_crate_coverage have no identifier error path and coverage.rs drops the expect and its allow
+- [x] #1 One function owns the identifier rule; validate_identifier and the JsonColumn path check delegate to it
+- [x] #2 Query identifiers built from literals are const-validated (TableName-style), so query_crate_loc / query_crate_file_count / query_crate_coverage have no identifier error path and coverage.rs drops the expect and its allow
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+TASK-2853: is_valid_identifier_const owns the rule (validate_identifier delegates; JsonColumn json_path uses the shared is_identifier_tail). QueryTableName removed in favour of TableName; ColumnAlias/ColumnName are const-validated (from_static) consts, so per-crate queries have no identifier error path and coverage.rs dropped its expect/allow.
+
 <!-- SECTION:NOTES:END -->

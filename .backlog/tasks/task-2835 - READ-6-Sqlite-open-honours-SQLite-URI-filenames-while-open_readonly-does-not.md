@@ -1,10 +1,10 @@
 ---
 id: TASK-2835
 title: 'READ-6: Sqlite::open honours SQLite URI filenames while open_readonly does not'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:51'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 21:47'
 labels:
   - code-review-rust
   - READ
@@ -29,12 +29,16 @@ dedup_key: 'READ-6:extensions/sqlite/src/connection.rs:Sqlite::open'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Sqlite::open builds explicit flags without SQLITE_OPEN_URI (READ_WRITE | CREATE | NO_MUTEX), matching open_readonly's literal-path semantics
-- [ ] #2 A test opens a path beginning with 'file:' via Sqlite::open and asserts a literal file of that name is created
+- [x] #1 Sqlite::open builds explicit flags without SQLITE_OPEN_URI (READ_WRITE | CREATE | NO_MUTEX), matching open_readonly's literal-path semantics
+- [x] #2 A test opens a path beginning with 'file:' via Sqlite::open and asserts a literal file of that name is created
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.30 (code-review-rust run, 2026-11-18).
+
+TASK-2853: Sqlite::open now uses explicit READ_WRITE|CREATE|NO_MUTEX flags. Finding: the bundled SQLite is built with SQLITE_USE_URI, so URI parsing was on for open_readonly too regardless of flags. open_conn now prefixes a 'file:'-leading path with './' (literal_path), making both openers literal. Test re-executes the test binary in a scratch cwd: sqlite_open_takes_a_file_prefix_literally.
+
 <!-- SECTION:NOTES:END -->
