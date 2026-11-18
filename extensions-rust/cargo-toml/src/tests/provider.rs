@@ -191,6 +191,67 @@ fn provider_dependency_sections_round_trip_in_both_spellings() {
     assert!(snake.build_dependencies.contains_key("cc"));
 }
 
+/// Every kebab-case Cargo key serialises in Cargo's spelling, and the
+/// `snake_case` spelling stays accepted on the read side.
+#[test]
+fn provider_kebab_case_keys_serialize_in_cargo_spelling() {
+    let toml = r#"
+[package]
+name = "member"
+version = "0.1.0"
+rust-version = "1.80"
+license-file = "LICENSE"
+default-run = "member-cli"
+
+[dependencies]
+serde = { version = "1", default-features = false }
+
+[workspace]
+members = ["a"]
+default-members = ["a"]
+
+[workspace.package]
+rust-version = "1.80"
+license-file = "LICENSE"
+"#;
+    let manifest = CargoToml::parse(toml).expect("should parse");
+    let value = serde_json::to_value(&manifest).expect("should serialize");
+
+    let package = &value["package"];
+    let workspace = &value["workspace"];
+    let ws_package = &workspace["package"];
+    let serde_dep = &value["dependencies"]["serde"];
+    for (object, kebab, snake) in [
+        (package, "rust-version", "rust_version"),
+        (package, "license-file", "license_file"),
+        (package, "default-run", "default_run"),
+        (workspace, "default-members", "default_members"),
+        (ws_package, "rust-version", "rust_version"),
+        (ws_package, "license-file", "license_file"),
+        (serde_dep, "default-features", "default_features"),
+    ] {
+        assert!(object.get(kebab).is_some_and(|v| !v.is_null()), "missing `{kebab}` in {object}");
+        assert!(object.get(snake).is_none(), "Rust name `{snake}` leaked into {object}");
+    }
+
+    let round_tripped: CargoToml =
+        serde_json::from_value(value).expect("provider JSON must deserialize back");
+    let pkg = round_tripped.package.as_ref().expect("package");
+    assert_eq!(pkg.rust_version.as_str(), Some("1.80"));
+    assert_eq!(pkg.default_run.as_deref(), Some("member-cli"));
+    assert!(!round_tripped.dependencies["serde"].uses_default_features());
+
+    let snake: CargoToml = serde_json::from_value(serde_json::json!({
+        "package": { "name": "m", "rust_version": "1.70", "default_run": "x" },
+        "workspace": { "default_members": ["a"] },
+    }))
+    .expect("snake_case payload must still deserialize");
+    let pkg = snake.package.as_ref().expect("package");
+    assert_eq!(pkg.rust_version.as_str(), Some("1.70"));
+    assert_eq!(pkg.default_run.as_deref(), Some("x"));
+    assert_eq!(snake.workspace.expect("workspace").default_members, vec!["a"]);
+}
+
 #[test]
 fn provider_resolve_root_auto_discovers() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
@@ -216,8 +277,20 @@ fn provider_resolve_root_auto_discover_fails_without_cargo_toml() {
     let provider = CargoTomlProvider::new();
     let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
 
-    let result = provider.provide(&mut ctx);
-    assert!(result.is_err());
+    let err = provider.provide(&mut ctx).unwrap_err();
+    assert!(
+        matches!(err, DataProviderError::ComputationFailed(_)),
+        "expected ComputationFailed, got: {err:?}"
+    );
+    let outermost: &(dyn std::error::Error + 'static) = &err;
+    let root_err = std::iter::successors(Some(outermost), |e| e.source())
+        .find_map(|e| e.downcast_ref::<FindWorkspaceRootError>())
+        .unwrap_or_else(|| panic!("no FindWorkspaceRootError in the chain of {err:?}"));
+    assert!(root_err.is_not_found(), "expected the not-found case, got: {root_err:?}");
+    assert!(
+        format!("{err:#}").contains("resolving cargo_toml workspace root"),
+        "missing the resolve-root context: {err:#}"
+    );
 }
 
 #[test]

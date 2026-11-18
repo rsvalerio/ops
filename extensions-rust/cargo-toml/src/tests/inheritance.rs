@@ -111,6 +111,30 @@ authors = ["Alice", "Bob"]
     );
 }
 
+/// A `[workspace.package]` that does not declare `authors` parses it as an
+/// empty list; the member's `authors.workspace = true` must stay unresolved
+/// rather than become a declared-but-empty `Value`.
+#[test]
+fn resolve_package_inheritance_undeclared_ws_authors_stays_inherited() {
+    let toml = r#"
+[package]
+name = "member"
+version = "0.1.0"
+authors.workspace = true
+
+[workspace]
+members = []
+
+[workspace.package]
+edition = "2021"
+"#;
+    let mut manifest = CargoToml::parse(toml).expect("should parse");
+    manifest.resolve_package_inheritance();
+
+    let pkg = manifest.package.as_ref().unwrap();
+    assert_eq!(pkg.authors, crate::InheritableField::Inherited { workspace: true });
+}
+
 #[test]
 fn resolve_package_inheritance_keywords_categories_readme_license_file_and_publish() {
     let toml = r#"
@@ -248,51 +272,48 @@ serde = { version = "1.0", features = ["std"] }
     assert_eq!(serde.version(), Some("1.0"));
 }
 
+/// `default-features` precedence for inherited deps, matching cargo: only an
+/// explicit member `true` overrides the workspace; a member `false` is
+/// ignored unless the workspace also writes `false`. Covers every
+/// member/workspace combination for both a bare-version and a detailed
+/// workspace dep.
 #[test]
-fn resolve_workspace_inheritance_default_features_false() {
-    let toml = r#"
-[package]
-name = "member"
-version = "0.1.0"
-
-[dependencies]
-tokio = { workspace = true, default_features = false }
-
-[workspace.dependencies]
-tokio = { version = "1", default_features = true, features = ["full"] }
-"#;
-    let mut manifest = CargoToml::parse(toml).expect("should parse");
-    manifest.resolve_inheritance().expect("should resolve");
-
-    let tokio = &manifest.dependencies["tokio"];
-    assert!(!tokio.uses_default_features());
-}
-
-/// Regression: with `default-features = false` set on the
-/// workspace dep, a member that *re-enables* defaults locally still gets
-/// `default-features = false` resolved — matching cargo's documented
-/// behavior (member cannot un-disable workspace defaults).
-#[test]
-fn resolve_workspace_default_features_false_local_true_stays_false() {
-    let toml = r#"
-[package]
-name = "member"
-version = "0.1.0"
-
-[dependencies]
-tokio = { workspace = true, default-features = true }
-
-[workspace.dependencies]
-tokio = { version = "1", default-features = false, features = ["macros"] }
-"#;
-    let mut manifest = CargoToml::parse(toml).expect("should parse");
-    manifest.resolve_inheritance().expect("should resolve");
-
-    let tokio = &manifest.dependencies["tokio"];
-    assert!(
-        !tokio.uses_default_features(),
-        "workspace default-features = false must win over local true"
-    );
+fn resolve_workspace_default_features_matches_cargo_precedence() {
+    // (member override, workspace dep, expected uses_default_features)
+    let cases = [
+        // Bare-version workspace dep: workspace leaves default-features unset.
+        ("", r#""1""#, true),
+        (", default-features = true", r#""1""#, true),
+        (", default-features = false", r#""1""#, true),
+        // Detailed workspace dep without the key.
+        ("", r#"{ version = "1" }"#, true),
+        (", default-features = true", r#"{ version = "1" }"#, true),
+        (", default-features = false", r#"{ version = "1" }"#, true),
+        // Detailed workspace dep with default-features = true.
+        ("", r#"{ version = "1", default-features = true }"#, true),
+        (", default-features = true", r#"{ version = "1", default-features = true }"#, true),
+        (", default-features = false", r#"{ version = "1", default-features = true }"#, true),
+        // Detailed workspace dep with default-features = false.
+        ("", r#"{ version = "1", default-features = false }"#, false),
+        (", default-features = true", r#"{ version = "1", default-features = false }"#, true),
+        (", default-features = false", r#"{ version = "1", default-features = false }"#, false),
+        // The snake_case spelling is accepted on both sides.
+        (", default_features = true", r#"{ version = "1", default_features = false }"#, true),
+    ];
+    for (member, ws, expected) in cases {
+        let toml = format!(
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\ntokio = {{ workspace = true{member} }}\n\n\
+             [workspace.dependencies]\ntokio = {ws}\n"
+        );
+        let mut manifest = CargoToml::parse(&toml).expect("should parse");
+        manifest.resolve_inheritance().expect("should resolve");
+        assert_eq!(
+            manifest.dependencies["tokio"].uses_default_features(),
+            expected,
+            "member `{member}` over workspace `{ws}`"
+        );
+    }
 }
 
 /// Regression: a non-optional workspace dep can be

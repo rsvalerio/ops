@@ -80,10 +80,7 @@ impl CargoToml {
 
         resolve_vec_field(&mut pkg.keywords, &ws_pkg.keywords);
         resolve_vec_field(&mut pkg.categories, &ws_pkg.categories);
-
-        if matches!(&pkg.authors, InheritableField::Inherited { workspace: true }) {
-            pkg.authors = InheritableField::Value(ws_pkg.authors.clone());
-        }
+        resolve_vec_field(&mut pkg.authors, &ws_pkg.authors);
 
         resolve_optional_string(&mut pkg.license_file, ws_pkg.license_file.as_deref());
         resolve_readme(&mut pkg.readme, ws_pkg.readme.as_ref());
@@ -112,7 +109,7 @@ pub fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&str
 /// `Inherited { workspace: true }` state.
 ///
 /// An empty workspace value means "not declared": `WorkspacePackage`'s
-/// `keywords`/`categories` are plain `Vec<String>` (serde defaults to
+/// `authors`/`keywords`/`categories` are plain `Vec<String>` (serde defaults to
 /// empty), so an absent workspace `keywords` table is indistinguishable
 /// from `keywords = []`. Substituting it would overwrite the member's
 /// unresolved `Inherited` with a forced empty Vec, so an empty value
@@ -217,13 +214,17 @@ fn resolve_dep_from_workspace(
 /// `workspace`, `package` and `target` — falls through to
 /// [`DetailedDepSpec::default`], the single place stating the default for
 /// every remaining cargo dependency key.
+///
+/// A bare version string leaves `default-features` unspecified on the
+/// workspace side, so [`inherit_default_features`] decides it exactly as for
+/// a detailed workspace dep that does not write the key.
 fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
     let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
     DetailedDepSpec {
         version: Some(version.to_string()),
         features: local_features,
         optional: local_optional,
-        default_features: local_default_features,
+        default_features: inherit_default_features(local_default_features, None),
         ..DetailedDepSpec::default()
     }
 }
@@ -233,21 +234,20 @@ fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
 ///
 /// - **features**: union of workspace + local (additive; cargo never lets a
 ///   member subtract features its workspace requested).
-/// - **optional**: `ws.optional || local_optional`. Cargo treats `optional`
-///   as "either side may turn this on, neither side may turn it off"; a
-///   workspace dep marked `optional = true` stays optional even if the
-///   member omits the flag, and a member can opt-in locally when the
-///   workspace did not.
-/// - **`default_features`**: `ws.default_features && local_default_features`.
-///   Cargo's documented footgun: once the workspace sets
-///   `default-features = false`, members **cannot** re-enable them with
-///   `default-features = true` (cargo emits a warning and keeps defaults
-///   off). The AND fold reproduces that behavior.
+/// - **optional**: the member decides. Cargo rejects `optional` in
+///   `[workspace.dependencies]`, so for a valid manifest
+///   `ws.optional || local_optional` is the member's value; the OR only
+///   keeps a malformed workspace `optional = true` visible instead of
+///   silently dropping it.
+/// - **`default_features`**: see [`inherit_default_features`]. A member can
+///   turn default features back **on** over a workspace
+///   `default-features = false`, but cannot turn them **off** when the
+///   workspace leaves them on (cargo ignores the member's `false` with a
+///   warning, and rejects it on edition 2024).
 ///
-/// This is cargo's actual precedence to the fidelity the resolver needs:
-/// deviations from cargo's edge cases (e.g. cargo > 1.71's) are not
-/// modeled because the resolver consumes manifests for reporting, not for
-/// build-graph fidelity.
+/// Cargo's remaining edge cases (warnings and hard errors on invalid
+/// combinations) are not modeled because the resolver consumes manifests
+/// for reporting, not for build-graph fidelity.
 ///
 /// Unlike [`resolve_from_simple_dep`], this constructor is exhaustive on
 /// purpose. Every field except `workspace` is *copied from the workspace
@@ -265,16 +265,37 @@ fn resolve_from_detailed_dep(ws: &DetailedDepSpec, local: &DepSpec) -> DetailedD
         rev: ws.rev.clone(),
         features: merge_features(&ws.features, &local_features),
         optional: ws.optional || local_optional,
-        default_features: ws.default_features && local_default_features,
+        default_features: inherit_default_features(local_default_features, ws.default_features),
         workspace: None,
         package: ws.package.clone(),
         target: ws.target.clone(),
     }
 }
 
-fn extract_local_overrides(local: &DepSpec) -> (Vec<String>, bool, bool) {
+/// Cargo's `default-features` precedence for an inherited dependency, where
+/// `None` on either side means the key was not written.
+///
+/// | member  | workspace          | result               |
+/// |---------|--------------------|----------------------|
+/// | `true`  | any                | `true`               |
+/// | `false` | unspecified/`true` | workspace (on)       |
+/// | `false` | `false`            | `false`              |
+/// | unset   | any                | workspace            |
+///
+/// Only an explicit member `true` overrides the workspace; every other
+/// combination keeps the workspace value, including its "unspecified",
+/// which [`DepSpec::uses_default_features`] reads as `true`.
+fn inherit_default_features(local: Option<bool>, ws: Option<bool>) -> Option<bool> {
+    if local == Some(true) {
+        Some(true)
+    } else {
+        ws
+    }
+}
+
+fn extract_local_overrides(local: &DepSpec) -> (Vec<String>, bool, Option<bool>) {
     match local {
-        DepSpec::Simple(_) => (vec![], false, true),
+        DepSpec::Simple(_) => (vec![], false, None),
         DepSpec::Detailed(d) => {
             if d.version.is_some() || d.path.is_some() || d.git.is_some() {
                 tracing::debug!(
