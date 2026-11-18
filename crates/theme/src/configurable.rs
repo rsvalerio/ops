@@ -416,10 +416,16 @@ impl ConfigurableTheme {
                 .into_owned()
         };
         // A running row's left pad is emitted by the running style around
-        // this string, not here; see `reserved_chrome`.
+        // this string, not here; see `reserved_chrome`. A finished row's pad
+        // is part of its budget too: when the budget is narrower than the pad
+        // the body above is already empty, so the pad itself is clamped.
         match slot.state {
             RowState::Running => body,
-            RowState::Finished => format!("{}{body}", self.left_pad_str()),
+            RowState::Finished => {
+                let pad = self.left_pad_str();
+                let pad = if budget == 0 { pad } else { pad.get(..budget).unwrap_or(pad) };
+                format!("{pad}{body}")
+            }
         }
     }
 

@@ -39,6 +39,23 @@ fn left_pad_zero_produces_no_padding() {
     assert!(padded_line.starts_with("    ✓"), "should have 2-space pad + step_indent");
 }
 
+/// The left pad counts against a finished row's budget: a nonzero column
+/// budget narrower than the pad yields a row no wider than that budget.
+#[test]
+fn finished_row_narrower_than_left_pad_fits_its_budget() {
+    let theme = theme_with_pad(4);
+    let step = StepLine::new(StepStatus::Succeeded, "cargo build".to_string(), Some(0.5));
+    for columns in 1..=4u16 {
+        let line = theme.render(&step, columns);
+        assert_eq!(
+            ops_theme::style::visible_width(&line),
+            usize::from(columns),
+            "columns {columns}: {line:?}"
+        );
+        assert!(line.chars().all(|c| c == ' '), "columns {columns}: {line:?}");
+    }
+}
+
 /// A running row reserves the left pad too: the runner's running style
 /// prepends it to `running_template`, so the row on screen is
 /// `left_pad + running_template_overhead + rendered` columns and must fill
