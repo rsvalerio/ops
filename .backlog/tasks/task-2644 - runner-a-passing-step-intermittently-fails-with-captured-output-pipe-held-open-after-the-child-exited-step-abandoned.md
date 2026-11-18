@@ -1,13 +1,15 @@
 ---
 id: TASK-2644
 title: 'runner: a passing step intermittently fails with ''captured output pipe held open after the child exited; step abandoned'''
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-13 21:03'
+updated_date: '2026-11-18 20:32'
 labels:
   - runner
   - conc
 dependencies: []
+parent_task_id: 'TASK-2840'
 modified_files:
   - crates/runner/src/command/exec.rs
 priority: low
