@@ -1,10 +1,10 @@
 ---
 id: TASK-2733
 title: 'READ-6: cargo-update annotation handling differs between arrow and single-version lines'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:37'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:41'
 labels:
   - code-review-rust
   - READ
@@ -36,14 +36,18 @@ Candidates to confirm against the cargo version in use (cargo 1.98 observed `Upd
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Adding/Removing lines share the Updating/Downgrading annotation acceptance (one helper used by both parsers)
-- [ ] #2 Cargo's documented latest/MSRV annotation shapes are accepted without a warn, verified against cargo's lockfile-change printer source
-- [ ] #3 Tests cover Adding with (available: vX) and the requires-Rust variants, asserting no warn and correct version fields
-- [ ] #4 Genuinely unknown trailing tokens still warn
+- [x] #1 Adding/Removing lines share the Updating/Downgrading annotation acceptance (one helper used by both parsers)
+- [x] #2 Cargo's documented latest/MSRV annotation shapes are accepted without a warn, verified against cargo's lockfile-change printer source
+- [x] #3 Tests cover Adding with (available: vX) and the requires-Rust variants, asserting no warn and correct version fields
+- [x] #4 Genuinely unknown trailing tokens still warn
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.13 (code-review-rust run, 2026-11-18).
+
+Shapes verified against cargo rust-1.98.0 src/cargo/ops/cargo_update.rs (report_required_rust_version, report_too_new, report_latest): (requires Rust R), (published <age>, minimum age <age>), (available: vX[, requires Rust R][, published <age>]). Removing lines carry no note there but share the helper per AC1.
+
 <!-- SECTION:NOTES:END -->

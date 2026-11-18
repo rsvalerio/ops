@@ -1,10 +1,10 @@
 ---
 id: TASK-2751
 title: 'ARCH-9: ops-deps publishes unguarded parse_deny_output and an unused parse/report surface'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:40'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:41'
 labels:
   - code-review-rust
   - ARCH
@@ -33,13 +33,17 @@ More broadly, no other workspace crate uses most of the public surface. A worksp
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_deny_output is no longer reachable from outside the crate (crate-private or #[cfg(test)], like parse_upgrade_table), and the in-crate tests still compile
-- [ ] #2 Each remaining pub re-export from ops-deps either has a caller outside the crate or a documented reason to stay public; the rest become pub(crate)
-- [ ] #3 cargo build --workspace and the ops-deps tests pass
+- [x] #1 parse_deny_output is no longer reachable from outside the crate (crate-private or #[cfg(test)], like parse_upgrade_table), and the in-crate tests still compile
+- [x] #2 Each remaining pub re-export from ops-deps either has a caller outside the crate or a documented reason to stay public; the rest become pub(crate)
+- [x] #3 cargo build --workspace and the ops-deps tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.15 (code-review-rust run, 2026-11-18).
+
+Remaining pub surface: run_deps, DepsOptions, external_tools/ExternalTool (CLI callers) plus the extension identity consts and DepsExtension (convention shared by every extension crate, documented at the crate root). Parsers, build_report, types, ensure_tools, build_user_context, DepsProvider are crate-private; parse_deny_output is #[cfg(test)].
+
 <!-- SECTION:NOTES:END -->
