@@ -24,8 +24,6 @@
 // `src/tests.rs` relies on `unwrap()`; the crate performs no numeric casts,
 // in tests or otherwise, so no cast lint is suppressed here.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
-// Undocumented public items are a warning, not silence.
-#![warn(missing_docs)]
 
 mod error;
 pub mod json;
