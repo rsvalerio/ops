@@ -229,49 +229,19 @@ impl<'a> Resolver<'a> {
     /// Read `<dir>/<marker>` if the member directory holds one and the
     /// manifest lies inside the workspace root.
     ///
-    /// The manifest path is canonicalized and must sit under the canonical
+    /// Containment and the capped read go through
+    /// [`crate::manifest_io::read_contained`] against the memoised canonical
     /// root, so a member directory or manifest that is a symlink out of the
     /// workspace (`packages/x -> /some/other/dir`) is skipped with a
-    /// `tracing::warn` instead of having its contents surfaced. Symlinks
-    /// that stay inside the root are followed.
-    ///
-    /// The read then goes through [`ops_core::text::read_capped_to_string`]
-    /// on the canonical path. That open refuses a symlink at every path
-    /// component and any non-regular file, so an entry swapped in after the
-    /// containment check cannot redirect the read, and a FIFO named like the
-    /// manifest cannot block it.
+    /// `tracing::warn`, symlinks that stay inside the root are followed, and
+    /// a FIFO named like the manifest cannot block the read.
     ///
     /// A missing manifest is silent — the directory is simply not a member.
     /// Every other failure logs at `tracing::warn!` and yields `None`.
     fn read_member_manifest(&mut self, dir: &Path) -> Option<String> {
         let marker = self.marker;
         let manifest = dir.join(marker);
-        let canonical = match std::fs::canonicalize(&manifest) {
-            Ok(path) => path,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-            Err(e) => {
-                warn_manifest_unreadable(&manifest, marker, &e);
-                return None;
-            }
-        };
-        // Fail closed: without a canonical root, containment cannot be shown.
-        let contained = self.canonical_root().is_some_and(|root| canonical.starts_with(root));
-        if !contained {
-            tracing::warn!(
-                path = ?manifest.display(),
-                kind = marker,
-                "workspace member manifest resolves outside the workspace root; skipping"
-            );
-            return None;
-        }
-        match ops_core::text::read_capped_to_string(&canonical) {
-            Ok(content) => Some(content),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => {
-                warn_manifest_unreadable(&manifest, marker, &e);
-                None
-            }
-        }
+        crate::manifest_io::read_contained(&manifest, self.canonical_root(), marker)
     }
 
     /// Render `path` relative to the workspace root.
@@ -289,19 +259,6 @@ impl<'a> Resolver<'a> {
         let root_canon = self.canonical_root();
         recover_relative_path(path, root, root_canon)
     }
-}
-
-/// Log a member manifest that exists but could not be resolved or read.
-///
-/// The path and error are Debug-formatted so embedded newlines / ANSI
-/// escapes cannot forge log lines.
-fn warn_manifest_unreadable(manifest: &Path, marker: &str, error: &std::io::Error) {
-    tracing::warn!(
-        path = ?manifest.display(),
-        error = ?error,
-        kind = marker,
-        "failed to read workspace member manifest"
-    );
 }
 
 /// Open the directory a segment glob expands over.
