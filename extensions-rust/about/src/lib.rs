@@ -60,6 +60,11 @@ pub const DATA_PROVIDER_NAME: &str = "project_identity";
 /// shared by the about providers. See [`resolved_workspace_members`].
 pub use members::resolved_workspace_members;
 
+/// Re-exported for sibling Rust-stack extension crates: the one spelling
+/// [`resolved_workspace_members`] emits for a member naming the workspace
+/// root. See [`ROOT_MEMBER`].
+pub use members::ROOT_MEMBER;
+
 /// Re-exported for sibling Rust-stack extension crates: the shared
 /// crate-manifest reader and the member-path guard that protects it, so no
 /// sibling maintains a second copy of the read/parse/log policy or of the

@@ -24,6 +24,7 @@
 use ops_about::cards::format_unit_name;
 use ops_about_rust::{
     member_path_is_workspace_safe_or_warn, read_crate_metadata, resolved_workspace_members,
+    ROOT_MEMBER,
 };
 use ops_cargo_toml::{find_workspace_root_strict, CargoToml, CargoTomlProvider};
 use ops_extension::{Context, DataProvider, DataProviderError};
@@ -33,8 +34,11 @@ pub const SKILL_NAME: &str = "code-review-rust";
 
 /// Member path reported for the root package of a single-package project.
 /// `ReviewTarget::path` is summary context only, so the
-/// workspace-root-relative `.` is the accurate answer here.
-const ROOT_PACKAGE_PATH: &str = ".";
+/// workspace-root-relative `.` is the accurate answer here. It is the same
+/// string `resolved_workspace_members` emits for a member naming the root in
+/// any spelling, which is what lets the hybrid-manifest dedup compare by
+/// equality.
+const ROOT_PACKAGE_PATH: &str = ROOT_MEMBER;
 
 pub struct RustReviewTargetsProvider;
 
@@ -53,6 +57,8 @@ impl DataProvider for RustReviewTargetsProvider {
         // workspace — it never has to appear in `[workspace].members` — so
         // the root package is a review target in its own right whenever it
         // exists and the member list does not already name the root path.
+        // `resolved_workspace_members` spells a root member (`.`, `./`,
+        // `.//`) as `ROOT_MEMBER` only, so equality is the whole check.
         let mut targets: Vec<(String, String)> = Vec::new();
         if !members.iter().any(|m| m == ROOT_PACKAGE_PATH) {
             if let Some(name) = manifest.package_name() {
@@ -391,6 +397,34 @@ mod tests {
             decoded.targets
         );
         assert_eq!(decoded.targets.len(), 2, "root plus xtask, no duplicates");
+    }
+
+    /// Every spelling Cargo accepts for the root member (`./`, `.//`) names
+    /// the same package as `.`, so the root package is still emitted once.
+    #[serial_test::serial(fallback_breadcrumb)]
+    #[test]
+    fn hybrid_manifest_does_not_duplicate_a_root_listed_with_a_trailing_separator() {
+        for spelling in ["./", ".//"] {
+            let (_dir, root) = scratch_workspace("\"xtask\"", &[("xtask", Some("xtask"))]);
+            std::fs::write(
+                root.join("Cargo.toml"),
+                format!(
+                    "[package]\nname = \"ops-lib\"\nversion = \"0.1.0\"\n\n\
+                     [workspace]\nmembers = [\"{spelling}\", \"xtask\"]\n"
+                ),
+            )
+            .expect("hybrid root manifest");
+            let value = provide(&root).expect("provide");
+            let decoded: ops_create_review_tasks::ReviewTargets =
+                serde_json::from_value(value).expect("decode");
+            let names: Vec<&str> = decoded.targets.iter().map(|t| t.name.as_str()).collect();
+            assert_eq!(
+                names,
+                vec!["ops-lib", "xtask"],
+                "root listed as {spelling:?} must yield the root package exactly once, got {:?}",
+                decoded.targets
+            );
+        }
     }
 
     /// Neither shape is a typed error naming the actual condition — never
