@@ -47,6 +47,75 @@ use anyhow::Context as _;
 /// How often a lock wait with a timeout re-polls.
 const POLL: Duration = Duration::from_millis(100);
 
+/// The environment variable `ops lock <name> -- <cmd…>` sets for its
+/// command: every lock name held by it and its `ops lock` ancestors,
+/// comma-separated. A nested `ops` that would take one of them itself
+/// (see [`hold_unless_inherited`]) reads it to skip the lock instead of
+/// waiting forever on its own parent.
+pub const HELD_ENV: &str = "OPS_LOCKS_HELD";
+
+/// `inherited` (the current [`HELD_ENV`] value, if any) with `name`
+/// appended.
+fn held_with(inherited: Option<&std::ffi::OsStr>, name: &str) -> OsString {
+    inherited.filter(|value| !value.is_empty()).map_or_else(
+        || OsString::from(name),
+        |value| {
+            let mut held = value.to_os_string();
+            held.push(",");
+            held.push(name);
+            held
+        },
+    )
+}
+
+/// Whether `inherited` (a [`HELD_ENV`] value) names `name`.
+fn names_lock(inherited: Option<&std::ffi::OsStr>, name: &str) -> bool {
+    inherited
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|value| value.split(',').any(|held| held == name))
+}
+
+/// Take the lock `name` for the rest of the caller's work, waiting for it
+/// without a timeout, unless an enclosing `ops lock` already holds it (see
+/// [`HELD_ENV`]): then `None`, since the work already runs serialized and
+/// waiting would deadlock on the parent.
+///
+/// The wait catches no signal: a Ctrl-C ends the process, and the kernel
+/// releases the lock with it (its record then reads as stale).
+///
+/// # Errors
+///
+/// `cwd` is not inside a git repository, the runtime cannot be built, or
+/// the lock cannot be taken (see [`acquire`]).
+pub fn hold_unless_inherited(
+    cwd: &Path,
+    name: &str,
+    command: &[OsString],
+) -> anyhow::Result<Option<Guard>> {
+    if names_lock(std::env::var_os(HELD_ENV).as_deref(), name) {
+        return Ok(None);
+    }
+    let (common, toplevel) = git_anchors(cwd)?;
+    let dir = locks_under(&common)?;
+    let worktree = if toplevel.as_os_str().is_empty() { cwd.to_path_buf() } else { toplevel };
+    let holder = Holder::current(&worktree, command);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("building the lock runtime")?;
+    runtime.block_on(async {
+        let mut signals = Signals::none();
+        let wait = Wait { timeout: None, notice: &mut std::io::stderr(), signals: &mut signals };
+        match acquire(&dir, name, &holder, wait).await? {
+            Acquired::Held(guard) => Ok(Some(guard)),
+            // No signal stream is installed, so the wait cannot end this way.
+            Acquired::Signalled(signo) => {
+                anyhow::bail!("waiting for lock {name} ended by signal {signo}")
+            }
+        }
+    })
+}
+
 /// One `git rev-parse` answering both repository anchors `ops lock` needs:
 /// the common dir (where `<common>/ops/locks` lives) and the working-tree
 /// toplevel (holder provenance) — one process instead of two. Spawned via
@@ -358,7 +427,6 @@ impl Signals {
     }
 
     /// Catch nothing: [`Self::recv`] never resolves.
-    #[cfg(test)]
     #[must_use]
     pub const fn none() -> Self {
         Self {
@@ -573,7 +641,8 @@ pub fn run_locked(
             drop(guard);
             return Ok(crate::shell_exit_code_for_signal(signo));
         }
-        let code = run_child(program, args, &mut signals).await?;
+        let held = held_with(std::env::var_os(HELD_ENV).as_deref(), name);
+        let code = run_child(program, args, &held, &mut signals).await?;
         drop(guard);
         anyhow::Ok(code)
     })?;
@@ -583,7 +652,7 @@ pub fn run_locked(
 /// Run the child to completion, forwarding caught signals to it (except a
 /// SIGINT the terminal already delivered, see [`tty_already_delivered`]), and map
 /// its end to an exit code: its own code, or `128 + signo` when it (or
-/// `ops`) was signalled.
+/// `ops`) was signalled. The child sees `held` as [`HELD_ENV`].
 ///
 /// # Errors
 ///
@@ -591,10 +660,12 @@ pub fn run_locked(
 async fn run_child(
     program: &OsString,
     args: &[OsString],
+    held: &std::ffi::OsStr,
     signals: &mut Signals,
 ) -> anyhow::Result<u8> {
     let mut child = tokio::process::Command::new(program)
         .args(args)
+        .env(HELD_ENV, held)
         .spawn()
         .with_context(|| format!("spawning {}", program.to_string_lossy()))?;
     let mut received: Option<i32> = None;
@@ -695,6 +766,20 @@ fn exit_code(status: std::process::ExitStatus, received: Option<i32>) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn held_locks_accumulate_and_match_whole_names() {
+        let outer = held_with(None, "code-review-backlog");
+        assert_eq!(outer, "code-review-backlog");
+        let inner = held_with(Some(&outer), "code-review-merge");
+        assert_eq!(inner, "code-review-backlog,code-review-merge");
+        assert_eq!(held_with(Some(std::ffi::OsStr::new("")), "x"), "x");
+
+        assert!(names_lock(Some(&inner), "code-review-merge"));
+        assert!(names_lock(Some(&inner), "code-review-backlog"));
+        assert!(!names_lock(Some(&inner), "code-review"), "whole names only");
+        assert!(!names_lock(None, "code-review-merge"));
+    }
 
     fn holder(pid: u32) -> Holder {
         Holder {

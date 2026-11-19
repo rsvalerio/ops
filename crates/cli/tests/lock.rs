@@ -22,7 +22,8 @@ fn ops(dir: &Path) -> Command {
         .env("XDG_CONFIG_HOME", dir)
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE");
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("OPS_LOCKS_HELD");
     cmd
 }
 
@@ -324,4 +325,54 @@ while [ ! -e "$4" ]; do :; done"#;
     holder.wait().expect("holder exit");
     assert_eq!(read_count(&terms), 1, "SIGTERM to ops is forwarded once");
     assert_eq!(read_count(&ints), 1, "no SIGINT arrives late");
+}
+
+/// `ops backlog commit` waits while a wave holds `code-review-merge`, so a
+/// bookkeeping commit cannot land between a wave's integration verify and
+/// its fast-forward merge.
+#[test]
+fn backlog_commit_waits_for_the_merge_lock() {
+    let (_dir, repo, wt) = repo_with_worktree();
+    let mut holder = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn holder");
+    wait_until("the holder to take the lock", || {
+        status(&wt, "code-review-merge").contains("held (alive)")
+    });
+
+    let mut commit = ops(&wt)
+        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn commit");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(commit.try_wait().expect("poll").is_none(), "commit must wait for the merge lock");
+
+    signal(&holder, libc::SIGTERM);
+    holder.wait().expect("holder exit");
+    let out = commit.wait_with_output().expect("commit exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
+}
+
+/// Under an enclosing `ops lock code-review-merge`, `ops backlog commit`
+/// does not wait on its own parent.
+#[test]
+fn backlog_commit_inside_the_merge_lock_does_not_deadlock() {
+    let (_dir, repo, _wt) = repo_with_worktree();
+    let mut nested = ops(&repo)
+        .args(["lock", "code-review-merge", "--", ops_bin().to_str().expect("utf8")])
+        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nested");
+    wait_until("the nested commit to finish", || nested.try_wait().expect("poll").is_some());
+    let out = nested.wait_with_output().expect("nested exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("waiting for"), "got: {stderr}");
 }

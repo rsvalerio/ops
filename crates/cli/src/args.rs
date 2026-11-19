@@ -554,7 +554,9 @@ pub enum BacklogAction {
         action: BacklogWaveAction,
     },
     /// Commit exactly the given tasks' changed files, refusing when
-    /// anything else is staged and when none of them changed.
+    /// anything else is staged and when none of them changed. Waits for
+    /// the `code-review-merge` lock (unless an enclosing `ops lock` holds
+    /// it), so the commit never lands mid-merge.
     Commit {
         /// Task ids whose files to commit.
         #[arg(required = true, value_name = "TASK_ID")]
