@@ -27,8 +27,9 @@ pub struct CheckerReport {
     /// all means the run failed — see [`CheckerReport::failed`].
     pub files_failed: Vec<FailedFile>,
     /// Files that were not validated: over [`crate::CheckerOptions::max_bytes`],
-    /// not a regular file, or gone from the worktree by the time the checker
-    /// reached them. Counted separately from `files_scanned` so callers can
+    /// not a regular file, gone from the worktree by the time the checker
+    /// reached them, or a tracked path discovery could not decode on this
+    /// platform. Counted separately from `files_scanned` so callers can
     /// distinguish "validated and OK" from "not validated at all".
     pub files_skipped: usize,
     /// Directories the discovery walk could not traverse. Each one hides an
@@ -45,6 +46,10 @@ impl ops_core::bounded_read::FileRunReport for CheckerReport {
 
     fn adopt_walk_errors(&mut self, errors: Vec<String>) {
         self.walk_errors = errors;
+    }
+
+    fn add_skipped(&mut self, count: usize) {
+        self.files_skipped = self.files_skipped.saturating_add(count);
     }
 }
 

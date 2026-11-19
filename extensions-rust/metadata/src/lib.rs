@@ -105,12 +105,6 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
     let cap = metadata_output_cap();
     let kept = u64::try_from(output.stdout.len()).unwrap_or(u64::MAX);
     if kept >= cap {
-        tracing::warn!(
-            kept_bytes = kept,
-            cap,
-            env = ops_core::subprocess::OUTPUT_CAP_ENV,
-            "cargo metadata stdout hit the subprocess capture cap; refusing to parse it"
-        );
         anyhow::bail!(
             "cargo metadata stdout reached the {cap}-byte subprocess capture cap \
              ({kept} bytes kept, anything beyond was discarded); refusing to parse a \
@@ -134,7 +128,11 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// 4 GiB (`u32::MAX` bytes) is almost certainly a typo or an attempt to
 /// disable the payload guard rather than a real metadata document size, and
 /// an unbounded knob would silently disable the cap.
-pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
+#[expect(
+    clippy::as_conversions,
+    reason = "u32 -> u64 widening is lossless, and `u64::from` is not callable in a const"
+)]
+pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = u32::MAX as u64;
 
 /// Validates and bounds the raw `OPS_METADATA_MAX_BYTES` value at the
 /// boundary, warning on every value that is not honoured verbatim.
@@ -386,12 +384,6 @@ fn query_metadata_raw_with_cap(db: &Sqlite, cap: u64) -> Result<serde_json::Valu
     // the over-cap branch cannot fire on a sentinel.
     let len = u64::try_from(len).unwrap_or(0);
     if len > cap {
-        tracing::warn!(
-            bytes = len,
-            cap,
-            env = METADATA_MAX_BYTES_ENV,
-            "metadata_raw payload exceeds byte cap; aborting parse"
-        );
         anyhow::bail!(
             "metadata_raw payload is {len} bytes, exceeds {cap}-byte cap \
              (override via {METADATA_MAX_BYTES_ENV})"

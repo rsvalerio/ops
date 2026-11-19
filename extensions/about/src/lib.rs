@@ -109,10 +109,27 @@ pub struct AboutOptions {
 }
 
 impl AboutOptions {
-    /// Build the options from `refresh`, `visible_fields` and `is_tty`.
+    /// Build options that render `visible_fields` from cached data to a non-terminal writer.
+    ///
+    /// Set the remaining flags by name with [`Self::with_refresh`] and
+    /// [`Self::with_tty`].
     #[must_use = "pass the options to `run_about`; a discarded one renders nothing"]
-    pub const fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
-        Self { refresh, visible_fields, is_tty }
+    pub const fn new(visible_fields: Option<Vec<String>>) -> Self {
+        Self { refresh: false, visible_fields, is_tty: false }
+    }
+
+    /// Set whether providers re-collect their data instead of serving cached results.
+    #[must_use = "the updated options are returned, not applied in place"]
+    pub const fn with_refresh(mut self, refresh: bool) -> Self {
+        self.refresh = refresh;
+        self
+    }
+
+    /// Set whether the writer handed to [`run_about`] is a real terminal.
+    #[must_use = "the updated options are returned, not applied in place"]
+    pub const fn with_tty(mut self, is_tty: bool) -> Self {
+        self.is_tty = is_tty;
+        self
     }
 }
 
@@ -188,7 +205,7 @@ fn resolve_identity(
         // ProjectIdentity's fields or its nested `languages`. The helper
         // borrows the Arc payload rather than deep-cloning the JSON tree.
         Ok(value) => crate::providers::deserialize_payload("project_identity", value.as_ref()),
-        Err(DataProviderError::NotFound(_)) => Ok(build_fallback_identity(cwd)),
+        Err(DataProviderError::NotFound(_)) => Ok(build_fallback_identity(cwd)?),
         Err(e) => Err(e.into()),
     }
 }
@@ -210,69 +227,88 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
         return;
     };
 
-    // The Rust region split is the card's codebase breakdown, and when it
-    // exists it also supplies the totals: tokei counts every language while
-    // the split counts only `.rs` code, so an all-language total must not
-    // sit above a `.rs`-only split. Region-derived `loc`/`file_count`
-    // therefore override whatever the provider or the tokei queries below
-    // would set (the `is_none()` guards below are what keep the tokei
-    // fills skipped). The file count is the distinct-file figure —
-    // per-region `files` overlap, so summing them would double-count a file
-    // holding both production code and a `#[cfg(test)]` block.
+    use ops_sqlite::sql;
     if identity.regions.is_empty() {
-        match ops_sqlite::sql::query_rust_loc_summary(db) {
-            Ok(regions) if !regions.is_empty() => {
-                identity.loc = Some(regions.iter().map(|r| r.code).sum());
-                identity.regions = regions
-                    .iter()
-                    .map(|r| {
-                        ops_core::project_identity::RegionStat::new(&r.region, r.files, r.code)
-                    })
-                    .collect();
-                match ops_sqlite::sql::query_rust_loc_file_count(db) {
-                    Ok(files) if files > 0 => identity.file_count = Some(files),
-                    Ok(_) => {}
-                    Err(e) => tracing::warn!(error = ?e, "about: query_rust_loc_file_count failed"),
-                }
-            }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = ?e, "about: query_rust_loc_summary failed"),
-        }
+        fill_rust_regions(db, identity);
     }
-
     if identity.loc.is_none() {
-        match ops_sqlite::sql::query_project_loc(db) {
-            Ok(loc) if loc > 0 => identity.loc = Some(loc),
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = ?e, "about: query_project_loc failed"),
-        }
+        identity.loc = query_kept("query_project_loc", || sql::query_project_loc(db), |&n| n > 0);
     }
     if identity.file_count.is_none() {
-        match ops_sqlite::sql::query_project_file_count(db) {
-            Ok(files) if files > 0 => identity.file_count = Some(files),
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = ?e, "about: query_project_file_count failed"),
-        }
+        identity.file_count = query_kept(
+            "query_project_file_count",
+            || sql::query_project_file_count(db),
+            |&n| n > 0,
+        );
     }
     if identity.dependency_count.is_none() {
-        match ops_sqlite::sql::query_dependency_count(db) {
-            Ok(count) if count > 0 => identity.dependency_count = Some(count),
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = ?e, "about: query_dependency_count failed"),
-        }
+        identity.dependency_count =
+            query_kept("query_dependency_count", || sql::query_dependency_count(db), |&n| n > 0);
     }
     if identity.coverage_percent.is_none() {
-        match ops_sqlite::sql::query_project_coverage(db) {
-            Ok(cov) if cov.lines_count > 0 => {
-                identity.coverage_percent = Some(cov.lines_percent);
-            }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = ?e, "about: query_project_coverage failed"),
-        }
+        identity.coverage_percent = query_kept(
+            "query_project_coverage",
+            || sql::query_project_coverage(db),
+            |c| c.lines_count > 0,
+        )
+        .map(|c| c.lines_percent);
     }
     // `languages` is deliberately not enriched: the card no longer renders
     // a language mix, and the `about code` page reads
     // `query_project_languages` itself.
+}
+
+/// Fill `regions`, and the `loc`/`file_count` totals, from the Rust region split.
+///
+/// The Rust region split is the card's codebase breakdown, and when it
+/// exists it also supplies the totals: tokei counts every language while
+/// the split counts only `.rs` code, so an all-language total must not
+/// sit above a `.rs`-only split. Region-derived `loc`/`file_count`
+/// therefore override whatever the provider set, and [`enrich_from_db`]
+/// runs this first so its `is_none()` guards skip the tokei fills. The file count is the distinct-file figure —
+/// per-region `files` overlap, so summing them would double-count a file
+/// holding both production code and a `#[cfg(test)]` block.
+#[cfg(feature = "sqlite")]
+fn fill_rust_regions(db: &ops_sqlite::Sqlite, identity: &mut ProjectIdentity) {
+    use ops_sqlite::sql;
+    let summary =
+        query_kept("query_rust_loc_summary", || sql::query_rust_loc_summary(db), |r| !r.is_empty());
+    if let Some(regions) = summary {
+        identity.loc = Some(regions.iter().map(|r| r.code).sum());
+        identity.regions = regions
+            .iter()
+            .map(|r| ops_core::project_identity::RegionStat::new(&r.region, r.files, r.code))
+            .collect();
+        let files = query_kept(
+            "query_rust_loc_file_count",
+            || sql::query_rust_loc_file_count(db),
+            |&n| n > 0,
+        );
+        if files.is_some() {
+            identity.file_count = files;
+        }
+    }
+}
+
+/// Run one enrichment `query`, keeping its value only when `keep` accepts it.
+///
+/// A failed query logs at `tracing::warn!` with the query name and error
+/// and yields `None`, so the identity field it would have filled stays as
+/// the provider left it.
+#[cfg(feature = "sqlite")]
+fn query_kept<T>(
+    query_name: &'static str,
+    query: impl FnOnce() -> anyhow::Result<T>,
+    keep: impl FnOnce(&T) -> bool,
+) -> Option<T> {
+    match query() {
+        Ok(value) if keep(&value) => Some(value),
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(query = query_name, error = ?e, "about: enrichment query failed");
+            None
+        }
+    }
 }
 
 #[cfg(not(feature = "sqlite"))]
@@ -281,7 +317,14 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
 const fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
 
 /// Build a minimal identity from the filesystem when no stack provider exists.
-fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
+///
+/// `project_root` follows the same non-UTF-8 policy as the provider path
+/// ([`identity::build_identity_value`]): a non-UTF-8 `cwd` is rejected.
+///
+/// # Errors
+///
+/// [`DataProviderError`] when `cwd` is not valid UTF-8.
+fn build_fallback_identity(cwd: &std::path::Path) -> Result<ProjectIdentity, DataProviderError> {
     use ops_core::stack::Stack;
 
     let name = dir_name(cwd).to_string();
@@ -289,7 +332,8 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
     let stack = Stack::detect(cwd);
     let stack_label = stack.map_or_else(|| "Generic".to_string(), |s| capitalize(s.as_str()));
 
-    ProjectIdentity::new(name, stack_label, cwd.display().to_string(), "modules")
+    let project_root = identity::project_root_str(cwd)?;
+    Ok(ProjectIdentity::new(name, stack_label, project_root, "modules"))
 }
 
 #[cfg(test)]
@@ -337,12 +381,12 @@ mod tests {
         std::fs::create_dir(&cwd).unwrap();
 
         let registry = ops_extension::DataRegistry::new();
-        let opts = AboutOptions::new(false, None, false);
+        let opts = AboutOptions::new(None);
         let mut out: Vec<u8> = Vec::new();
         run_about(&registry, &opts, &cwd, &mut out).expect("the fallback path must succeed");
 
         let rendered = String::from_utf8(out).unwrap();
-        let expected = build_fallback_identity(&cwd);
+        let expected = build_fallback_identity(&cwd).unwrap();
         assert!(
             rendered.contains(&expected.name),
             "card must show the fallback name {:?}; got {rendered}",
@@ -360,24 +404,39 @@ mod tests {
     #[test]
     fn fallback_identity_uses_dir_name() {
         let cwd = std::path::Path::new("/tmp/my-project");
-        let id = build_fallback_identity(cwd);
+        let id = build_fallback_identity(cwd).unwrap();
         assert_eq!(id.name, "my-project");
         assert_eq!(id.project_path, "/tmp/my-project");
         assert!(id.version.is_none());
         assert!(id.module_count.is_none());
     }
 
+    /// The fallback path applies the provider path's non-UTF-8 policy: a
+    /// non-UTF-8 `cwd` is rejected rather than rendered with `U+FFFD`.
+    #[test]
+    #[cfg(unix)]
+    fn fallback_identity_rejects_non_utf8_cwd() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let bad_cwd = std::path::Path::new(OsStr::from_bytes(b"/ws/\xff/proj"));
+        let err = build_fallback_identity(bad_cwd)
+            .expect_err("non-UTF-8 cwd must be rejected on the fallback path");
+        assert!(matches!(err, DataProviderError::ComputationMessage(_)));
+        assert!(!err.to_string().contains('\u{FFFD}'));
+    }
+
     #[test]
     fn fallback_identity_module_label_is_modules() {
         let cwd = std::path::Path::new("/tmp/test");
-        let id = build_fallback_identity(cwd);
+        let id = build_fallback_identity(cwd).unwrap();
         assert_eq!(id.module_label, "modules");
     }
 
     #[test]
     fn fallback_identity_defaults_are_empty() {
         let cwd = std::path::Path::new("/tmp/test");
-        let id = build_fallback_identity(cwd);
+        let id = build_fallback_identity(cwd).unwrap();
         assert!(id.description.is_none());
         assert!(id.license.is_none());
         assert!(id.repository.is_none());
@@ -396,7 +455,7 @@ mod tests {
     fn fallback_identity_detects_rust_stack() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-        let id = build_fallback_identity(dir.path());
+        let id = build_fallback_identity(dir.path()).unwrap();
         assert_eq!(id.stack_label, "Rust");
     }
 
@@ -404,7 +463,7 @@ mod tests {
     fn fallback_identity_detects_go_stack() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("go.mod"), "module test").unwrap();
-        let id = build_fallback_identity(dir.path());
+        let id = build_fallback_identity(dir.path()).unwrap();
         assert_eq!(id.stack_label, "Go");
     }
 
@@ -412,7 +471,7 @@ mod tests {
     fn fallback_identity_detects_node_stack() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
-        let id = build_fallback_identity(dir.path());
+        let id = build_fallback_identity(dir.path()).unwrap();
         assert_eq!(id.stack_label, "Node");
     }
 
@@ -420,14 +479,14 @@ mod tests {
     fn fallback_identity_detects_python_stack() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("pyproject.toml"), "").unwrap();
-        let id = build_fallback_identity(dir.path());
+        let id = build_fallback_identity(dir.path()).unwrap();
         assert_eq!(id.stack_label, "Python");
     }
 
     #[test]
     fn fallback_identity_generic_when_no_manifest() {
         let dir = tempfile::tempdir().unwrap();
-        let id = build_fallback_identity(dir.path());
+        let id = build_fallback_identity(dir.path()).unwrap();
         assert_eq!(id.stack_label, "Generic");
     }
 
@@ -435,8 +494,18 @@ mod tests {
     fn fallback_identity_name_from_dir() {
         let dir = tempfile::tempdir().unwrap();
         let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
-        let id = build_fallback_identity(dir.path());
+        let id = build_fallback_identity(dir.path()).unwrap();
         assert_eq!(id.name, expected);
+    }
+
+    #[test]
+    fn about_options_builder_names_each_flag() {
+        let opts = AboutOptions::new(None);
+        assert!(!opts.refresh && !opts.is_tty);
+        let opts = AboutOptions::new(None).with_refresh(true);
+        assert!(opts.refresh && !opts.is_tty);
+        let opts = AboutOptions::new(None).with_tty(true);
+        assert!(!opts.refresh && opts.is_tty);
     }
 
     #[test]

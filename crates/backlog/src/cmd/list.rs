@@ -83,13 +83,13 @@ fn parent_matches(opts: &ListOptions, entry: &crate::store::TaskEntry) -> bool {
             .doc
             .frontmatter
             .extra_scalar("parent_task_id")
-            .is_some_and(|parent| parent.eq_ignore_ascii_case(wanted))
+            .is_some_and(|parent| crate::store::same_task_id(parent, wanted))
     })
 }
 
 fn dependents_match(opts: &ListOptions, entry: &crate::store::TaskEntry) -> bool {
     opts.dependents.as_ref().is_none_or(|wanted| {
-        entry.doc.frontmatter.dependencies.iter().any(|dep| dep.eq_ignore_ascii_case(wanted))
+        entry.doc.frontmatter.dependencies.iter().any(|dep| crate::store::same_task_id(dep, wanted))
     })
 }
 
@@ -287,5 +287,31 @@ mod tests {
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["kind"], "task-list");
         assert_eq!(value["tasks"].as_array().map(Vec::len), Some(4));
+    }
+
+    /// `--parent` and `--dependents` match ids by `same_task_id`, so the
+    /// bare and differently padded forms `task view` accepts work here too.
+    #[test]
+    fn parent_and_dependents_filters_accept_bare_and_padded_ids() {
+        let (_dir, store, cfg) = scratch_with_tasks();
+        for (parent, dependents) in [(Some("2"), None), (None, Some("task-2"))] {
+            let mut out = Vec::new();
+            run_list(
+                &store,
+                &cfg,
+                &ListOptions {
+                    parent: parent.map(str::to_string),
+                    dependents: dependents.map(str::to_string),
+                    format: OutputFormat::Plain,
+                    ..ListOptions::default()
+                },
+                &mut out,
+            )
+            .expect("list");
+            let text = String::from_utf8_lossy(&out);
+            let expected = if parent.is_some() { "TASK-0004" } else { "TASK-0001" };
+            assert!(text.contains(expected), "{parent:?}/{dependents:?}: {text}");
+            assert!(!text.contains("TASK-0003"), "{text}");
+        }
     }
 }

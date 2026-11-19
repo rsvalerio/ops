@@ -23,13 +23,8 @@
 
 use serde::de::IgnoredAny;
 
+use crate::MAX_NESTING_DEPTH;
 use crate::error::{CheckError, LimitExceeded};
-
-/// Maximum bracket/brace nesting accepted by either JSON mode.
-///
-/// Matches `serde_json`'s own `RECURSION_LIMIT` so the strict and lenient
-/// branches agree on the same input.
-pub const MAX_NESTING_DEPTH: u64 = 128;
 
 /// Validate that `bytes` parses as JSON (or JSON5 when `allow_json5`).
 ///

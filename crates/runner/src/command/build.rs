@@ -59,9 +59,11 @@ pub struct WorkspaceCanonicalCache {
     /// A `Mutex` (rather than an `RwLock`) is sufficient: the hot path is
     /// dominated by lock-free reads downstream of the canonicalize syscall,
     /// and the per-spawn cost of the mutex acquisition is negligible against
-    /// the work it guards. `Mutex` also matches `ArcTextCache`'s pattern,
-    /// keeping the poison-recovery shape consistent across caches in this
-    /// codebase.
+    /// the work it guards. Poison propagates through `ops_core::sync::lock`:
+    /// `get_or_compute` evicts, computes and inserts under one guard, so a
+    /// panic mid-section can leave the map torn. The panic
+    /// surfaces through `build_command_async`'s `JoinError` path as a step
+    /// failure.
     inner: Mutex<HashMap<PathBuf, WorkspaceCacheEntry>>,
     cap: usize,
 }
@@ -87,16 +89,15 @@ impl WorkspaceCanonicalCache {
     /// entry but every joined-path entry underneath it, so both shapes are
     /// dropped in one pass and callers retain a single invalidate API.
     pub(crate) fn invalidate(&self, workspace: &Path) {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = ops_core::sync::lock(&self.inner, "workspace canonicalize cache");
         guard.remove(workspace);
         guard.retain(|k, _| !k.starts_with(workspace));
     }
 
     /// Drop every cached entry. Useful for tests and for embedders that
     /// know the workspace layout has changed wholesale.
-    #[allow(dead_code)]
     pub(crate) fn clear(&self) {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = ops_core::sync::lock(&self.inner, "workspace canonicalize cache");
         guard.clear();
     }
 
@@ -135,7 +136,7 @@ impl WorkspaceCanonicalCache {
     where
         F: FnOnce(&Path) -> std::io::Result<PathBuf>,
     {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| recover_workspace_cache(e));
+        let mut guard = ops_core::sync::lock(&self.inner, "workspace canonicalize cache");
         if let Some(entry) = guard.get_mut(workspace) {
             // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
             // accessed workspaces survive eviction.
@@ -182,19 +183,6 @@ impl Default for WorkspaceCanonicalCache {
     }
 }
 
-/// Recover a poisoned cache guard instead of propagating the panic.
-///
-/// The cached value is the pure result of `canonicalize`, not authoritative
-/// state, so a panic in a lock holder cannot leave a torn invariant; treating
-/// poison as fatal would brick the cache for every other caller in the
-/// process.
-fn recover_workspace_cache<T>(
-    err: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>,
-) -> std::sync::MutexGuard<'_, T> {
-    tracing::warn!("workspace canonicalize cache mutex was poisoned by a prior panic; recovered");
-    err.into_inner()
-}
-
 /// Return the canonical form of `workspace`, cached by raw path.
 ///
 /// The cache instance is a parameter rather than a process-global static so
@@ -236,6 +224,54 @@ pub fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
     CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
 }
 
+/// Why a step's command could not be built — nothing was spawned.
+///
+/// Carried as the inner error of the `io::Error` the build
+/// functions return, so the exec layer can tell a build failure from a real
+/// spawn failure ([`build_failure`]) and report the cause instead of
+/// "failed to spawn `<program>`: <ErrorKind>". Every message is fixed and
+/// path-free; the offending path or variable name is logged at
+/// `tracing::debug!` where the failure is detected, so it never reaches
+/// `StepFailed` text or uploaded CI logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BuildFailure {
+    /// The spec's `cwd` escapes the workspace under [`CwdEscapePolicy::Deny`].
+    CwdEscapesWorkspace,
+    /// A `${VAR}` reference in program, args, cwd or env failed to expand.
+    VariableExpansion,
+    /// The spec's `cwd` is not valid UTF-8.
+    NonUtf8Cwd,
+    /// The blocking-pool task building the command panicked or was cancelled.
+    BuildTaskFailed,
+}
+
+impl BuildFailure {
+    /// Wrap `self` in an `io::Error` of `kind`, keeping the `ErrorKind`
+    /// existing callers match on.
+    fn into_io(self, kind: std::io::ErrorKind) -> std::io::Error {
+        std::io::Error::new(kind, self)
+    }
+}
+
+impl std::fmt::Display for BuildFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::CwdEscapesWorkspace => "cwd escapes the workspace (policy: deny)",
+            Self::VariableExpansion => "variable expansion failed",
+            Self::NonUtf8Cwd => "cwd is not valid UTF-8",
+            Self::BuildTaskFailed => "building the command failed unexpectedly",
+        })
+    }
+}
+
+impl std::error::Error for BuildFailure {}
+
+/// The [`BuildFailure`] behind `err`, if it is a build failure rather than an
+/// OS spawn / wait error.
+pub(super) fn build_failure(err: &std::io::Error) -> Option<BuildFailure> {
+    err.get_ref()?.downcast_ref::<BuildFailure>().copied()
+}
+
 /// Convert a strict-expansion error into an `io::Error` so build failures
 /// share the spawn-error pipeline and surface as a `StepFailed` event.
 ///
@@ -257,7 +293,7 @@ fn expand_err_to_io(err: ExpandError) -> std::io::Error {
         var_name = ?err.var_name,
         "expand: variable expansion failed (full error)"
     );
-    std::io::Error::new(std::io::ErrorKind::InvalidInput, "variable expansion failed")
+    BuildFailure::VariableExpansion.into_io(std::io::ErrorKind::InvalidInput)
 }
 
 /// Lexically normalize a path by resolving `.` and `..` components without I/O.
@@ -449,8 +485,11 @@ pub fn detect_workspace_escape(
 
 /// Apply an escape policy to a detected escape.
 ///
-/// `Deny` converts it to an `io::Error`; `WarnAndAllow` emits a tracing
-/// warning and lets the caller continue.
+/// `Deny` converts it to a `PermissionDenied` `io::Error` carrying
+/// [`BuildFailure::CwdEscapesWorkspace`]; the paths are logged at
+/// `tracing::debug!`, never put in the error, so they cannot reach
+/// `StepFailed` text. `WarnAndAllow` emits a tracing warning and lets the
+/// caller continue.
 pub fn apply_escape_policy(
     policy: CwdEscapePolicy,
     spec_cwd: &std::path::Path,
@@ -458,14 +497,16 @@ pub fn apply_escape_policy(
     joined: &std::path::Path,
 ) -> Result<(), std::io::Error> {
     match policy {
-        CwdEscapePolicy::Deny => Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            format!(
-                "SEC-14: refusing to spawn: spec cwd {} escapes workspace root {}",
-                spec_cwd.display(),
-                workspace_cwd.display()
-            ),
-        )),
+        CwdEscapePolicy::Deny => {
+            // SEC-21: Debug-formatted for the same reason as the warning below.
+            tracing::debug!(
+                cwd = ?workspace_cwd.display(),
+                spec_cwd = ?spec_cwd.display(),
+                resolved = ?joined.display(),
+                "SEC-14: refusing to spawn: spec cwd escapes workspace root"
+            );
+            Err(BuildFailure::CwdEscapesWorkspace.into_io(std::io::ErrorKind::PermissionDenied))
+        }
         CwdEscapePolicy::WarnAndAllow => {
             // SEC-21 / TASK-1937: `spec_cwd` is `.ops.toml`-supplied and
             // `joined` is derived from it, so both are Debug-formatted —
@@ -507,16 +548,14 @@ pub fn resolve_spec_cwd(
     // U+FFFD and then spawning the child in the wrong-but-similar
     // directory. Reject non-UTF-8 cwd values loudly so the operator
     // sees a real error instead of a quiet redirect.
-    // `{p:?}` is deliberate: the path is not valid UTF-8, which is exactly
-    // what this error reports, so `Display` is not available losslessly.
-    #[allow(clippy::unnecessary_debug_formatting)]
+    // The path goes to debug only (Debug-formatted: it is not valid UTF-8,
+    // so `Display` is not lossless); the error carries a path-free cause.
     let s = p.to_str().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!(
-                "spec cwd contains non-UTF-8 bytes; refusing to lossy-expand and chdir into a wrong-but-similar path: {p:?}"
-            ),
-        )
+        tracing::debug!(
+            spec_cwd = ?p,
+            "spec cwd contains non-UTF-8 bytes; refusing to lossy-expand and chdir into a wrong-but-similar path"
+        );
+        BuildFailure::NonUtf8Cwd.into_io(std::io::ErrorKind::InvalidInput)
     })?;
     let expanded = vars.try_expand(s).map_err(expand_err_to_io)?;
     let ep = std::path::PathBuf::from(expanded.as_ref());
@@ -646,9 +685,7 @@ pub async fn build_command_async(
                 error = %join_err,
                 "ERR-5: build_command panicked on blocking pool; converting to step failure"
             );
-            Err(std::io::Error::other(format!(
-                "build_command panicked on blocking pool: {join_err}"
-            )))
+            Err(BuildFailure::BuildTaskFailed.into_io(std::io::ErrorKind::Other))
         }
     }
 }
@@ -699,6 +736,45 @@ mod tests {
     use ops_core::test_utils::{exec_spec, exec_spec_with_cwd};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    /// A poisoned workspace cache is propagated, not recovered. The
+    /// next spawn that consults the cache panics on the blocking pool, and
+    /// `build_command_async` turns that `JoinError` into a failed step
+    /// instead of continuing with possibly torn cache state.
+    #[tokio::test]
+    async fn poisoned_workspace_cache_surfaces_as_a_step_failure() {
+        let cache = Arc::new(WorkspaceCanonicalCache::new());
+        let joined = std::thread::scope(|s| {
+            s.spawn(|| {
+                let _guard = cache.inner.lock().expect("uncontended lock");
+                panic!("poison the workspace cache");
+            })
+            .join()
+        });
+        assert!(joined.is_err(), "the poisoning thread must have panicked");
+        assert!(cache.inner.is_poisoned());
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(tmp.path().join("sub")).expect("mkdir sub");
+        let env = crate::command::exec::ExecEnv {
+            cwd: Arc::new(tmp.path().to_path_buf()),
+            vars: Arc::new(Variables::from_env(tmp.path()).expect("UTF-8 path")),
+            policy: CwdEscapePolicy::WarnAndAllow,
+            workspace_cache: Arc::clone(&cache),
+        };
+        // A spec cwd routes the spawn through `detect_workspace_escape`,
+        // which reads the cache under `WarnAndAllow`.
+        let spec = Arc::new(exec_spec_with_cwd("true", &[], Some(PathBuf::from("sub"))));
+        let result = crate::command::exec::exec_command("poisoned", &spec, &env, &mut |_| {}).await;
+
+        assert!(!result.success, "a poisoned cache must fail the step, not continue");
+        let message = result.message.unwrap_or_default();
+        assert!(
+            message.contains("building the command failed unexpectedly"),
+            "the failure must come from the build-task path, got: {message}"
+        );
+        assert!(cache.inner.is_poisoned(), "poison must not be cleared");
+    }
 
     /// `wrap` spawns first, with the wrapped command after it as plain argv.
     #[test]
@@ -884,7 +960,8 @@ mod tests {
         )
         .expect_err("absolute path outside workspace must be denied under Deny");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err.to_string().contains("SEC-14"));
+        assert_eq!(build_failure(&err), Some(BuildFailure::CwdEscapesWorkspace));
+        assert!(!err.to_string().contains("/etc"), "no path in the error: {err}");
     }
 
     /// Under `WarnAndAllow` the absolute path is still returned (the
@@ -920,7 +997,8 @@ mod tests {
         )
         .expect_err("escape should fail under Deny");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err.to_string().contains("SEC-14"));
+        assert_eq!(build_failure(&err), Some(BuildFailure::CwdEscapesWorkspace));
+        assert!(!err.to_string().contains("/etc"), "no path in the error: {err}");
     }
 
     #[test]
@@ -977,8 +1055,9 @@ mod tests {
         )
         .expect_err("non-UTF-8 cwd must surface as an error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(build_failure(&err), Some(BuildFailure::NonUtf8Cwd));
         assert!(
-            err.to_string().contains("non-UTF-8"),
+            err.to_string().contains("not valid UTF-8"),
             "error message must mention the cause, got: {err}"
         );
     }
@@ -1021,6 +1100,7 @@ mod tests {
         let err = apply_escape_policy(CwdEscapePolicy::Deny, spec, &ws, &joined)
             .expect_err("Deny should produce an error");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(build_failure(&err), Some(BuildFailure::CwdEscapesWorkspace));
     }
 
     #[test]
@@ -1510,5 +1590,6 @@ mod tests {
         );
         assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
         assert!(msg.contains("variable expansion failed"));
+        assert_eq!(build_failure(&io_err), Some(BuildFailure::VariableExpansion));
     }
 }

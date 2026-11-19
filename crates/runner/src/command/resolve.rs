@@ -230,28 +230,54 @@ impl CommandRunner {
             .chain(self.builtin_commands.keys().map(ops_core::config::CommandId::as_str))
     }
 
-    /// Look up a command by ID across all stores (config → stack → extension → builtin).
-    /// Builtins land last so user config / stack defaults / extensions can shadow them.
-    fn find_in_stores(&self, id: &str) -> Option<&CommandSpec> {
-        #[cfg(test)]
-        record_store_walk();
-        self.config
-            .commands
-            .get(id)
-            .or_else(|| self.stack_commands.get(id))
-            .or_else(|| self.extension_commands.get(id))
-            .or_else(|| self.builtin_commands.get(id))
+    /// The command stores in resolution priority order. This array is the one definition of store precedence — builtins land
+    /// last so user config, stack defaults and extensions can shadow them —
+    /// and every lookup ([`Self::resolve`], [`Self::locate`], composite
+    /// expansion) walks it through [`Self::lookup_in`].
+    const STORE_ORDER: [CommandSource; 4] = [
+        CommandSource::Config,
+        CommandSource::Stack,
+        CommandSource::Extension,
+        CommandSource::Builtin,
+    ];
+
+    /// The `id` entry of one store, as `(canonical_key, spec)`.
+    fn store_entry(&self, source: CommandSource, id: &str) -> Option<(&str, &CommandSpec)> {
+        match source {
+            CommandSource::Config => {
+                self.config.commands.get_key_value(id).map(|(k, v)| (k.as_str(), v))
+            }
+            CommandSource::Stack => {
+                self.stack_commands.get_key_value(id).map(|(k, v)| (k.as_str(), v))
+            }
+            CommandSource::Extension => {
+                self.extension_commands.get_key_value(id).map(|(k, v)| (k.as_str(), v))
+            }
+            CommandSource::Builtin => {
+                self.builtin_commands.get_key_value(id).map(|(k, v)| (k.as_str(), v))
+            }
+        }
+    }
+
+    /// First entry for `id` across `stores`, taken in order.
+    fn lookup_in(
+        &self,
+        stores: &[CommandSource],
+        id: &str,
+    ) -> Option<(&str, &CommandSpec, CommandSource)> {
+        stores.iter().find_map(|&source| {
+            self.store_entry(source, id).map(|(name, spec)| (name, spec, source))
+        })
     }
 
     /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
     #[must_use]
     pub fn resolve(&self, id: &str) -> Option<&CommandSpec> {
-        self.find_in_stores(id).or_else(|| self.resolve_alias(id))
+        self.canonical_with_spec(id).map(|(_, spec)| spec)
     }
 
     /// Resolve a command id (or alias) to its `(canonical_name, spec)` pair
-    /// in a single pass over the command stores and alias maps, where
-    /// [`Self::resolve`] and [`Self::resolve_alias`] each walk independently.
+    /// in a single pass over the command stores and alias maps.
     ///
     /// Composite expansion calls this once per node rather than doing a
     /// canonical-name-only lookup followed by `resolve(canonical)`, which
@@ -263,52 +289,30 @@ impl CommandRunner {
         &'a self,
         id: &str,
     ) -> Option<(&'a str, &'a CommandSpec)> {
+        self.canonical_entry(id).map(|(name, spec, _)| (name, spec))
+    }
+
+    /// The single resolution walk behind [`Self::resolve`],
+    /// [`Self::canonical_with_spec`] and [`Self::locate`]: the id itself
+    /// across every store, then a config alias, then a non-config alias.
+    fn canonical_entry(&self, id: &str) -> Option<(&str, &CommandSpec, CommandSource)> {
         #[cfg(test)]
         record_store_walk();
-        if let Some((k, v)) = self.config.commands.get_key_value(id) {
-            return Some((k.as_str(), v));
+        if let Some(entry) = self.lookup_in(&Self::STORE_ORDER, id) {
+            return Some(entry);
         }
-        if let Some((k, v)) = self.stack_commands.get_key_value(id) {
-            return Some((k.as_str(), v));
+        // A config alias is looked up in every store, not just config: an
+        // orphan config alias (the alias map survived a config edit that
+        // removed the underlying entry) still resolves to a stack /
+        // extension / builtin command of the canonical name it points to.
+        if let Some(entry) =
+            self.config.resolve_alias(id).and_then(|name| self.lookup_in(&Self::STORE_ORDER, name))
+        {
+            return Some(entry);
         }
-        if let Some((k, v)) = self.extension_commands.get_key_value(id) {
-            return Some((k.as_str(), v));
-        }
-        if let Some((k, v)) = self.builtin_commands.get_key_value(id) {
-            return Some((k.as_str(), v));
-        }
-        if let Some(name) = self.config.resolve_alias(id) {
-            if let Some((k, v)) = self.config.commands.get_key_value(name) {
-                return Some((k.as_str(), v));
-            }
-            // Orphan config alias (alias map survived a
-            // config edit that removed the underlying entry). Fall through
-            // to stack / extension lookups below — both by the canonical
-            // name the orphan alias points to and by the original id, so a
-            // stack default sharing either name still resolves.
-            if let Some((k, v)) = self.stack_commands.get_key_value(name) {
-                return Some((k.as_str(), v));
-            }
-            if let Some((k, v)) = self.extension_commands.get_key_value(name) {
-                return Some((k.as_str(), v));
-            }
-            if let Some((k, v)) = self.builtin_commands.get_key_value(name) {
-                return Some((k.as_str(), v));
-            }
-        }
-        if let Some(name) = self.non_config_alias_map.get(id) {
-            let n = name.as_str();
-            if let Some((k, v)) = self.stack_commands.get_key_value(n) {
-                return Some((k.as_str(), v));
-            }
-            if let Some((k, v)) = self.extension_commands.get_key_value(n) {
-                return Some((k.as_str(), v));
-            }
-            if let Some((k, v)) = self.builtin_commands.get_key_value(n) {
-                return Some((k.as_str(), v));
-            }
-        }
-        None
+        // Non-config aliases name commands of the non-config stores only.
+        let name = self.non_config_alias_map.get(id)?;
+        self.lookup_in(&Self::STORE_ORDER[1..], name)
     }
 
     /// Resolve `id` (or an alias) to its canonical name and the store it
@@ -316,48 +320,7 @@ impl CommandRunner {
     /// always names the spec that would run.
     #[must_use]
     pub fn locate(&self, id: &str) -> Option<(&str, CommandSource)> {
-        let (canonical, _) = self.canonical_with_spec(id)?;
-        let source = if self.config.commands.contains_key(canonical) {
-            CommandSource::Config
-        } else if self.stack_commands.contains_key(canonical) {
-            CommandSource::Stack
-        } else if self.extension_commands.contains_key(canonical) {
-            CommandSource::Extension
-        } else {
-            CommandSource::Builtin
-        };
-        Some((canonical, source))
-    }
-
-    /// Look up a command by alias across all command sources.
-    fn resolve_alias(&self, alias: &str) -> Option<&CommandSpec> {
-        // Config aliases use a dedicated method (separate alias map)
-        if let Some(name) = self.config.resolve_alias(alias) {
-            if let Some(spec) = self.config.commands.get(name) {
-                return Some(spec);
-            }
-            // Orphan config alias — config alias map
-            // points at a name that has no command in `config.commands`
-            // (possible when a config edit removes the canonical entry but
-            // leaves a stale alias entry, or when alias storage drifts from
-            // command storage). Fall through to the stack/extension stores
-            // by the canonical name *and* by the original alias so a stack
-            // default of the same name still resolves instead of
-            // short-circuiting to `None`.
-            if let Some(spec) = self
-                .stack_commands
-                .get(name)
-                .or_else(|| self.extension_commands.get(name))
-                .or_else(|| self.builtin_commands.get(name))
-            {
-                return Some(spec);
-            }
-        }
-        let canonical = self.non_config_alias_map.get(alias)?;
-        self.stack_commands
-            .get(canonical.as_str())
-            .or_else(|| self.extension_commands.get(canonical.as_str()))
-            .or_else(|| self.builtin_commands.get(canonical.as_str()))
+        self.canonical_entry(id).map(|(name, _, source)| (name, source))
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).

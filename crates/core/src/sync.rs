@@ -1,79 +1,43 @@
-//! Shared `Mutex` poison-recover policy.
+//! Shared `Mutex` poison policy: propagate, never recover.
 //!
-//! Every `Mutex` this module serves protects a cache or deduplication set
-//! whose every possible state is a valid map / set — no invariant the
-//! panicking caller could have broken. Calling `.lock().expect(...)` on
-//! those would turn a single panic-inside-lock into a hard panic for the
-//! rest of the process; the project-wide policy is therefore to
-//! `clear_poison()` and continue with the recovered guard. This module
-//! factors that pattern into a single helper so the callsites cannot drift.
+//! A poisoned `Mutex` means a thread panicked while holding the guard, so
+//! the protected value may be mid-update (a cache `map` and its eviction
+//! `order` queue out of step, a dedup set half-inserted). Nothing in the
+//! type tells the next reader which half was applied, so the workspace
+//! never reaches inside a poisoned lock: no `PoisonError::into_inner`, no
+//! `get_ref`/`get_mut`, no `clear_poison()`. The poisoning panic
+//! is re-raised in every later holder instead, and surfaces through the
+//! normal failure path (a `spawn_blocking` `JoinError`, a failed step, or
+//! the process exit).
 //!
-//! This is the workspace's *only* statement of that
-//! policy. It is public so extension crates reach the helpers directly
-//! instead of growing per-crate copies (`ops_about::lru::lock_recovering`
-//! was one such copy, since deleted).
+//! "This lock guards no multi-step invariant" is deliberately *not* an
+//! exemption: it is a claim about today's critical sections that nobody
+//! re-checks when one grows a second statement — several of the caches
+//! this module serves already do evict-then-insert under one guard.
 //!
-//! Three helpers are exposed:
-//!
-//! - [`lock_recover`] — silent recovery, used by production hot paths whose
-//!   protected state is documented as "every state is valid" (the
-//!   workspace-root cache, the warn-seen set, the canonicalize cache).
-//! - [`lock_recover_warn`] — surfaces a `tracing::warn!` breadcrumb with
-//!   the supplied label when the lock was poisoned. Used by test-support
-//!   seams (`ops_root_cache_len`, `expand_warn_seen_count`, …) and by
-//!   callers whose worst outcome deserves a visible breadcrumb.
-//! - [`lock_recover_with`] — the general hook form the other two delegate
-//!   to; the hook runs once per *observed* poisoning.
+//! [`lock`] is the workspace's single statement of that policy. It is
+//! public so extension crates use it instead of growing per-crate copies.
 
 use std::sync::{Mutex, MutexGuard};
 
-/// Acquire `m`, recovering from poisoning; `on_poison` runs once per
-/// *observed* poisoning, before the guard is handed out.
+/// Acquire `m`, propagating poison as a panic naming the lock.
 ///
-/// A poisoned mutex means some thread panicked while holding it. For the
-/// plain-data caches this policy serves, the guarded value cannot be torn
-/// by the panic, so `PoisonError::into_inner` recovery is safe and
-/// propagating the poison would turn one unrelated panic into a crash.
-/// `on_poison` runs before the guard is handed out — pass a warn (with a
-/// monotonic counter, as the typed-manifest cache does) when a poisoned
-/// lock guards correctness-relevant state, or a no-op when the worst
-/// outcome is a recomputation. The sticky poison flag is cleared
-/// afterwards, so later callers see a healthy mutex; a fresh panic
-/// re-poisons and re-runs `on_poison`.
-pub fn lock_recover_with<T: ?Sized>(m: &Mutex<T>, on_poison: impl FnOnce()) -> MutexGuard<'_, T> {
-    match m.lock() {
-        Ok(guard) => guard,
-        Err(poison) => {
-            on_poison();
-            m.clear_poison();
-            poison.into_inner()
-        }
-    }
-}
-
-/// Acquire `m`, recovering silently from poisoning.
+/// `name` identifies the lock in the panic message so a poisoned-lock
+/// failure points at the seam that observed it, not at a later
+/// value-mismatch.
 ///
-/// Use in production hot paths whose protected state is a cache or
-/// dedup set with no broken invariant. Tests and seams that need a
-/// breadcrumb when poison was observed should use `lock_recover_warn`
-/// instead.
-pub fn lock_recover<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    lock_recover_with(m, || {})
-}
-
-/// Acquire `m`, recovering from poisoning and emitting a
-/// `tracing::warn!` tagged with `label` so the recovery event is visible.
+/// # Panics
 ///
-/// Use in test-support seams (or any callsite where a future flake would
-/// otherwise look like a value-mismatch failure rather than the poison
-/// that actually caused it).
-pub fn lock_recover_warn<'a, T: ?Sized>(m: &'a Mutex<T>, label: &'static str) -> MutexGuard<'a, T> {
-    lock_recover_with(m, || {
-        tracing::warn!(
-            site = label,
-            "mutex was poisoned by a previous panicking holder; recovered guard returned"
-        );
-    })
+/// Panics when `m` is poisoned, i.e. when a previous holder panicked while
+/// holding the guard. That panic *is* the handling: the protected
+/// state may be torn, so continuing with it is never correct.
+#[track_caller]
+#[expect(
+    clippy::panic,
+    reason = "CONC-16: a poisoned lock is propagated, never recovered; the panic is the handling"
+)]
+pub fn lock<'a, T: ?Sized>(m: &'a Mutex<T>, name: &'static str) -> MutexGuard<'a, T> {
+    m.lock().unwrap_or_else(|_| panic!("{name} mutex poisoned by a panicking holder"))
 }
 
 #[cfg(test)]
@@ -83,8 +47,8 @@ mod tests {
 
     /// Poison `m` from a scoped thread that panics while holding the guard,
     /// then return so the caller observes a poisoned lock. Scoped rather than
-    /// `thread::spawn` so the mutex can live on the stack — the whole point of
-    /// these tests is that they touch no process-global state.
+    /// `thread::spawn` so the mutex can live on the stack — the tests touch no
+    /// process-global state.
     fn poison(m: &Mutex<u32>) {
         let joined = std::thread::scope(|s| {
             s.spawn(|| {
@@ -97,84 +61,28 @@ mod tests {
         assert!(m.is_poisoned(), "lock must be poisoned for this test to mean anything");
     }
 
-    /// This is the deterministic replacement for
-    /// `expand::tests::ops_root_cache_len_surfaces_poison_breadcrumb`, which
-    /// poisoned the *process-global* `OPS_ROOT` cache and asserted on the
-    /// breadcrumb. `lock_recover_warn` calls `clear_poison`, so a poisoned
-    /// lock yields exactly one breadcrumb and whichever caller recovers first
-    /// consumes it. Fifteen unserialised tests in `expand` reach that cache
-    /// through `test_vars` → `from_env` → `cached_ops_root_arc`, so the old
-    /// test was racing all of them: it passed on an idle workstation and
-    /// failed reliably on a 2-core CI runner. Serialising the cache tests
-    /// against each other did not help, because the fifteen are not
-    /// serialised at all.
-    ///
-    /// Testing the seam against a stack-local mutex removes the coupling
-    /// entirely: nothing else can reach this lock, so the assertion cannot
-    /// race.
     #[test]
-    fn lock_recover_warn_emits_breadcrumb_naming_the_seam() {
+    fn lock_hands_out_the_guard_on_a_healthy_lock() {
+        let m = Mutex::new(7u32);
+        assert_eq!(*lock(&m, "test_seam"), 7);
+    }
+
+    /// A poisoned lock is propagated as a panic naming the seam, and the
+    /// poison flag is left in place so every later holder fails too.
+    #[test]
+    fn lock_propagates_poison_as_a_panic_naming_the_seam() {
         let m = Mutex::new(7u32);
         poison(&m);
 
-        let (logs, value) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
-            *lock_recover_warn(&m, "test_seam")
-        });
-
-        assert_eq!(value, 7, "recovered guard must still expose the value");
-        assert!(logs.contains("test_seam"), "warn breadcrumb must name the seam, got: {logs}");
-        assert!(
-            logs.contains("poisoned"),
-            "warn breadcrumb must mention the poison recovery, got: {logs}"
-        );
-    }
-
-    /// The breadcrumb is for the poison path only — a healthy lock must stay
-    /// silent, or every seam call would spam the warn channel.
-    #[test]
-    fn lock_recover_warn_is_silent_on_a_healthy_lock() {
-        let m = Mutex::new(7u32);
-
-        let (logs, value) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
-            *lock_recover_warn(&m, "test_seam")
-        });
-
-        assert_eq!(value, 7);
-        assert!(logs.is_empty(), "healthy lock must not warn, got: {logs}");
-    }
-
-    /// `lock_recover` is the silent sibling: it must recover the value and
-    /// clear the poison without emitting anything.
-    #[test]
-    fn lock_recover_recovers_silently_and_clears_poison() {
-        let m = Mutex::new(7u32);
-        poison(&m);
-
-        let (logs, value) =
-            crate::test_utils::capture_tracing(tracing::Level::WARN, || *lock_recover(&m));
-
-        assert_eq!(value, 7, "recovered guard must still expose the value");
-        assert!(logs.is_empty(), "lock_recover must stay silent, got: {logs}");
-        assert!(!m.is_poisoned(), "poison must be cleared so later callers take the fast path");
-    }
-
-    /// Ported from the deleted
-    /// `ops_about::lru::lock_recovering` test: the hook runs once per
-    /// *observed* poisoning — `clear_poison` means a later acquisition is a
-    /// plain healthy lock and must not re-run it.
-    #[test]
-    fn lock_recover_with_runs_the_hook_once_per_poisoning() {
-        let m = Mutex::new(0u32);
-        poison(&m);
-
-        let mut hook_ran = false;
-        let guard = lock_recover_with(&m, || hook_ran = true);
-        assert!(hook_ran, "the hook must run on the observed poisoning");
-        assert_eq!(*guard, 0, "recovery hands out the guarded value");
-        drop(guard);
-
-        let mut ran_again = false;
-        let _guard = lock_recover_with(&m, || ran_again = true);
-        assert!(!ran_again, "a healthy lock must not re-run the hook");
+        let err = std::panic::catch_unwind(|| *lock(&m, "test_seam"))
+            .expect_err("a poisoned lock must not hand out its guard");
+        let msg = err
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| err.downcast_ref::<&str>().copied())
+            .unwrap_or_default();
+        assert!(msg.contains("test_seam"), "panic must name the seam, got: {msg}");
+        assert!(msg.contains("poisoned"), "panic must say the lock was poisoned, got: {msg}");
+        assert!(m.is_poisoned(), "poison must not be cleared");
     }
 }

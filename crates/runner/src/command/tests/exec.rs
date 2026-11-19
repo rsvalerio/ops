@@ -197,6 +197,43 @@ mod exec_unit_tests {
         );
     }
 
+    /// A step whose command exited 0 must not fail just because
+    /// a process *outside* its process group kept the capture pipe open.
+    /// That holder survives the group `SIGKILL`, which is how a concurrent
+    /// spawn that inherited the pipe (macOS `pipe()` + `FD_CLOEXEC` window)
+    /// made a passing `ops check-json` report "pipe held open … step
+    /// abandoned". The step reproduces the holder directly: perl moves
+    /// itself into a fresh process group and keeps the inherited stdout.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pipe_held_outside_the_group_keeps_the_exit_status_and_output() {
+        use tokio::time::{timeout, Duration};
+        if std::process::Command::new("perl").arg("-e").arg("1").status().is_err() {
+            eprintln!("perl not available; skipping");
+            return;
+        }
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg("echo before; perl -e 'setpgrp(0, 0); sleep 3' & exit 0");
+        let output = timeout(
+            Duration::from_secs(2),
+            crate::command::exec::spawn_capped_with_graces_for_test(
+                &mut cmd,
+                1024,
+                Duration::from_millis(200),
+                Duration::from_millis(200),
+            ),
+        )
+        .await
+        .expect("the abandoned drain must stay bounded")
+        .expect("a held pipe must not fail a step that exited 0");
+        assert!(output.success, "the step's own exit status is kept");
+        assert!(
+            output.stdout.contains("before"),
+            "output written before the abandon is kept, got {:?}",
+            output.stdout
+        );
+    }
+
     /// a timed-out step must take its whole process
     /// *tree* with it, not just the direct child.
     ///

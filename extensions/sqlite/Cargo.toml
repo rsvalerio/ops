@@ -23,8 +23,8 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 
-# SEC / TASK-2039: `geteuid`, to decide whether a sticky shared-writable ingest
-# staging parent is owned by a principal we trust. std exposes no equivalent.
+# The ingest staging directory's owner check (`geteuid`) and the
+# descriptor-anchored `*at` syscalls `IngestDir` stages through.
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 

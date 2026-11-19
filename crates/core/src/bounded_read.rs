@@ -235,6 +235,10 @@ pub trait FileRunReport {
 
     /// Adopt the discovery walk's traversal errors as the report's own.
     fn adopt_walk_errors(&mut self, errors: Vec<String>);
+
+    /// Count `count` more candidates as deliberately skipped — the report's
+    /// `files_skipped` tally.
+    fn add_skipped(&mut self, count: usize);
 }
 
 /// Render report-line text with newlines and terminal control characters
@@ -420,6 +424,7 @@ mod tests {
                 self.failures.push(failure);
             }
             fn adopt_walk_errors(&mut self, _errors: Vec<String>) {}
+            fn add_skipped(&mut self, _count: usize) {}
         }
 
         let mut sink = Sink { failures: Vec::new() };

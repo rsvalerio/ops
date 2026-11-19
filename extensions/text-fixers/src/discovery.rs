@@ -69,11 +69,13 @@
 
 use std::ffi::OsStr;
 use std::fmt;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use anyhow::Context;
 use ignore::WalkBuilder;
+use ops_core::bounded_read::{FileRunReport, report_walk_errors};
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -87,7 +89,18 @@ const SKIP_DIRS: &[&str] = &[
     ".terraform",
 ];
 
-/// Why a `tracked_only` run fell back to the full filesystem walk.
+/// Where [`discover`] draws its candidates from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Walk the filesystem under the root, honouring ignore rules and the
+    /// directory deny-list.
+    Walk,
+    /// List the files git tracks (`git ls-files` from the root), falling back
+    /// to [`Scope::Walk`] when there is no index to read; see [`discover`].
+    Tracked,
+}
+
+/// Why a [`Scope::Tracked`] run fell back to the full filesystem walk.
 ///
 /// The fallback is legitimate, but it *widens the file set a destructive tool
 /// operates on* — from "files git knows about" to "every non-ignored file,
@@ -115,7 +128,7 @@ impl fmt::Display for Fallback {
 pub struct Discovery {
     /// Regular files to consider, in discovery order.
     pub files: Vec<PathBuf>,
-    /// `Some` when `tracked_only` was requested and could not be honoured.
+    /// `Some` when [`Scope::Tracked`] was requested and could not be honoured.
     /// Always `None` for a walk-mode run.
     pub fallback: Option<Fallback>,
     /// Tracked paths dropped because their bytes could not be decoded into a
@@ -130,6 +143,54 @@ pub struct Discovery {
     pub walk_errors: Vec<String>,
 }
 
+impl Discovery {
+    /// Render discovery's run-level notices on `writer`, fold what they cost
+    /// into `report`, and return the candidate files.
+    ///
+    /// The notices, in order: the tracked-mode fallback (the candidate set
+    /// widened from the git index to every non-ignored file, untracked ones
+    /// included), every walk error (printed and adopted into the report, so
+    /// the run fails — see [`report_walk_errors`]), then the number of
+    /// undecodable tracked paths (printed, and counted as skipped).
+    ///
+    /// Both the fixers and the config checkers report discovery through this
+    /// one method. It destructures `self` exhaustively, so a field added to
+    /// [`Discovery`] does not compile until it is handled here.
+    ///
+    /// # Errors
+    ///
+    /// If `writer` fails while rendering a notice.
+    pub fn into_reported_files<R: FileRunReport>(
+        self,
+        report: &mut R,
+        writer: &mut dyn Write,
+        label: &str,
+        root: &Path,
+    ) -> anyhow::Result<Vec<PathBuf>> {
+        let Self { files, fallback, undecodable_paths, walk_errors } = self;
+        if let Some(fallback) = fallback {
+            writeln!(
+                writer,
+                "{label}: --tracked unavailable ({fallback}); falling back to a full walk of {} — \
+                 untracked files are candidates too",
+                root.display()
+            )
+            .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
+        }
+        report_walk_errors(report, writer, label, walk_errors)?;
+        if undecodable_paths > 0 {
+            writeln!(
+                writer,
+                "{label}: {undecodable_paths} tracked path(s) skipped: filename is not valid \
+                 UTF-8 on this platform"
+            )
+            .with_context(|| format!("{label}: writing the undecodable-path notice failed"))?;
+            report.add_skipped(undecodable_paths);
+        }
+        Ok(files)
+    }
+}
+
 /// What `git ls-files` had to say.
 enum Tracked {
     /// The tracked paths, and how many printed paths could not be decoded.
@@ -142,7 +203,7 @@ enum Tracked {
 
 /// Enumerate the files the fixers may rewrite under `root`.
 ///
-/// `tracked_only` asks for the git index rather than the filesystem. It falls
+/// [`Scope::Tracked`] asks for the git index rather than the filesystem. It falls
 /// back to the full walk for the two outcomes that mean "there is no index to
 /// read" — git is not installed, or `root` is not a repository — and records
 /// which one fired in [`Discovery::fallback`]. **Every other git failure is an
@@ -156,10 +217,12 @@ enum Tracked {
 ///
 /// # Errors
 ///
-/// If the filesystem walk fails, or if `git ls-files` fails for any reason
-/// other than the two fallback cases above.
-pub fn discover(root: &Path, tracked_only: bool) -> io::Result<Discovery> {
-    if tracked_only {
+/// Only under [`Scope::Tracked`]: if `git` cannot be spawned for a reason
+/// other than being absent, or if `git ls-files` fails for any reason other
+/// than "not a git repository". A walk never fails; its per-entry errors land
+/// in [`Discovery::walk_errors`].
+pub fn discover(root: &Path, scope: Scope) -> io::Result<Discovery> {
+    if scope == Scope::Tracked {
         match tracked_files(root)? {
             Tracked::Files { mut files, undecodable } => {
                 retain_regular_files(&mut files);
@@ -170,16 +233,16 @@ pub fn discover(root: &Path, tracked_only: bool) -> io::Result<Discovery> {
                     walk_errors: Vec::new(),
                 });
             }
-            Tracked::NotARepository => return walked(root, Some(Fallback::NotARepository)),
-            Tracked::GitUnavailable => return walked(root, Some(Fallback::GitUnavailable)),
+            Tracked::NotARepository => return Ok(walked(root, Some(Fallback::NotARepository))),
+            Tracked::GitUnavailable => return Ok(walked(root, Some(Fallback::GitUnavailable))),
         }
     }
-    walked(root, None)
+    Ok(walked(root, None))
 }
 
-fn walked(root: &Path, fallback: Option<Fallback>) -> io::Result<Discovery> {
-    let (files, walk_errors) = walk(root)?;
-    Ok(Discovery { files, fallback, undecodable_paths: 0, walk_errors })
+fn walked(root: &Path, fallback: Option<Fallback>) -> Discovery {
+    let (files, walk_errors) = walk(root);
+    Discovery { files, fallback, undecodable_paths: 0, walk_errors }
 }
 
 /// The one place that decides whether a discovered path is a candidate.
@@ -218,27 +281,12 @@ fn retain_regular_files(files: &mut Vec<PathBuf>) {
 /// Walk `root`, returning the candidate files and a rendered line for every
 /// entry the walk could not traverse.
 ///
-/// Per-entry errors are rendered rather than dropped: an unreadable directory
+/// The walk never fails as a whole: each per-entry error is rendered into the
+/// second vector and the walk carries on, because an unreadable directory
 /// that contributed zero files in silence would read, on a gate, as "nothing
-/// to fix here".
-///
-/// # No dispatch deadline here
-///
-/// This walk does not poll `Context::check_deadline`, unlike the ones in
-/// `tokei` and `rust-loc`. Those two are `DataProvider`s: they run inside
-/// `DataRegistry::provide`, which installs the budget on a `Context`. This
-/// walk does not — no `Context` reaches
-/// it, and none exists to reach it: the fixers are exec commands the operator
-/// invoked directly, on the foreground thread of a run they can interrupt,
-/// with nothing composing them and no cached value a late return could
-/// poison. Adding a private timeout here would be inventing a bound the
-/// provider budget is not, in a place where the operator already is the
-/// timeout. Revisit only if a fixer ever becomes reachable through provider
-/// dispatch.
-// Returns `io::Result` to match `discover`'s signature and the tracked-file
-// walker it alternates with.
-#[allow(clippy::unnecessary_wraps)]
-fn walk(root: &Path) -> io::Result<(Vec<PathBuf>, Vec<String>)> {
+/// to fix here". It polls no dispatch deadline; the fixers run on the
+/// operator's foreground thread, outside provider dispatch.
+fn walk(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
     // `hidden(false)` keeps dotfiles (`.ops.toml`, `.gitignore`, …) in scope;
     // only ignore rules and the deny-list remove entries.
     let walker = WalkBuilder::new(root)
@@ -265,7 +313,7 @@ fn walk(root: &Path) -> io::Result<(Vec<PathBuf>, Vec<String>)> {
         }
     }
     retain_regular_files(&mut out);
-    Ok((out, errors))
+    (out, errors)
 }
 
 fn tracked_files(root: &Path) -> io::Result<Tracked> {

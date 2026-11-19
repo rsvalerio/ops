@@ -23,9 +23,9 @@ impl CardLayoutConfig {
     /// Width of each unit card in characters.
     ///
     /// Minimum supported value is 4 — `render_card`
-    /// passes `CARD_WIDTH - 2` to `truncate_to_width`, which uses
-    /// `max_width.saturating_sub(1)` and produces a single-ellipsis card
-    /// when `inner_width < 2`. The compile-time assertion below pins this.
+    /// passes `CARD_WIDTH - 2` to `truncate_to_width`, which keeps
+    /// `max_width - 1` columns of an overflowing line and produces a
+    /// single-ellipsis card when `inner_width < 2`. The compile-time assertion below pins this.
     const CARD_WIDTH: usize = 32;
     /// Maximum lines for description in a card.
     const CARD_DESC_LINES: usize = 3;
@@ -189,17 +189,6 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 /// further narrow `CARD_WIDTH` because `render_card` pre-computes its content
 /// against a fixed inner-width and reflowing it would invalidate the
 /// pre-rendered card lines.
-/// The cells of one grid row, borrowed from the cards rather than cloned; the
-/// caller's `[&str].join(&str)` then allocates once for the whole row.
-///
-/// Cloning every card line into an owned `String` per cell would stay
-/// linear but move a larger constant; borrowing keeps the contract pinnable
-/// by pointer identity in a test, rather than inferred from a wall-clock
-/// ratio that cannot see a per-cell clone.
-fn row_parts(chunk: &[Vec<String>], line_idx: usize) -> Vec<&str> {
-    chunk.iter().map(|card| card.get(line_idx).map_or("", String::as_str)).collect()
-}
-
 pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize) -> Vec<String> {
     if cards.is_empty() {
         return vec![];
@@ -214,9 +203,7 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
     };
 
     let mut result = Vec::new();
-    // CARD_SPACING is a compile-time constant (2); avoid per-call
-    // allocation from `str::repeat`.
-    // Avoid per-call `" ".repeat(CARD_SPACING)` allocation.
+    // `CARD_SPACING` as a literal, so no per-call `str::repeat` allocation.
     const SPACING: &str = {
         const { assert!(CardLayoutConfig::CARD_SPACING == 2) };
         "  "
@@ -238,6 +225,13 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
     }
 
     result
+}
+
+/// The cells of one grid row, borrowed from the cards rather than cloned.
+///
+/// The caller's `[&str].join(&str)` then allocates once for the whole row.
+fn row_parts(chunk: &[Vec<String>], line_idx: usize) -> Vec<&str> {
+    chunk.iter().map(|card| card.get(line_idx).map_or("", String::as_str)).collect()
 }
 
 #[cfg(test)]

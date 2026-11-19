@@ -192,7 +192,7 @@ pub struct CommandRunner {
     /// shadow.
     pub(super) builtin_commands: IndexMap<CommandId, CommandSpec>,
     /// Pre-built `alias → canonical` map over the stack + extension command
-    /// stores, keeping `canonical_with_spec` / `resolve_alias` O(1) rather
+    /// stores, keeping `canonical_with_spec` O(1) rather
     /// than O(N·A) per lookup. Config aliases are served by
     /// `Config::resolve_alias`, which maintains its own map. Rebuilt when
     /// `register_commands` mutates the extension store.
@@ -365,7 +365,7 @@ impl CommandRunner {
             // intra-store alias collisions are caught below; without this
             // check, an extension whose alias matches a config-defined
             // alias is silently shadowed at lookup time (config wins via
-            // `resolve_alias` ordering at resolve.rs) with no audit trail
+            // `canonical_entry` ordering at resolve.rs) with no audit trail
             // for operators reading `RUST_LOG=ops=debug`.
             if let Some(config_owner) = self.config.resolve_alias(alias.as_str()) {
                 if config_owner != id.as_str() {
@@ -559,9 +559,11 @@ impl CommandRunner {
     ///
     /// # Errors
     ///
-    /// If `command_id` resolves to nothing, if composite expansion fails
-    /// (unknown reference, cycle, depth limit, conflicting schedule flags), or
-    /// if a step cannot be built or spawned.
+    /// Only when plan expansion fails: `command_id` resolves to nothing, or
+    /// composite expansion fails (unknown reference, cycle, depth limit,
+    /// conflicting schedule flags, bad `after`). A step that cannot be built
+    /// or spawned does not return `Err`: it comes back inside `Ok` as a
+    /// [`StepResult`] with `success == false`, so check every result.
     // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
     // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
     #[allow(clippy::future_not_send)]

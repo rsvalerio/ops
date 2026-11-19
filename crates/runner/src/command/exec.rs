@@ -61,7 +61,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(test)]
 use tokio::process::Command;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 /// Await a future with an optional timeout, mapping elapsed timeouts to an
 /// `io::ErrorKind::TimedOut` with a unified "timed out after Ns" message.
@@ -104,21 +104,98 @@ where
 /// Read up to `cap` bytes from `reader` into a `Vec`,
 /// then drain the rest into a sink, counting the dropped bytes. Bounds peak
 /// memory near `cap` even if the child writes orders of magnitude more.
+///
+/// Returns early, with the bytes captured so far, once `stop` turns `true`:
+/// that is how [`spawn_capped`] abandons a pipe something outside the step
+/// keeps open without losing the output the step already wrote. The dropped
+/// count then covers only what was sinked before the stop.
 async fn read_capped<R: AsyncRead + Unpin>(
     reader: R,
     cap: usize,
+    mut stop: watch::Receiver<bool>,
 ) -> std::io::Result<(Vec<u8>, u64)> {
+    // A dropped sender means `spawn_capped` itself was dropped, which aborts
+    // this task through its `JoinSet`; until then, never stop on its own.
+    let stopped = async move {
+        if stop.wait_for(|stop| *stop).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    tokio::pin!(stopped);
     let mut head = Vec::new();
     // `usize` is at most 64 bits on every target this builds for, so the
     // conversion is exact and the fallback is unreachable; `u64::MAX` is
     // nonetheless the right saturation value here — it is `take`'s "no
     // additional limit", which is what a cap wider than u64 would mean.
     let mut limited = reader.take(u64::try_from(cap).unwrap_or(u64::MAX));
-    limited.read_to_end(&mut head).await?;
+    // `read_to_end` appends to `head` as it reads, so stopping it midway
+    // keeps every byte read so far.
+    let finished = tokio::select! {
+        read = limited.read_to_end(&mut head) => Some(read),
+        () = &mut stopped => None,
+    };
+    match finished {
+        Some(read) => {
+            read?;
+        }
+        None => return Ok((head, 0)),
+    }
     let mut inner = limited.into_inner();
-    let dropped = tokio::io::copy(&mut inner, &mut tokio::io::sink()).await?;
-    Ok((head, dropped))
+    let mut sink = CountingSink::default();
+    let copied = tokio::select! {
+        copied = tokio::io::copy(&mut inner, &mut sink) => Some(copied),
+        () = &mut stopped => None,
+    };
+    match copied {
+        Some(copied) => Ok((head, copied?)),
+        None => Ok((head, sink.0)),
+    }
 }
+
+/// An async sink that counts the bytes written to it, so a stopped discard
+/// still reports what it dropped.
+#[derive(Default)]
+struct CountingSink(u64);
+
+impl tokio::io::AsyncWrite for CountingSink {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        // `usize` is never wider than `u64` on supported targets.
+        self.0 = self.0.saturating_add(u64::try_from(buf.len()).unwrap_or(u64::MAX));
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+/// Serializes captured spawns within this process.
+///
+/// On targets without `pipe2` (macOS among them) `std` creates the capture
+/// pipes with `pipe()` and only then sets `FD_CLOEXEC` on them. A step
+/// spawned on another thread inside that window inherits this step's
+/// write end, and so do all of *its* descendants. That holder sits in the
+/// other step's process group, so neither this step's exit nor the
+/// `SIGKILL` of this step's group closes the pipe: a 0.02 s `ops
+/// check-json` stayed "open" for as long as a concurrently spawned `cargo
+/// build` ran. Holding one lock across pipe creation and spawn
+/// closes the window between this runner's own parallel steps; on `pipe2`
+/// targets it costs one uncontended lock per spawn.
+static SPAWN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Outcome of one drain task: the join result wrapping the read result.
 type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
@@ -239,6 +316,51 @@ fn missing_drain() -> std::io::Error {
     std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
 }
 
+/// Spawn `cmd` under [`SPAWN_LOCK`] on the blocking pool and arm its
+/// [`ChildGroup`].
+///
+/// Waiting for the lock, and the spawn itself (which can stall on a slow
+/// filesystem), happen on a blocking-pool thread, so steps queued behind a
+/// slow spawn never occupy a runtime worker that other steps need for pipe
+/// reads, timeouts and cancellation. The group is armed on that thread
+/// before the result is handed back: if this future is dropped while the
+/// spawn is in flight, the returned guard is dropped with the task output
+/// and still tears the new group down. `cmd` is moved onto the blocking
+/// thread for the call and put back afterwards, so callers keep their
+/// configured command. A poisoned lock panics there under the shared
+/// `ops_core::sync` policy and comes back as an `io::Error`, failing this
+/// step rather than the runner.
+async fn spawn_serialized(
+    cmd: &mut tokio::process::Command,
+) -> std::io::Result<(tokio::process::Child, ChildGroup)> {
+    let mut owned = std::mem::replace(cmd, tokio::process::Command::new(""));
+    let joined = tokio::task::spawn_blocking(move || {
+        let spawned = {
+            let _serialized = ops_core::sync::lock(&SPAWN_LOCK, "spawn serialization lock");
+            owned.spawn()
+        };
+        let armed = spawned.map(|child| {
+            let group = ChildGroup::new(&child);
+            (child, group)
+        });
+        (owned, armed)
+    })
+    .await;
+    match joined {
+        Ok((owned, armed)) => {
+            *cmd = owned;
+            armed
+        }
+        Err(join_err) => {
+            tracing::error!(
+                error = %join_err,
+                "spawn panicked on blocking pool; converting to step failure"
+            );
+            Err(std::io::Error::other("spawn task failed"))
+        }
+    }
+}
+
 /// Spawn `cmd` with piped stdio, stream both pipes through
 /// `read_capped`, and assemble a `CommandOutput`. Replaces `cmd.output()` so
 /// runaway children cannot peak the runner's RSS at the full output size — the
@@ -253,6 +375,17 @@ fn missing_drain() -> std::io::Error {
 async fn spawn_capped(
     cmd: &mut tokio::process::Command,
     cap: usize,
+) -> std::io::Result<CommandOutput> {
+    spawn_capped_with_graces(cmd, cap, post_exit_drain_grace(), POST_KILL_DRAIN_GRACE).await
+}
+
+/// [`spawn_capped`] with its two drain deadlines passed in, so tests can
+/// exercise the abandon path without waiting out the production graces.
+async fn spawn_capped_with_graces(
+    cmd: &mut tokio::process::Command,
+    cap: usize,
+    drain_grace: Duration,
+    post_kill_grace: Duration,
 ) -> std::io::Result<CommandOutput> {
     // ASYNC-6 / TASK-1918: pin all three stdio slots. `tokio::process::Command`
     // defaults stdin to `Stdio::inherit()`, so without this a captured child
@@ -269,10 +402,7 @@ async fn spawn_capped(
     // CONC-9 / TASK-1919: make the child its own process-group leader so
     // cancellation can address the tree it forks, not just the leader.
     configure_process_group(cmd);
-    let mut child = cmd.spawn()?;
-    // Armed for the whole body: every early return and every drop of this
-    // future (timeout, `JoinSet::abort_all`) now tears the group down.
-    let mut group = ChildGroup::new(&child);
+    let (mut child, mut group) = spawn_serialized(cmd).await?;
     // ERR-5 / TASK-0906: tokio guarantees the handles are populated when
     // stdio is set to `piped` immediately above, but a future refactor
     // moving the stdio setup upward (or feeding partially-configured
@@ -300,8 +430,9 @@ async fn spawn_capped(
     // cancelled.
     let mut drains: tokio::task::JoinSet<std::io::Result<(Vec<u8>, u64)>> =
         tokio::task::JoinSet::new();
-    let stdout_handle = drains.spawn(read_capped(stdout, cap));
-    let stderr_handle = drains.spawn(read_capped(stderr, cap));
+    let (stop_tx, stop_rx) = watch::channel(false);
+    let stdout_handle = drains.spawn(read_capped(stdout, cap, stop_rx.clone()));
+    let stderr_handle = drains.spawn(read_capped(stderr, cap, stop_rx));
     let status = child.wait().await?;
     let join_to_io = |e: tokio::task::JoinError| std::io::Error::other(e);
     // Await the specific handles by id so we keep the per-stream result
@@ -313,7 +444,6 @@ async fn spawn_capped(
     // so anything still holding the write end of these pipes is a
     // grandchild that outlived it; `read_capped` would otherwise wait for an
     // EOF that never comes.
-    let drain_grace = post_exit_drain_grace();
     if tokio::time::timeout(
         drain_grace,
         collect_drain_results(
@@ -336,8 +466,8 @@ async fn spawn_capped(
         // leader, there is nothing left to shut down gracefully, and the
         // step is blocked until they release the fd.
         group.kill_now();
-        tokio::time::timeout(
-            POST_KILL_DRAIN_GRACE,
+        if tokio::time::timeout(
+            post_kill_grace,
             collect_drain_results(
                 &mut drains,
                 stdout_id,
@@ -347,12 +477,29 @@ async fn spawn_capped(
             ),
         )
         .await
-        .map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "captured output pipe held open after the child exited; step abandoned",
+        .is_err()
+        {
+            // Still open with the whole group dead: the holder is outside
+            // the step's process group (see `SPAWN_LOCK`) and is not the
+            // step's to kill. The step's own command already finished, so
+            // report its real exit status with the output captured so far
+            // rather than failing a command that succeeded.
+            tracing::warn!(
+                grace_secs = post_kill_grace.as_secs(),
+                "captured output still open after killing the step's process group; \
+                 a process outside the step holds the pipe — keeping the exit status \
+                 and the output captured so far"
+            );
+            let _ = stop_tx.send(true);
+            collect_drain_results(
+                &mut drains,
+                stdout_id,
+                stderr_id,
+                &mut stdout_result,
+                &mut stderr_result,
             )
-        })??;
+            .await?;
+        }
     }
     // Completed normally: a descendant that is still alive here was
     // deliberately backgrounded by the step and closed its pipes, so it is
@@ -381,6 +528,17 @@ pub async fn spawn_capped_for_test(
     spawn_capped(cmd, cap).await
 }
 
+/// Test shim: [`spawn_capped`] with short drain graces.
+#[cfg(test)]
+pub async fn spawn_capped_with_graces_for_test(
+    cmd: &mut tokio::process::Command,
+    cap: usize,
+    drain_grace: Duration,
+    post_kill_grace: Duration,
+) -> std::io::Result<CommandOutput> {
+    spawn_capped_with_graces(cmd, cap, drain_grace, post_kill_grace).await
+}
+
 /// Execute a command with an optional timeout, capturing its output.
 #[cfg(test)]
 pub async fn execute_with_timeout(
@@ -390,16 +548,21 @@ pub async fn execute_with_timeout(
     await_with_timeout(cmd.output(), timeout).await
 }
 
-/// Render a spawn failure without leaking the resolved absolute path.
+/// Render a build or spawn failure without leaking the resolved absolute path.
 ///
 /// Uses the bare program name from the spec plus the textual `ErrorKind`
 /// (e.g. `NotFound`, `PermissionDenied`) rather than `io::Error::to_string`,
 /// which embeds system-specific strings including the full resolved path.
 /// Timeouts retain their longer descriptive message because the timeout
-/// formatter already strips path info.
+/// formatter already strips path info. A build failure (nothing was
+/// spawned) reports its own fixed, path-free cause instead of "failed to
+/// spawn".
 fn redact_spawn_error(program: &str, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::TimedOut {
         return e.to_string();
+    }
+    if let Some(failure) = super::build::build_failure(e) {
+        return format!("cannot run `{program}`: {failure}");
     }
     format!("failed to spawn `{program}`: {kind:?}", kind = e.kind())
 }
@@ -657,6 +820,20 @@ pub async fn exec_command(
 /// emitted and the returned `StepResult` has empty stdout/stderr.
 ///
 /// Exit code and timeout behavior are preserved. Used by `--raw` mode.
+///
+/// # Timeouts reach only the direct child
+///
+/// When `timeout_secs` elapses, the `status()` future is dropped and
+/// `kill_on_drop` sends `SIGKILL` to the **direct child only**. Its
+/// descendants (`cargo` under `sh -c`, `node` under `npm run`) keep running
+/// on the terminal after the step is reported failed. This is a deliberate
+/// trade-off, not an oversight: captured steps avoid the leak by becoming
+/// their own process group ([`super::process_group`]), but a raw child must
+/// stay in the runner's foreground process group so the tty's Ctrl-C
+/// reaches both it and the runner. Moving it into its own group would need
+/// a `tcsetpgrp` foreground hand-off and a Ctrl-C relay back to the runner.
+/// Until then the leak on timeout is documented in
+/// `docs/configuration.md` ("Raw commands").
 pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecEnv) -> StepResult {
     // CONC-5 / TASK-0330: see exec_command above.
     // PERF-3 / TASK-1125: Arc::clone — no spec deep clone per spawn.
@@ -762,7 +939,6 @@ pub struct ExecTaskCtx {
     pub abort: Arc<AbortSignal>,
 }
 
-#[allow(dead_code)]
 impl ExecTaskCtx {
     /// Construct an [`ExecTaskCtx`] from its current required handles.
     /// Prefer this over struct-literal construction so
@@ -1035,5 +1211,79 @@ mod spawn_error_log_format_tests {
 
         // The Display rendering this replaced would not have escaped.
         assert!(format!("{id}").contains('\n'));
+    }
+}
+
+#[cfg(test)]
+mod redact_spawn_error_tests {
+    use super::redact_spawn_error;
+    use crate::command::build::{
+        apply_escape_policy, resolve_spec_cwd, test_default_workspace_cache, CwdEscapePolicy,
+    };
+    use ops_core::expand::Variables;
+    use std::path::{Path, PathBuf};
+
+    fn assert_build_message(msg: &str, cause: &str) {
+        assert_eq!(msg, format!("cannot run `cargo`: {cause}"));
+        assert!(!msg.contains("failed to spawn"), "build failure reported as spawn: {msg}");
+        assert!(!msg.contains('/'), "path leaked: {msg}");
+    }
+
+    /// Each build failure names its own cause.
+    #[test]
+    fn build_failures_report_their_cause_not_a_spawn_failure() {
+        let ws = PathBuf::from("/tmp/ws");
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
+
+        let spec = Path::new("../etc");
+        let deny = apply_escape_policy(CwdEscapePolicy::Deny, spec, &ws, &ws.join(spec))
+            .expect_err("Deny refuses an escaping cwd");
+        assert_build_message(
+            &redact_spawn_error("cargo", &deny),
+            "cwd escapes the workspace (policy: deny)",
+        );
+
+        let poisoned = Variables::poisoned(ops_core::expand::ExpandError {
+            var_name: "OPS_TASK_2701_SECRET".to_string(),
+            cause: std::env::VarError::NotPresent,
+        });
+        let expand = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(Path::new("sub")),
+            &ws,
+            &poisoned,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect_err("a poisoned Variables fails strict expansion");
+        let msg = redact_spawn_error("cargo", &expand);
+        assert_build_message(&msg, "variable expansion failed");
+        assert!(!msg.contains("OPS_TASK_2701_SECRET"), "variable name leaked: {msg}");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let bad = PathBuf::from(std::ffi::OsString::from_vec(vec![b's', 0xff]));
+            let non_utf8 = resolve_spec_cwd(
+                test_default_workspace_cache(),
+                Some(bad.as_path()),
+                &ws,
+                &vars,
+                CwdEscapePolicy::WarnAndAllow,
+            )
+            .expect_err("a non-UTF-8 cwd is refused");
+            assert_build_message(&redact_spawn_error("cargo", &non_utf8), "cwd is not valid UTF-8");
+        }
+    }
+
+    /// Real OS spawn failures keep the redacted "failed to spawn" text.
+    #[test]
+    fn spawn_failures_keep_the_redacted_spawn_message() {
+        for kind in [std::io::ErrorKind::NotFound, std::io::ErrorKind::PermissionDenied] {
+            let e = std::io::Error::new(kind, "/home/someone/.cargo/bin/cargo: denied");
+            assert_eq!(
+                redact_spawn_error("cargo", &e),
+                format!("failed to spawn `cargo`: {kind:?}")
+            );
+        }
     }
 }

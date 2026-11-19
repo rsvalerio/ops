@@ -5,9 +5,13 @@ use std::collections::HashMap;
 
 use super::super::validation::{validate_no_traversal, validate_path_chars};
 use super::helpers::{
-    collect_per_crate_map, coverage_col_select, members_cte_prefix, prepare_per_crate,
-    query_project_row, resolve_per_crate, ColumnAlias, CrateCoverage, QuerySpec, Resolved,
+    collect_per_crate_map, coverage_col_select, member_owns_file, members_cte_prefix,
+    prepare_per_crate, query_project_row, resolve_per_crate, ColumnAlias, CrateCoverage, QuerySpec,
+    Resolved,
 };
+
+/// Join alias of the per-crate coverage query, validated at build time.
+const COVERAGE_ALIAS: ColumnAlias = ColumnAlias::from_static("c");
 
 /// Query total coverage across the whole project from `coverage_files`.
 ///
@@ -34,12 +38,9 @@ pub fn query_project_coverage(db: &Sqlite) -> anyhow::Result<CrateCoverage> {
 ///
 /// Returns a map of member path -> `CrateCoverage`. Members with no matching
 /// files get zeroed coverage. Handles both absolute and relative filenames
-/// from LLVM coverage output.
-///
-/// # Panics
-///
-/// If the static join alias `"c"` fails identifier validation, which can only
-/// happen if `ColumnAlias::new`'s rules change.
+/// from LLVM coverage output. Each file counts toward exactly one member,
+/// the one with the longest matching path prefix, so nested members do not
+/// double-count.
 ///
 /// # Errors
 ///
@@ -59,7 +60,7 @@ pub fn query_crate_coverage(
     validate_path_chars(workspace_root)?;
     validate_no_traversal(std::path::Path::new(workspace_root))?;
 
-    // SEC-12: strip a trailing '/' so the prefix join below produces a single
+    // Strip a trailing '/' so the prefix join below produces a single
     // boundary slash. With a trailing slash the join would build
     // "/ws//crates/foo/" and absolute filenames "/ws/crates/foo/src/lib.rs"
     // would silently fail to match, dropping per-crate coverage to 0 with no
@@ -76,36 +77,29 @@ pub fn query_crate_coverage(
     // LLVM coverage filenames may be either:
     //   1. relative to workspace_root (e.g., "crates/foo/src/lib.rs")
     //   2. absolute (e.g., "/abs/workspace_root/crates/foo/src/lib.rs")
-    // The OR matches both shapes against the same member path. The trailing '/'
-    // ensures a member "crates/foo" does not match "crates/foobar/...".
+    // The derived table strips the workspace-root prefix from the absolute
+    // shape, so both reach the member join as one relative `rel` column.
+    // `:root` is a named parameter: every occurrence binds the one value,
+    // which takes the index after the VALUES placeholders.
     let cte = members_cte_prefix(&placeholders);
-    // SEC-12: the join alias `c` is constructed via the validated newtype so
-    // its presence in the formatted SQL cannot be a regression vector.
-    // The alias is the string literal "c", which the validator accepts by
-    // construction; there is no runtime input here to report on
-    // (docs/clippy.md layer 3).
-    #[allow(clippy::expect_used)]
-    let join_alias = ColumnAlias::new("c").expect("static alias 'c' is a valid identifier");
+    let owns = member_owns_file(&format!("{COVERAGE_ALIAS}.rel"));
     let sql = format!(
         "{cte} \
-         SELECT m.path, {} \
+         SELECT m.path, {cols} \
          FROM members m \
-         LEFT JOIN coverage_files c \
-             ON substr(c.filename, 1, length(m.path || '/')) = m.path || '/' \
-             OR substr(c.filename, 1, length(? || '/' || m.path || '/')) = ? || '/' || m.path || '/' \
+         LEFT JOIN ( \
+             SELECT CASE \
+                 WHEN substr(filename, 1, length(:root || '/')) = :root || '/' \
+                 THEN substr(filename, length(:root || '/') + 1) \
+                 ELSE filename END AS rel, \
+                 lines_count, lines_covered \
+             FROM coverage_files \
+         ) {COVERAGE_ALIAS} ON {owns} \
          GROUP BY m.path",
-        coverage_col_select(Some(&join_alias))
+        cols = coverage_col_select(Some(&COVERAGE_ALIAS))
     );
 
-    // workspace_root is bound twice — once in the `length(? …)` prefix-size
-    // expression and once in the prefix value itself — after the VALUES
-    // placeholders; chain both without allocating an intermediate
-    // Vec<String>.
-    let params = member_paths
-        .iter()
-        .copied()
-        .chain(std::iter::once(workspace_root))
-        .chain(std::iter::once(workspace_root));
+    let params = member_paths.iter().copied().chain(std::iter::once(workspace_root));
 
     collect_per_crate_map(&conn, &sql, label, params, |row| {
         Ok((row.get::<_, String>(0)?, CrateCoverage::new(row.get(1)?, row.get(2)?, row.get(3)?)))
@@ -213,6 +207,23 @@ mod tests {
         let result = query_crate_coverage(&db, &["crates/foo"], "/ws").expect("query ok");
         let foo = result.get("crates/foo").expect("foo present");
         assert_eq!(foo.lines_count, 0, "trailing slash boundary preserved");
+    }
+
+    /// A file under a nested member counts only toward the innermost member,
+    /// in both filename shapes, so per-crate totals sum to the project total.
+    #[test]
+    fn nested_members_attribute_each_file_once() {
+        let db = Sqlite::open_in_memory().expect("db");
+        setup_coverage_table(
+            &db,
+            &[("a/src/lib.rs", 10, 5), ("a/b/src/lib.rs", 20, 10), ("/ws/a/b/src/x.rs", 4, 4)],
+        );
+        let result = query_crate_coverage(&db, &["a", "a/b"], "/ws").expect("query ok");
+        assert_eq!(result["a"].lines_count, 10, "a/b's files must not count toward a");
+        assert_eq!(result["a/b"].lines_count, 24);
+        assert_eq!(result["a/b"].lines_covered, 14);
+        let total = query_project_coverage(&db).expect("project");
+        assert_eq!(result.values().map(|c| c.lines_count).sum::<i64>(), total.lines_count);
     }
 
     /// Paths are bound parameters, so characters that are legal in a

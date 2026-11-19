@@ -199,43 +199,102 @@ fn staging_name(name: &str, pid: u32) -> String {
     format!(".{prefix}{tail}")
 }
 
-/// [`atomic_write`] for a destination that must not already exist — the
-/// config-creation path (`backlog.config.yml`).
+/// A no-clobber claim found its destination already taken: another file
+/// owns the name, and it was left untouched.
 ///
-/// `rename` replaces an existing destination, so a check-then-write
-/// sequence races a concurrent creator and silently clobbers it. The
-/// committed name is therefore claimed with a hard link instead:
-/// `link(2)` fails with `EEXIST` when the name is taken — no window in
-/// between — and only then is the staging name dropped. The staging file
-/// is fully written and synced before the claim, so the destination is
-/// either absent or complete, never half-written; a crash before the
-/// staging name is removed leaves one recoverable copy (the same
-/// post-state as `move_to_completed` in `cleanup`).
+/// Carried as the error's typed source so a caller that can recover — an
+/// allocator that takes the next free number — matches it with
+/// `anyhow::Error::downcast_ref` instead of parsing the message.
+#[derive(Debug)]
+pub struct DestinationTaken {
+    /// The destination name that is already taken.
+    pub path: std::path::PathBuf,
+}
+
+impl std::fmt::Display for DestinationTaken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} already exists; refusing to overwrite it", self.path.display())
+    }
+}
+
+impl std::error::Error for DestinationTaken {}
+
+/// Claim the name `to` for the file at `from` without ever replacing an
+/// existing `to`.
+///
+/// `rename` silently replaces a destination that appears between a check
+/// and the move, so the name is claimed with a hard link instead: `link(2)`
+/// fails with `EEXIST` when the name is taken, with no window in between.
+/// The source name is left in place; each caller decides when to drop it.
+/// A crash after the claim leaves both names pointing at one file:
+/// recoverable, never destructive.
 ///
 /// # Errors
 ///
-/// The destination already exists (the error names it), or staging failed
-/// — as [`atomic_write`].
-pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
-    use anyhow::Context as _;
-    let staging = stage_contents(path, contents)?;
-    if let Err(err) = std::fs::hard_link(&staging, path) {
-        std::fs::remove_file(&staging).ok();
-        if err.kind() == std::io::ErrorKind::AlreadyExists {
-            anyhow::bail!("{} already exists; refusing to overwrite it", path.display());
+/// The destination is taken ([`DestinationTaken`], naming it), or the link
+/// itself fails (the error names both paths).
+pub(crate) fn link_noclobber(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
+    match std::fs::hard_link(from, to) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(anyhow::Error::new(DestinationTaken { path: to.to_path_buf() }))
         }
-        return Err(err).with_context(|| format!("claiming {}", path.display()));
+        Err(err) => Err(anyhow::Error::new(err).context(format!(
+            "linking {} to {}",
+            from.display(),
+            to.display()
+        ))),
     }
-    // The link holds the content; the staging name is now redundant. Its
-    // removal is best-effort — a leftover keeps the dot-prefixed staging
-    // name, invisible to task scans.
+}
+
+/// [`atomic_write`] for a destination that must not already exist: new task
+/// files and the config-creation path (`backlog.config.yml`).
+///
+/// The content is fully written and synced to a staging file first and the
+/// committed name is then claimed with [`link_noclobber`], so the
+/// destination is either absent or complete — never empty or half-written
+/// to a concurrent reader — and an existing file is never replaced. A crash
+/// before the staging name is removed leaves one recoverable copy under the
+/// dot-prefixed staging name, invisible to task scans.
+///
+/// # Errors
+///
+/// The destination already exists ([`DestinationTaken`], naming it), or
+/// staging or linking failed — each error names the path.
+pub fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    let staging = stage_contents(path, contents)?;
+    let claimed = link_noclobber(&staging, path);
+    // Whether or not the claim succeeded, the staging name is now
+    // redundant: on success the link holds the content, on failure nothing
+    // was published. Removal is best-effort — a leftover keeps the
+    // dot-prefixed staging name, invisible to task scans.
     std::fs::remove_file(&staging).ok();
-    Ok(())
+    claimed
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A taken destination surfaces as the typed [`DestinationTaken`],
+    /// leaves the existing file untouched and no staging file behind.
+    #[test]
+    fn noclobber_publish_refuses_a_taken_name_with_a_typed_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("task-0001 - t.md");
+        atomic_write_noclobber(&path, "first").expect("first publish");
+        let err = atomic_write_noclobber(&path, "second").expect_err("name is taken");
+        let taken = err.downcast_ref::<DestinationTaken>().expect("typed refusal");
+        assert_eq!(taken.path, path);
+        assert!(err.to_string().contains("refusing to overwrite"));
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "first");
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("list")
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with('.'))
+            .collect();
+        assert!(leftovers.is_empty(), "no staging file left: {leftovers:?}");
+    }
 
     #[test]
     fn short_names_keep_the_plain_staging_scheme() {

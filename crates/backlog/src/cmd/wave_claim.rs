@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 
-use super::edit::{run_edit, EditOptions};
+use super::edit::{edit_with, EditOptions};
 use super::git;
+use crate::clock::UtcStamp;
 use crate::store::Store;
 
 /// The branch a wave is claimed on unless `--branch` says otherwise.
@@ -52,7 +53,8 @@ pub struct WaveParkOptions {
 ///
 /// # Errors
 ///
-/// The wave id resolves to nothing or to a task without the wave marker;
+/// The clock is unreadable; the wave id resolves to nothing or to a task
+/// without the wave marker;
 /// `cwd` is not in a git working tree; the branch already exists (the wave
 /// is claimed elsewhere) or the worktree path is taken — both refused before
 /// anything is created; `git worktree add` fails; or the status edit fails,
@@ -64,6 +66,9 @@ pub fn run_wave_claim<W: Write>(
     opts: &WaveClaimOptions,
     out: &mut W,
 ) -> anyhow::Result<()> {
+    // Read the clock at the edge, before anything is created: a clock
+    // failure then has no worktree to undo.
+    let stamp = UtcStamp::now()?;
     let wave = store
         .find(&opts.wave_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
@@ -86,7 +91,7 @@ pub fn run_wave_claim<W: Write>(
         append_notes: vec![format!("Branch: {branch}\nWorktree: {}", worktree.display())],
         ..EditOptions::default()
     };
-    if let Err(err) = run_edit(store, &edit, &mut std::io::sink()) {
+    if let Err(err) = edit_with(store, &edit, &stamp, &mut std::io::sink()) {
         return Err(undo_failed_claim(err, &top, &worktree, &branch, &wave_id));
     }
 
@@ -195,7 +200,8 @@ fn undo_failed_claim(
 ///
 /// # Errors
 ///
-/// The reason or status is blank; the wave id resolves to nothing; `cwd` is
+/// The reason or status is blank; the clock is unreadable; the wave id
+/// resolves to nothing; `cwd` is
 /// not in a git working tree; or the task edit fails.
 pub fn run_wave_park<W: Write>(
     store: &Store,
@@ -209,6 +215,7 @@ pub fn run_wave_park<W: Write>(
     if opts.status.trim().is_empty() {
         anyhow::bail!("the park status is empty");
     }
+    let stamp = UtcStamp::now()?;
     let wave = store
         .find(&opts.wave_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
@@ -230,7 +237,7 @@ pub fn run_wave_park<W: Write>(
         append_notes: vec![format!("Parked: {}\n{resume}", opts.reason.trim())],
         ..EditOptions::default()
     };
-    run_edit(store, &edit, &mut std::io::sink())?;
+    edit_with(store, &edit, &stamp, &mut std::io::sink())?;
     writeln!(out, "Parked {wave_id} ({}): {resume}", opts.status)
         .context("printing the park summary")?;
     Ok(())

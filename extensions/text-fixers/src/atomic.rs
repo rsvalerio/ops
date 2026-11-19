@@ -55,9 +55,10 @@
 //! Mode, uid and gid *are* preserved, so the visible attributes of the file
 //! do not change.
 
+use std::fmt;
 use std::fs::{File, Metadata};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Stage-file name prefix used by [`replace`].
 ///
@@ -76,14 +77,19 @@ pub const STAGE_PREFIX: &str = ".ops-text-fixers.";
 ///
 /// # Errors
 ///
-/// - [`io::ErrorKind::InvalidInput`] if a directory component of `path` is a
-///   symlink.
-/// - An error whose message is [`CHANGED_SINCE_READ`] if the target no longer
-///   matches `original` (different device, inode, length, modification time
-///   or — on Unix — change time, or no longer a regular file);
-///   [`io::ErrorKind::NotFound`] if it is gone.
-/// - Any error from creating the temp file in `path`'s directory, writing it,
-///   `fsync`ing it, or renaming it over `path`.
+/// The two refusals carry a [`Refusal`] as the inner error; retrieve it with
+/// [`Refusal::of`]:
+///
+/// - [`Refusal::SymlinkedDirectory`], kind [`io::ErrorKind::InvalidInput`], if
+///   a directory component of `path` is a symlink.
+/// - [`Refusal::ChangedSinceRead`], kind [`io::ErrorKind::Other`], if the
+///   target no longer matches `original` (different device, inode, length,
+///   modification time or — on Unix — change time, or no longer a regular
+///   file).
+///
+/// Every other error is a plain I/O failure: [`io::ErrorKind::NotFound`] if
+/// the target is gone, or any error from creating the temp file in `path`'s
+/// directory, writing it, `fsync`ing it, or renaming it over `path`.
 ///
 /// On every error path the target is left exactly as it was and the temp file
 /// is unlinked.
@@ -116,9 +122,40 @@ pub fn replace(path: &Path, contents: &[u8], original: &Metadata) -> io::Result<
     Ok(())
 }
 
-/// Message of the error [`replace`] returns when the target changed after it
-/// was read.
-pub const CHANGED_SINCE_READ: &str = "changed on disk since it was read; left untouched";
+/// Why [`replace`] refused to write, as distinct from an I/O failure.
+///
+/// Carried as the inner error of the [`io::Error`] that [`replace`] returns;
+/// [`Refusal::of`] retrieves it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// The target is no longer the file the new content was computed from.
+    ChangedSinceRead,
+    /// This directory, a component of the target's path, is a symlink.
+    SymlinkedDirectory(PathBuf),
+}
+
+impl Refusal {
+    /// The refusal `err` carries, or `None` when it is an ordinary I/O error.
+    #[must_use]
+    pub fn of(err: &io::Error) -> Option<&Self> {
+        err.get_ref()?.downcast_ref()
+    }
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ChangedSinceRead => {
+                f.write_str("changed on disk since it was read; left untouched")
+            }
+            Self::SymlinkedDirectory(dir) => {
+                write!(f, "refusing to write through symlinked directory {:?}", dir.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for Refusal {}
 
 /// Refuse `dir` if it, or any directory above it in the path as given, is a
 /// symlink.
@@ -131,7 +168,7 @@ fn refuse_symlinked_directory(dir: &Path) -> io::Result<()> {
         if std::fs::symlink_metadata(component)?.file_type().is_symlink() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("refusing to write through symlinked directory {:?}", component.display()),
+                Refusal::SymlinkedDirectory(component.to_path_buf()),
             ));
         }
     }
@@ -147,7 +184,7 @@ fn ensure_unchanged(path: &Path, original: &Metadata) -> io::Result<()> {
     if current.file_type().is_file() && is_same_file(&current, original) {
         return Ok(());
     }
-    Err(io::Error::other(CHANGED_SINCE_READ))
+    Err(io::Error::other(Refusal::ChangedSinceRead))
 }
 
 /// Whether two metadata snapshots describe the same, unmodified file.
@@ -181,8 +218,11 @@ fn is_same_file(current: &Metadata, original: &Metadata) -> bool {
 /// A `NamedTempFile` is created 0600 and owned by the current user, so
 /// without this a 0644 file would come back private and a root-owned file
 /// (fixed under `sudo`) would change hands.
+///
+/// Ownership goes first, mode second: on Linux a `chown` of a regular file
+/// clears its setuid and setgid bits — even an unprivileged one that leaves
+/// the ids unchanged — so a mode copied before it would lose them.
 fn preserve_attributes(staged: &File, original: &Metadata) -> io::Result<()> {
-    staged.set_permissions(original.permissions())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -199,7 +239,7 @@ fn preserve_attributes(staged: &File, original: &Metadata) -> io::Result<()> {
             return Err(e);
         }
     }
-    Ok(())
+    staged.set_permissions(original.permissions())
 }
 
 /// Persist the parent directory entry created by the rename.
@@ -244,7 +284,7 @@ mod tests {
         std::fs::write(&path, b"a concurrent edit\n").unwrap();
 
         let err = replace(&path, b"old\n", &md).unwrap_err();
-        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(Refusal::of(&err), Some(&Refusal::ChangedSinceRead));
         assert_eq!(std::fs::read(&path).unwrap(), b"a concurrent edit\n");
         assert_eq!(entry_names(&canon(&dir)), ["a.txt"], "stage unlinked");
     }
@@ -262,7 +302,7 @@ mod tests {
         File::options().write(true).open(&path).unwrap().set_modified(later).unwrap();
 
         let err = replace(&path, b"cccc\n", &md).unwrap_err();
-        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(Refusal::of(&err), Some(&Refusal::ChangedSinceRead));
         assert_eq!(std::fs::read(&path).unwrap(), b"bbbb\n");
     }
 
@@ -288,7 +328,7 @@ mod tests {
             .unwrap();
 
         let err = replace(&path, b"cccc\n", &md).unwrap_err();
-        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(Refusal::of(&err), Some(&Refusal::ChangedSinceRead));
         assert_eq!(std::fs::read(&path).unwrap(), b"bbbb\n");
     }
 
@@ -305,7 +345,7 @@ mod tests {
         std::fs::rename(root.join("b.txt"), &path).unwrap();
 
         let err = replace(&path, b"fix\n", &md).unwrap_err();
-        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(Refusal::of(&err), Some(&Refusal::ChangedSinceRead));
         assert_eq!(std::fs::read(&path).unwrap(), b"new\n");
     }
 
@@ -319,6 +359,7 @@ mod tests {
 
         let err = replace(&path, b"new\n", &md).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(Refusal::of(&err), None, "a vanished target is an I/O error, not a refusal");
         assert!(entry_names(&canon(&dir)).is_empty());
     }
 
@@ -340,7 +381,7 @@ mod tests {
 
         let err = replace(&path, b"new\n", &md).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
-        assert!(err.to_string().contains("symlinked directory"), "unexpected error: {err}");
+        assert_eq!(Refusal::of(&err), Some(&Refusal::SymlinkedDirectory(root.join("sub"))));
         assert_eq!(std::fs::read(root.join("elsewhere").join("a.txt")).unwrap(), b"old\n");
         assert_eq!(
             entry_names(&root.join("elsewhere")),
@@ -388,6 +429,32 @@ mod tests {
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o640, "mode must survive the rename");
+    }
+
+    /// The setuid bit survives: ownership is copied before the mode, because
+    /// a `chown` clears setuid/setgid on Linux.
+    #[cfg(unix)]
+    #[test]
+    fn preserves_the_setuid_bit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = canon(&dir).join("a.sh");
+        std::fs::write(&path, b"old\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o4755)).unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+        if md.permissions().mode() & 0o7777 != 0o4755 {
+            crate::test_support::skip_precondition(
+                "setuid fixture",
+                "the filesystem refused to set the setuid bit; preservation was not checked",
+            );
+            return;
+        }
+
+        replace(&path, b"new\n", &md).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o7777, 0o4755, "setuid must survive the rewrite");
     }
 
     #[test]

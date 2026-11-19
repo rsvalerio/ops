@@ -94,11 +94,9 @@ pub fn run_about(
             // stream being tested is the one being rendered to. Prompt gates
             // use `is_prompt_tty` instead, because `inquire` renders to stderr
             // and reads stdin.
-            let opts = ops_about::AboutOptions::new(
-                refresh,
-                config.about.fields.clone(),
-                crate::tty::is_stdout_tty(),
-            );
+            let opts = ops_about::AboutOptions::new(config.about.fields.clone())
+                .with_refresh(refresh)
+                .with_tty(crate::tty::is_stdout_tty());
             ops_about::run_about(&registry, &opts, &cwd, &mut std::io::stdout())
         }
     }
@@ -448,6 +446,15 @@ pub fn run_before_push(
     run_hook_action(std::sync::Arc::clone(config), &pre_hook_cmd::PUSH_OPS, hook_action, dry_run)
 }
 
+/// The discovery scope a `--tracked` flag selects.
+const fn discovery_scope(tracked: bool) -> ops_text_fixers::discovery::Scope {
+    if tracked {
+        ops_text_fixers::discovery::Scope::Tracked
+    } else {
+        ops_text_fixers::discovery::Scope::Walk
+    }
+}
+
 /// Run a text-fixer and translate its [`ops_text_fixers::FixerReport`] into a process exit
 /// code: `FAILURE` when at least one file was rewritten, and also when at
 /// least one file could not be read or written back, or the discovery walk
@@ -463,7 +470,7 @@ where
     ) -> anyhow::Result<ops_text_fixers::FixerReport>,
 {
     let cwd = crate::cwd()?;
-    let opts = ops_text_fixers::FixerOptions::new(cwd, tracked).with_check(check);
+    let opts = ops_text_fixers::FixerOptions::new(cwd, discovery_scope(tracked)).with_check(check);
     let mut stdout = std::io::stdout();
     let report = fixer(&opts, &mut stdout)?;
     ops_text_fixers::write_summary(&report, label, &mut stdout)
@@ -516,14 +523,15 @@ where
 /// `ops_config_checkers`.
 pub fn run_check_json(tracked: bool, allow_json5: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
-    let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_json5(allow_json5);
+    let opts = ops_config_checkers::CheckerOptions::new(cwd, discovery_scope(tracked))
+        .with_allow_json5(allow_json5);
     run_config_checker("check-json", &opts, ops_config_checkers::run_check_json)
 }
 
 /// Run `ops check-yaml`: validate YAML via `ops_config_checkers`.
 pub fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
-    let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked);
+    let opts = ops_config_checkers::CheckerOptions::new(cwd, discovery_scope(tracked));
     run_config_checker("check-yaml", &opts, ops_config_checkers::run_check_yaml)
 }
 

@@ -23,9 +23,10 @@
 //!
 //! Deliberate skips are the other half of that accounting and are *not*
 //! failures: a file over [`DEFAULT_MAX_BYTES`], a non-regular file, a file
-//! that vanished between discovery and read, and a file that is not text are
-//! counted in [`FixerReport::files_skipped`]. `files_scanned + files_skipped +
-//! files_failed` accounts for every path discovery returned. All four are in
+//! that vanished between discovery and read, a file that is not text, and a
+//! tracked path discovery could not decode on this platform are counted in
+//! [`FixerReport::files_skipped`]. `files_scanned + files_skipped +
+//! files_failed` accounts for every path discovery found. All four are in
 //! the summary line; the skips are named file by file too, except the routine
 //! "not text" one — see `runner::write_skip`.
 //!

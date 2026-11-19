@@ -238,30 +238,17 @@ fn ensure_destination_free(from: &Path, to: &Path) -> anyhow::Result<()> {
 }
 
 /// Move one task file into `completed/` under the same name, atomically
-/// refusing to overwrite: a check-then-`rename` sequence would race (POSIX
-/// `rename` silently replaces a destination that appears between the two),
-/// so the destination name is claimed with a hard link instead — `link(2)`
-/// fails with `EEXIST` when the name is taken, with no window in between —
-/// and only then is the source name dropped. A crash between the two steps
-/// leaves both names pointing at one file: recoverable, never destructive.
+/// refusing to overwrite: the destination name is claimed with
+/// [`super::link_noclobber`] and only then is the source name dropped.
 ///
 /// # Errors
 ///
 /// As [`destination_for`]; the destination name is already taken (the error
-/// names both paths); or the link/remove itself fails (the error names the
+/// names it); or the link/remove itself fails (the error names the
 /// path).
 fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
     let to = destination_for(from, completed)?;
-    if let Err(err) = std::fs::hard_link(from, &to) {
-        if err.kind() == std::io::ErrorKind::AlreadyExists {
-            anyhow::bail!(
-                "{} already exists; refusing to overwrite it with {}",
-                to.display(),
-                from.display()
-            );
-        }
-        return Err(err).with_context(|| format!("linking {} to {}", from.display(), to.display()));
-    }
+    super::link_noclobber(from, &to)?;
     std::fs::remove_file(from).with_context(|| {
         format!("removing {} after linking it as {}", from.display(), to.display())
     })?;

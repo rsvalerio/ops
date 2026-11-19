@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use super::{Fallback, discover, walk};
+use super::{Fallback, Scope, discover, walk};
 use crate::test_support::{git_add, git_available, git_init, is_inside_repo};
 
 fn names(paths: &[std::path::PathBuf]) -> Vec<String> {
@@ -24,7 +24,7 @@ fn walk_skips_deny_listed_dirs() {
     std::fs::create_dir_all(root.join("node_modules")).unwrap();
     std::fs::write(root.join("node_modules/skip.txt"), b"a").unwrap();
 
-    let (files, errors) = walk(root).unwrap();
+    let (files, errors) = walk(root);
     assert!(errors.is_empty(), "unexpected walk errors: {errors:?}");
     let names = names(&files);
     assert!(names.contains(&"keep.txt".to_string()));
@@ -41,7 +41,7 @@ fn walk_skips_gitignored_files() {
     std::fs::create_dir_all(root.join("generated")).unwrap();
     std::fs::write(root.join("generated/out.txt"), b"a").unwrap();
 
-    let names = names(&walk(root).unwrap().0);
+    let names = names(&walk(root).0);
     assert!(names.contains(&"keep.ts".to_string()));
     // dotfiles stay in scope; only ignore rules and the deny-list filter.
     assert!(names.contains(&".gitignore".to_string()));
@@ -57,7 +57,7 @@ fn walk_does_not_filter_the_root_itself() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("keep.txt"), b"a").unwrap();
 
-    let (files, _) = walk(&root).unwrap();
+    let (files, _) = walk(&root);
     assert_eq!(files.len(), 1);
     assert!(files[0].ends_with("keep.txt"));
 }
@@ -68,7 +68,7 @@ fn walk_descends_into_normal_subdirs() {
     let root = dir.path();
     std::fs::create_dir_all(root.join("src/nested")).unwrap();
     std::fs::write(root.join("src/nested/deep.txt"), b"a").unwrap();
-    let (files, errors) = walk(root).unwrap();
+    let (files, errors) = walk(root);
     assert!(errors.is_empty(), "unexpected walk errors: {errors:?}");
     assert_eq!(files.len(), 1);
     assert!(files[0].ends_with("src/nested/deep.txt"));
@@ -82,7 +82,7 @@ fn walk_drops_symlinks() {
     std::fs::write(root.join("real.txt"), b"a").unwrap();
     std::os::unix::fs::symlink(root.join("real.txt"), root.join("link.txt")).unwrap();
 
-    let names = names(&walk(root).unwrap().0);
+    let names = names(&walk(root).0);
     assert_eq!(names, vec!["real.txt".to_string()]);
 }
 
@@ -103,7 +103,7 @@ fn a_directory_the_walk_cannot_enter_is_reported_not_swallowed() {
         return;
     };
 
-    let found = discover(root, false).unwrap();
+    let found = discover(root, Scope::Walk).unwrap();
     drop(guard);
 
     assert!(
@@ -126,7 +126,7 @@ fn discover_walk_mode_never_reports_a_fallback() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
 
-    let found = discover(dir.path(), false).unwrap();
+    let found = discover(dir.path(), Scope::Walk).unwrap();
     assert!(found.fallback.is_none());
     assert_eq!(found.files.len(), 1);
 }
@@ -142,7 +142,7 @@ fn tracked_mode_returns_tracked_files_and_excludes_untracked() {
     std::fs::write(root.join("untracked.txt"), b"a").unwrap();
     git_add(root, &[Path::new("tracked.txt")]);
 
-    let found = discover(root, true).unwrap();
+    let found = discover(root, Scope::Tracked).unwrap();
     assert!(found.fallback.is_none(), "a real repo must not fall back");
     assert_eq!(found.undecodable_paths, 0);
     assert_eq!(
@@ -167,7 +167,7 @@ fn tracked_mode_joins_paths_relative_to_a_subdirectory_root() {
     std::fs::write(sub.join("inner.txt"), b"a").unwrap();
     git_add(repo, &[Path::new("top.txt"), Path::new("sub/inner.txt")]);
 
-    let found = discover(&sub, true).unwrap();
+    let found = discover(&sub, Scope::Tracked).unwrap();
     assert_eq!(
         relative_set(&found.files, &sub),
         BTreeSet::from([std::path::PathBuf::from("inner.txt")]),
@@ -192,7 +192,7 @@ fn tracked_mode_falls_back_and_reports_when_root_is_not_a_repository() {
     }
     std::fs::write(root.join("untracked.txt"), b"a").unwrap();
 
-    let found = discover(root, true).unwrap();
+    let found = discover(root, Scope::Tracked).unwrap();
     assert_eq!(found.fallback, Some(Fallback::NotARepository));
     assert_eq!(
         relative_set(&found.files, root),
@@ -215,7 +215,7 @@ fn a_genuine_git_failure_is_an_error_not_a_silent_fallback() {
     git_add(root, &[Path::new("a.txt")]);
     std::fs::write(root.join(".git/index"), b"not an index").unwrap();
 
-    let err = discover(root, true).expect_err("a corrupt index must not fall back");
+    let err = discover(root, Scope::Tracked).expect_err("a corrupt index must not fall back");
     assert!(err.to_string().contains("git ls-files"), "the error must say what failed: {err}");
 }
 
@@ -231,8 +231,8 @@ fn tracked_mode_drops_symlinks_and_agrees_with_the_walk() {
     std::os::unix::fs::symlink("real.txt", root.join("link.txt")).unwrap();
     git_add(root, &[Path::new("real.txt"), Path::new("link.txt")]);
 
-    let tracked = discover(root, true).unwrap();
-    let walked = discover(root, false).unwrap();
+    let tracked = discover(root, Scope::Tracked).unwrap();
+    let walked = discover(root, Scope::Walk).unwrap();
     assert_eq!(
         relative_set(&tracked.files, root),
         BTreeSet::from([std::path::PathBuf::from("real.txt")]),
@@ -261,7 +261,7 @@ fn tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory() {
     std::fs::write(root.join("keep.txt"), b"a").unwrap();
     git_add(root, &[Path::new("dist/vendored.txt"), Path::new("keep.txt")]);
 
-    let tracked = discover(root, true).unwrap();
+    let tracked = discover(root, Scope::Tracked).unwrap();
     assert_eq!(
         relative_set(&tracked.files, root),
         BTreeSet::from([
@@ -272,7 +272,7 @@ fn tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory() {
          directory is the user's reviewed choice and stays in scope"
     );
 
-    let walked = discover(root, false).unwrap();
+    let walked = discover(root, Scope::Walk).unwrap();
     assert_eq!(
         relative_set(&walked.files, root),
         BTreeSet::from([std::path::PathBuf::from("keep.txt")]),
@@ -300,7 +300,7 @@ fn tracked_mode_keeps_a_tracked_but_gitignored_file() {
     std::fs::write(root.join(".gitignore"), b"generated.md\n").unwrap();
     git_add(root, &[Path::new(".gitignore")]);
 
-    let tracked = discover(root, true).unwrap();
+    let tracked = discover(root, Scope::Tracked).unwrap();
     assert_eq!(
         relative_set(&tracked.files, root),
         BTreeSet::from([
@@ -311,7 +311,7 @@ fn tracked_mode_keeps_a_tracked_but_gitignored_file() {
         "the index, not the ignore rules, decides what --tracked sees"
     );
 
-    let walked = discover(root, false).unwrap();
+    let walked = discover(root, Scope::Walk).unwrap();
     assert_eq!(
         relative_set(&walked.files, root),
         BTreeSet::from([
@@ -344,8 +344,8 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
     // bailed at git_init above.
     git_add(root, &[Path::new(raw)]);
 
-    let tracked = discover(root, true).unwrap();
-    let walked = discover(root, false).unwrap();
+    let tracked = discover(root, Scope::Tracked).unwrap();
+    let walked = discover(root, Scope::Walk).unwrap();
     assert_eq!(tracked.undecodable_paths, 0, "unix decodes bytes losslessly");
     assert_eq!(
         relative_set(&tracked.files, root),
@@ -369,7 +369,7 @@ fn walk_never_returns_a_stale_stage_file() {
     std::fs::write(root.join("keep.txt"), b"a").unwrap();
     std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
 
-    let names = names(&walk(root).unwrap().0);
+    let names = names(&walk(root).0);
     assert!(names.contains(&"keep.txt".to_string()), "ordinary files stay in scope");
     assert!(
         !names.iter().any(|n| n.starts_with(crate::atomic::STAGE_PREFIX)),
@@ -393,7 +393,7 @@ fn tracked_mode_never_returns_a_staged_stage_file() {
     // The post-interrupt `git add -A`: both files land in the index.
     git_add(root, &[Path::new("keep.txt"), Path::new(".ops-text-fixers.abc123")]);
 
-    let tracked = discover(root, true).unwrap();
+    let tracked = discover(root, Scope::Tracked).unwrap();
     assert_eq!(
         relative_set(&tracked.files, root),
         BTreeSet::from([std::path::PathBuf::from("keep.txt")]),

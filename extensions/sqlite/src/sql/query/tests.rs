@@ -115,6 +115,37 @@ fn query_crate_loc_with_data() {
     assert_eq!(result["crates/my-cli"], 1892);
 }
 
+/// A file under a nested member counts only toward the innermost member, so
+/// the per-crate LOC and file counts sum to the project totals.
+#[test]
+fn query_crate_loc_and_file_count_attribute_nested_members_once() {
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE tokei_files (language VARCHAR, file VARCHAR, code BIGINT, \
+         comments BIGINT, blanks BIGINT, lines BIGINT);
+         INSERT INTO tokei_files VALUES ('Rust', 'a/src/lib.rs', 10, 0, 0, 10);
+         INSERT INTO tokei_files VALUES ('Rust', 'a/b/src/lib.rs', 7, 0, 0, 7);
+         INSERT INTO tokei_files VALUES ('Rust', 'a/b/src/util.rs', 3, 0, 0, 3);",
+    )
+    .expect("insert test data");
+    drop(conn);
+
+    let members = ["a", "a/b"];
+    let loc = query_crate_loc(&db, &members).expect("loc");
+    assert_eq!(loc["a"], 10, "a/b's files must not count toward a");
+    assert_eq!(loc["a/b"], 10);
+    assert_eq!(loc.values().sum::<i64>(), query_project_loc(&db).expect("project loc"));
+
+    let files = query_crate_file_count(&db, &members).expect("file count");
+    assert_eq!(files["a"], 1);
+    assert_eq!(files["a/b"], 2);
+    assert_eq!(
+        files.values().sum::<i64>(),
+        query_project_file_count(&db).expect("project file count")
+    );
+}
+
 #[test]
 fn query_crate_loc_empty_table() {
     let db = Sqlite::open_in_memory().expect("open in-memory db");

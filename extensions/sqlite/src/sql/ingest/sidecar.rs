@@ -24,14 +24,22 @@ pub fn sidecar_name(name: &str) -> String {
 /// non-UTF-8 paths round-trip exactly rather than being silently corrupted
 /// to `U+FFFD`.
 ///
+/// The path must pass the same checks [`read_workspace_sidecar`] applies;
+/// one that would be refused on read is
+/// refused here, before anything is staged, so the failure names the
+/// workspace path instead of surfacing later as an unreadable sidecar.
+///
 /// # Errors
 ///
-/// [`DbError::Io`] if the sidecar cannot be written atomically.
+/// [`DbError::Io`] with [`std::io::ErrorKind::InvalidInput`] if
+/// `working_directory` would be rejected on read, or [`DbError::Io`] if the
+/// sidecar cannot be written atomically.
 pub fn write_workspace_sidecar(
     dir: &IngestDir,
     name: &str,
     working_directory: &std::path::Path,
 ) -> DbResult<()> {
+    check_workspace_path(working_directory)?;
     // Atomic (temp + fsync + rename), so a crash cannot leave a zero-byte or
     // torn sidecar, and anchored: the temp is created and renamed through the
     // verified directory descriptor, so swapping the ingest dir's *name*
@@ -39,11 +47,43 @@ pub fn write_workspace_sidecar(
     dir.write_atomic(&sidecar_name(name), working_directory.as_os_str().as_encoded_bytes())
 }
 
+/// Refuses a workspace path that a sidecar could not carry: one whose bytes
+/// hold an ASCII control byte, or (off Unix) are not valid UTF-8 — the same
+/// rules [`read_workspace_sidecar`] enforces.
+fn check_workspace_path(working_directory: &std::path::Path) -> DbResult<()> {
+    sidecar_bytes_problem(working_directory.as_os_str().as_encoded_bytes()).map_or(
+        Ok(()),
+        |problem| {
+            Err(DbError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "workspace path {:?} cannot be recorded in a sidecar: {problem}",
+                    working_directory.display()
+                ),
+            )))
+        },
+    )
+}
+
+/// The one acceptance rule for sidecar bytes, shared by the writer and the
+/// reader so the two halves of the format cannot disagree. `None` when the
+/// bytes are acceptable, otherwise what is wrong with them.
+fn sidecar_bytes_problem(bytes: &[u8]) -> Option<String> {
+    if let Some(idx) = bytes.iter().position(|b| (*b <= 0x1f) || *b == 0x7f) {
+        return Some(format!("contains ASCII control byte at offset {idx}"));
+    }
+    #[cfg(not(unix))]
+    if let Err(e) = std::str::from_utf8(bytes) {
+        return Some(format!("contains invalid UTF-8: {e}"));
+    }
+    None
+}
+
 /// Hard cap on workspace sidecar read size.
 ///
-/// A real sidecar holds a single filesystem path (kilobytes at most);
-/// an adversarial or `/dev/zero`-symlinked sidecar could otherwise OOM
-/// the CLI before the unsafe `from_encoded_bytes_unchecked` boundary.
+/// A real sidecar holds a single filesystem path (kilobytes at most); the
+/// cap bounds the allocation an oversized or `/dev/zero`-backed sidecar
+/// could otherwise force before the content checks run.
 pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read a workspace root sidecar file written during collect.
@@ -82,12 +122,11 @@ pub fn read_workspace_sidecar(dir: &IngestDir, name: &str) -> DbResult<std::ffi:
             ),
         )));
     }
-    if let Some(idx) = bytes.iter().position(|b| (*b <= 0x1f) || *b == 0x7f) {
+    if let Some(problem) = sidecar_bytes_problem(&bytes) {
         return Err(DbError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
-                "workspace sidecar {} contains ASCII control byte at offset {idx}; \
-                 refusing to load",
+                "workspace sidecar {} {problem}; refusing to load",
                 dir.entry_path(&entry).display()
             ),
         )));
@@ -99,14 +138,9 @@ pub fn read_workspace_sidecar(dir: &IngestDir, name: &str) -> DbResult<std::ffi:
     }
     #[cfg(not(unix))]
     {
-        let s = std::str::from_utf8(&bytes).map_err(|e| {
-            DbError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "workspace sidecar {} contains invalid UTF-8: {e}",
-                    dir.entry_path(&entry).display()
-                ),
-            ))
+        // `sidecar_bytes_problem` already refused non-UTF-8 bytes.
+        let s = String::from_utf8(bytes).map_err(|e| {
+            DbError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
         })?;
         Ok(std::ffi::OsString::from(s))
     }
@@ -237,6 +271,21 @@ mod tests {
             ),
             other => panic!("expected DbError::Io, got {other:?}"),
         }
+    }
+
+    /// A workspace path the reader would refuse is refused at write time,
+    /// naming the path, and nothing is staged.
+    #[test]
+    fn write_workspace_sidecar_refuses_a_path_with_a_control_byte() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
+        let working = PathBuf::from("/ws/new\nline");
+        let err = write_workspace_sidecar(&dir, "ctl", &working)
+            .expect_err("a control byte must be refused on write");
+        let DbError::Io(e) = err else { panic!("expected DbError::Io, got {err:?}") };
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(e.to_string().contains("/ws/new\\nline"), "must name the path: {e}");
+        assert!(!dir.entry_path("ctl_workspace.txt").exists(), "nothing may be staged");
     }
 
     /// Tampered sidecar with control byte rejected.

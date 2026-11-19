@@ -144,23 +144,7 @@ pub fn build_identity_value(
         languages,
     } = manifest;
 
-    // Reject non-UTF-8 cwd up front. `Path::display`
-    // would otherwise replace each invalid byte with `U+FFFD`, silently
-    // corrupting the `project_root` field of every downstream identity
-    // JSON. See module-level / fn-level docs for the shared contract
-    // with `upsert_data_source`'s `NonUtf8Path`.
-    #[allow(clippy::unnecessary_debug_formatting)]
-    let project_root = cwd.to_str().ok_or_else(|| {
-        // Render the offending OsStr via `Debug` so
-        // invalid UTF-8 bytes are escaped as `\xNN` rather than replaced
-        // with `U+FFFD` by `Path::display`. The error string lands in
-        // operator logs / CLI output verbatim, so the previous Display
-        // path embedded the same lossy bytes the JSON guard rejects.
-        DataProviderError::computation_failed(format!(
-            "project_root path is not valid UTF-8: {:?}",
-            cwd.as_os_str()
-        ))
-    })?;
+    let project_root = project_root_str(cwd)?;
 
     let name = name.unwrap_or_else(|| dir_name(cwd).to_string());
     let repository = ops_git::provider::resolve_repository_with_git_fallback(cwd, repository);
@@ -182,6 +166,28 @@ pub fn build_identity_value(
     identity.languages = languages;
 
     serde_json::to_value(&identity).map_err(DataProviderError::from)
+}
+
+/// `cwd` as the UTF-8 `project_root` string every [`ProjectIdentity`] carries.
+///
+/// The one non-UTF-8 policy for `project_root`, shared by
+/// [`build_identity_value`] and the about card's no-provider fallback: a
+/// non-UTF-8 path is rejected rather than rendered through `Path::display`,
+/// which would replace each invalid byte with `U+FFFD`.
+///
+/// # Errors
+///
+/// [`DataProviderError::ComputationMessage`] when `cwd` is not valid UTF-8.
+/// The message renders the path through `Debug`, so invalid bytes appear
+/// escaped as `\xNN` rather than replaced.
+#[allow(clippy::unnecessary_debug_formatting)]
+pub(crate) fn project_root_str(cwd: &Path) -> Result<&str, DataProviderError> {
+    cwd.to_str().ok_or_else(|| {
+        DataProviderError::computation_failed(format!(
+            "project_root path is not valid UTF-8: {:?}",
+            cwd.as_os_str()
+        ))
+    })
 }
 
 #[cfg(test)]

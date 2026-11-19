@@ -67,7 +67,7 @@ fn scan_source(path: &str, source: &str) -> Vec<Finding> {
 /// The walk failed, or a file could not be read, either of which would
 /// otherwise pass an unscanned file as clean.
 pub fn run_doc_ids(root: &Path, w: &mut dyn Write) -> anyhow::Result<ExitCode> {
-    let found = ops_text_fixers::discovery::discover(root, false)
+    let found = ops_text_fixers::discovery::discover(root, ops_text_fixers::discovery::Scope::Walk)
         .with_context(|| format!("walking {}", root.display()))?;
     if let Some(first) = found.walk_errors.first() {
         anyhow::bail!(

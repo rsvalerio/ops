@@ -128,24 +128,7 @@ impl Store {
     /// error names the directory), or a task file that exists does not
     /// parse (the error names the file).
     pub fn scan_tasks(&self) -> anyhow::Result<Vec<TaskEntry>> {
-        let mut entries = Vec::new();
-        let dir = self.backlog_root.join("tasks");
-        let Some(read) = read_existing_dir(&dir)? else {
-            return Ok(entries);
-        };
-        for entry in read {
-            let path = readable_entry(entry, &dir)?.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let src = std::fs::read_to_string(&path)
-                .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-            let doc = TaskDoc::parse(&src)
-                .map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))?;
-            entries.push(TaskEntry { path, doc });
-        }
-        entries.sort_by_key(|e| leading_task_number_of(&e.doc.frontmatter.id).unwrap_or(0));
-        Ok(entries)
+        read_task_dir(&self.backlog_root.join("tasks"), BadFile::Fail, |_| true)
     }
 
     /// Every parseable task in every [`TASK_DIRS`] directory that exists,
@@ -171,32 +154,28 @@ impl Store {
             let Some(location) = TaskLocation::from_dir(dir) else {
                 continue;
             };
-            let dir_path = self.backlog_root.join(dir);
-            let Some(read) = read_existing_dir(&dir_path)? else {
-                continue;
-            };
-            let mut entries = Vec::new();
-            for entry in read {
-                let path = readable_entry(entry, &dir_path)?.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                    continue;
-                }
-                let src = std::fs::read_to_string(&path)
-                    .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-                let doc = TaskDoc::parse(&src)
-                    .map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))?;
-                entries.push(LocatedTask { path, location, doc });
-            }
-            entries.sort_by_key(|l| leading_task_number_of(&l.doc.frontmatter.id).unwrap_or(0));
-            located.extend(entries);
+            let entries = read_task_dir(&self.backlog_root.join(dir), BadFile::Fail, |_| true)?;
+            located.extend(entries.into_iter().map(|TaskEntry { path, doc }| LocatedTask {
+                path,
+                location,
+                doc,
+            }));
         }
         Ok(located)
     }
 
     /// Resolve one task id across [`LOOKUP_DIRS`] in precedence order.
-    /// Matching is case-insensitive on the full id, and also
-    /// accepts the bare forms `N` / `N.M` (any prefix or zero padding) via
+    /// Matching follows [`same_task_id`]: case-insensitive on the full id,
+    /// and also the bare forms `N` / `N.M` (any prefix or zero padding) via
     /// [`task_id_key`] — `1765`, `1764.02` and `task-1764.02` all resolve.
+    ///
+    /// Only candidate files are read: when both the wanted id and a file's
+    /// name (`task-<n>[.<mm>] - <slug>.md`) carry a [`task_id_key`], a file
+    /// whose name keys differently is skipped unread. A name without a
+    /// derivable id (or a wanted id without one) falls back to reading and
+    /// parsing the file, so nothing the full scan would match is missed —
+    /// except a file whose name disagrees with its own frontmatter id, which
+    /// the backlog CLI never writes.
     ///
     /// Tolerance rule: a lookup directory that is merely absent is skipped,
     /// and a task file that
@@ -209,29 +188,21 @@ impl Store {
     /// read (the error names the directory), mirroring
     /// [`Store::scan_all_tasks`].
     pub fn find(&self, id: &str) -> anyhow::Result<Option<TaskEntry>> {
-        let wanted = id.to_ascii_lowercase();
         let wanted_key = task_id_key(id);
+        let is_candidate = |path: &Path| {
+            let name_key = path.file_name().and_then(|n| n.to_str()).and_then(file_name_id_key);
+            match (wanted_key, name_key) {
+                (Some(wanted), Some(named)) => wanted == named,
+                _ => true,
+            }
+        };
         for dir in LOOKUP_DIRS {
-            let dir_path = self.backlog_root.join(dir);
-            let Some(read) = read_existing_dir(&dir_path)? else {
-                continue;
-            };
-            for entry in read {
-                let path = readable_entry(entry, &dir_path)?.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                    continue;
-                }
-                let Ok(src) = std::fs::read_to_string(&path) else {
-                    continue;
-                };
-                let Ok(doc) = TaskDoc::parse(&src) else {
-                    continue;
-                };
-                let matches = doc.frontmatter.id.to_ascii_lowercase() == wanted
-                    || wanted_key.is_some_and(|key| task_id_key(&doc.frontmatter.id) == Some(key));
-                if matches {
-                    return Ok(Some(TaskEntry { path, doc }));
-                }
+            let candidates =
+                read_task_dir(&self.backlog_root.join(dir), BadFile::Skip, is_candidate)?;
+            if let Some(found) =
+                candidates.into_iter().find(|e| same_task_id(&e.doc.frontmatter.id, id))
+            {
+                return Ok(Some(found));
             }
         }
         Ok(None)
@@ -315,16 +286,6 @@ impl Store {
     }
 }
 
-/// The integer part of a `TASK-<n>` / `TASK-<n>.<mm>` id, when the id
-/// carries a numeric part.
-fn leading_task_number_of(id: &str) -> Option<u32> {
-    let digits = id
-        .split_once('-')
-        .and_then(|(_, rest)| rest.split('.').next())
-        .filter(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))?;
-    digits.parse::<u32>().ok()
-}
-
 /// The `(number, subtask)` comparison key of a task id, tolerating any
 /// prefix, case or zero padding.
 ///
@@ -348,9 +309,53 @@ pub fn task_id_key(id: &str) -> Option<(u32, Option<u32>)> {
     Some((main, sub))
 }
 
+/// Do `a` and `b` name the same task?
+///
+/// The one id-matching rule every command shares: equal ignoring ASCII
+/// case, or equal [`task_id_key`]s — so an upper-case id, its lowercase
+/// zero-padded spelling and the bare number all name one task, while a
+/// parent never matches its dotted subtask.
+/// [`Store::find`] resolves with it, and membership, parent and dependency
+/// queries compare with it, so an id one command accepts no other rejects.
+#[must_use = "the answer exists to be branched on"]
+pub fn same_task_id(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b) || task_id_key(a).is_some_and(|key| task_id_key(b) == Some(key))
+}
+
+/// A hashable form of an id, equal for exactly the ids [`same_task_id`]
+/// matches: the [`task_id_key`] shape when the id carries one, the
+/// lowercased id otherwise. For id-keyed maps (`id → status` lookups).
+#[must_use = "the key exists to index a map"]
+pub fn task_id_lookup_key(id: &str) -> String {
+    // The NUL prefix keeps a numeric key from colliding with a literal,
+    // non-numeric id that happens to spell the same text.
+    match task_id_key(id) {
+        Some((number, Some(sub))) => format!("\0{number}.{sub}"),
+        Some((number, None)) => format!("\0{number}"),
+        None => id.to_ascii_lowercase(),
+    }
+}
+
+/// Sort key ordering ids numerically — the number, then the subtask, so
+/// 999 sorts before 1000 and a parent before its subtasks. Ids without a
+/// numeric shape sort first.
+fn id_sort_key(id: &str) -> (u32, Option<u32>) {
+    task_id_key(id).unwrap_or((0, None))
+}
+
+/// The [`task_id_key`] of the id portion of a task filename
+/// (`task-<n>[.<mm>] - <slug>.md`), or `None` when the name carries no
+/// derivable id.
+fn file_name_id_key(file_name: &str) -> Option<(u32, Option<u32>)> {
+    task_id_key(TaskFileName::parse(file_name)?.id)
+}
+
 /// A backlog task filename split into id and slug:
 /// `task-<n>[.<mm>] - <slug>.md`.
 pub struct TaskFileName<'a> {
+    /// The id portion before the `" - "` separator, verbatim — the dotted
+    /// subtask suffix included (`task-0042.03`).
+    pub id: &'a str,
     /// Integer part of the `task-<n>` id, when the name carries one.
     pub number: Option<u32>,
     /// Slug between the `" - "` separator and the `.md` extension.
@@ -369,12 +374,16 @@ impl<'a> TaskFileName<'a> {
     pub fn parse(file_name: &'a str) -> Option<Self> {
         let stem = file_name.strip_suffix(".md")?;
         let (id, slug) = stem.split_once(" - ").unwrap_or((stem, ""));
-        Some(Self { number: leading_task_number(id), slug })
+        Some(Self { id, number: leading_task_number(id), slug })
     }
 }
 
 /// The integer part of a `task-<n>` / `task-<n>.<mm>` id, if it starts with
 /// the `task-` prefix followed by at least one digit.
+///
+/// Filename-only, for id allocation: it reads the leading digits of the
+/// names the backlog CLI writes, conservatively (`task-12abc` still reserves
+/// 12). Comparing two ids is [`same_task_id`]'s job, never this one's.
 fn leading_task_number(id: &str) -> Option<u32> {
     let digits = id
         .strip_prefix("task-")?
@@ -416,6 +425,59 @@ fn readable_entry(
     dir_path: &Path,
 ) -> anyhow::Result<std::fs::DirEntry> {
     entry.map_err(|err| anyhow::anyhow!("reading {}: {err}", dir_path.display()))
+}
+
+/// What [`read_task_dir`] does with a task file that cannot be read or
+/// parsed.
+#[derive(Debug, Clone, Copy)]
+enum BadFile {
+    /// Fail naming the file — a scan must not silently drop a task.
+    Fail,
+    /// Skip it — a lookup must not let a damaged neighbour hide the task
+    /// it is looking for.
+    Skip,
+}
+
+/// Read and parse the `.md` entries of `dir_path` that `keep` accepts,
+/// sorted by numeric id ascending. A missing directory is empty.
+///
+/// The one reader behind [`Store::scan_tasks`], [`Store::scan_all_tasks`]
+/// and [`Store::find`]; `keep` lets a lookup skip non-candidates before
+/// paying for the read and parse.
+///
+/// # Errors
+///
+/// The directory exists but it, or one of its entries, cannot be read (the
+/// error names the directory); with [`BadFile::Fail`], also a task file
+/// that cannot be read or does not parse (the error names the file).
+fn read_task_dir(
+    dir_path: &Path,
+    bad_file: BadFile,
+    mut keep: impl FnMut(&Path) -> bool,
+) -> anyhow::Result<Vec<TaskEntry>> {
+    let mut entries = Vec::new();
+    let Some(read) = read_existing_dir(dir_path)? else {
+        return Ok(entries);
+    };
+    for entry in read {
+        let path = readable_entry(entry, dir_path)?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") || !keep(&path) {
+            continue;
+        }
+        let parsed = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))
+            .and_then(|src| {
+                TaskDoc::parse(&src)
+                    .map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))
+            });
+        match (parsed, bad_file) {
+            (Ok(doc), _) => entries.push(TaskEntry { path, doc }),
+            (Err(_), BadFile::Skip) => {}
+            (Err(err), BadFile::Fail) => return Err(err),
+        }
+    }
+    entries.sort_by_key(|e| id_sort_key(&e.doc.frontmatter.id));
+    Ok(entries)
 }
 
 /// Walk every entry name in each existing [`TASK_DIRS`] directory, in
@@ -698,6 +760,49 @@ mod tests {
 
     /// [`task_id_key`] is the single shape both the tolerant `find` and the
     /// CLI's `backlog task <id>` shorthand agree on; pin its edges.
+    /// [`same_task_id`] is the one matching rule: case, padding, prefix
+    /// and the bare forms all match; a parent never matches its subtask;
+    /// [`task_id_lookup_key`] agrees with it.
+    #[test]
+    fn same_task_id_owns_the_matching_rule() {
+        let same = [
+            ("TASK-12", "task-0012"),
+            ("TASK-12", "12"),
+            ("task-1764.02", "1764.2"),
+            ("Foo", "foo"),
+        ];
+        for (a, b) in same {
+            assert!(same_task_id(a, b), "{a} ~ {b}");
+            assert_eq!(task_id_lookup_key(a), task_id_lookup_key(b), "{a} ~ {b}");
+        }
+        let different = [("TASK-12", "TASK-12.01"), ("TASK-12", "TASK-13"), ("foo", "bar")];
+        for (a, b) in different {
+            assert!(!same_task_id(a, b), "{a} !~ {b}");
+            assert_ne!(task_id_lookup_key(a), task_id_lookup_key(b), "{a} !~ {b}");
+        }
+    }
+
+    /// `find` skips files whose name keys to another id without reading
+    /// them, and still resolves a task whose name carries no derivable id.
+    #[test]
+    fn find_prefilters_by_file_name_and_falls_back_for_idless_names() {
+        let dir = scratch_backlog(&[]);
+        let tasks = dir.path().join(".backlog").join("tasks");
+        let doc = |id: &str| {
+            format!(
+                "---\nid: {id}\ntitle: 't'\nstatus: To Do\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n"
+            )
+        };
+        // Named for TASK-0002 but carrying TASK-0001: never a candidate for 1.
+        std::fs::write(tasks.join("task-0002 - decoy.md"), doc("TASK-0001")).expect("seed");
+        // No derivable id in the name: read as the fallback.
+        std::fs::write(tasks.join("notes.md"), doc("TASK-0003")).expect("seed");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        assert!(store.find("TASK-0001").expect("find").is_none(), "decoy must be skipped unread");
+        let found = store.find("3").expect("find").expect("idless name falls back to a parse");
+        assert!(found.path.ends_with("notes.md"));
+    }
+
     #[test]
     fn task_id_key_shapes() {
         assert_eq!(task_id_key("TASK-1765"), Some((1765, None)));

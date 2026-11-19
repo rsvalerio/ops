@@ -1,8 +1,5 @@
-//! Table creation, sidecar I/O, and data pipeline helpers.
-//!
-//! Split the previous 1500+ line module into four
-//! per-concern submodules. The crate-level `pub use` surface in
-//! `super::sql` is preserved so downstream callers see no churn.
+//! Table creation, sidecar I/O, and data pipeline helpers, split into
+//! per-concern submodules and re-exported through `super::sql`.
 
 pub(super) mod dir;
 pub(super) mod orchestrator;
@@ -16,8 +13,9 @@ pub use sidecar::{
     MAX_SIDECAR_BYTES,
 };
 pub use sql::{
-    execute_json_load, load_json_string, query_rows_to_json, table_has_data, CreateTableSql,
-    CreateViewSql, JsonColumn, JsonColumnType, JsonLoadShape, JsonTableLoad,
+    execute_json_load, in_transaction, load_json_string, query_rows_to_json, source_is_loaded,
+    table_has_data, CreateTableSql, CreateViewSql, JsonColumn, JsonColumnType, JsonLoadShape,
+    JsonTableLoad,
 };
 
 pub(super) use sql::table_exists;

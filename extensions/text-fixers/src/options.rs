@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use crate::discovery::Scope;
+
 // One definition, re-exported — the shared cap lives in
 // `ops_core::bounded_read` next to the read that enforces it, so the fixers
 // and the config checkers cannot drift on what "too big to hold" means. The
@@ -15,11 +17,11 @@ pub struct FixerOptions {
     /// Directory the fixers walk for candidate files. Per-file paths in the
     /// report are rendered relative to it where possible.
     pub root: PathBuf,
-    /// Select only the files git tracks, via `git ls-files` from `root`.
-    /// When git is unavailable or `root` is not a repository, discovery
-    /// silently widens to a full filesystem walk and records the reason in
-    /// the report's fallback notice; see [`crate::discovery`].
-    pub tracked_only: bool,
+    /// Where candidates come from: a walk of `root`, or only the files git
+    /// tracks. A [`Scope::Tracked`] run whose git is unavailable, or whose
+    /// `root` is not a repository, widens to a full walk and says so in a
+    /// fallback notice; see [`crate::discovery`].
+    pub scope: Scope,
     /// Per-file size cap; see [`DEFAULT_MAX_BYTES`]. Enforced on the read
     /// itself, not by a preceding `metadata()` call.
     pub max_bytes: u64,
@@ -31,11 +33,15 @@ pub struct FixerOptions {
 }
 
 impl FixerOptions {
+    /// Options for fixing the `scope` candidates under `root`, with the
+    /// defaults applied: `max_bytes` = [`DEFAULT_MAX_BYTES`] and `check` =
+    /// `false`, so files are rewritten.
     #[must_use]
-    pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
-        Self { root, tracked_only, max_bytes: DEFAULT_MAX_BYTES, check: false }
+    pub const fn new(root: PathBuf, scope: Scope) -> Self {
+        Self { root, scope, max_bytes: DEFAULT_MAX_BYTES, check: false }
     }
 
+    /// Override the per-file size cap; see [`FixerOptions::max_bytes`].
     #[must_use]
     pub const fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;

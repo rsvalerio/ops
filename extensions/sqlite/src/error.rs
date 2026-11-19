@@ -3,11 +3,6 @@
 use thiserror::Error;
 
 /// Database operations error.
-// READ-10 / TASK-1873: no enum-wide `#[allow(dead_code)]`. A container-level
-// allow hides *future* dead code too — a variant nobody constructs would stay
-// invisible forever. Any variant that genuinely has no producer yet carries
-// its own `#[expect(dead_code, reason = "…")]`, which deletes itself as soon
-// as a producer appears.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum DbError {

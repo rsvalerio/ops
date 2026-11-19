@@ -47,6 +47,10 @@ impl ops_core::bounded_read::FileRunReport for FixerReport {
     fn adopt_walk_errors(&mut self, errors: Vec<String>) {
         self.walk_errors = errors;
     }
+
+    fn add_skipped(&mut self, count: usize) {
+        self.files_skipped = self.files_skipped.saturating_add(count);
+    }
 }
 
 impl FixerReport {
@@ -74,7 +78,7 @@ impl FixerReport {
 
 /// One-line summary for the CLI.
 ///
-/// `scanned + skipped + failed` accounts for every path discovery returned, so
+/// `scanned + skipped + failed` accounts for every path discovery found, so
 /// no file — an unreadable one included — can vanish from the summary.
 ///
 /// # Errors

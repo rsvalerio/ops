@@ -7,10 +7,16 @@ use std::collections::HashMap;
 use ops_core::project_identity::LanguageStat;
 
 use super::super::ingest::table_exists;
+use super::super::validation::TableName;
 use super::helpers::{
     query_per_crate_i64, query_project_scalar, query_rows_fold, ColumnAlias, ColumnName,
-    PerCrateI64Query, QuerySpec, QueryTableName,
+    PerCrateI64Query, QuerySpec,
 };
+
+/// Identifiers of the per-crate `tokei_files` join, validated at build time.
+const TOKEI_FILES: TableName = TableName::from_static("tokei_files");
+const FILE_ALIAS: ColumnAlias = ColumnAlias::from_static("f");
+const FILE_COLUMN: ColumnName = ColumnName::from_static("file");
 
 /// Query total file count across the whole project from `tokei_files`.
 ///
@@ -42,11 +48,11 @@ pub fn query_crate_file_count(
 ) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
-        table: QueryTableName::new("tokei_files")?,
+        table: TOKEI_FILES,
         member_paths,
         select_expr: "COUNT(f.file)",
-        join_alias: ColumnAlias::new("f")?,
-        join_column: ColumnName::new("file")?,
+        join_alias: FILE_ALIAS,
+        join_column: FILE_COLUMN,
         label: "query_crate_file_count",
     })
 }
@@ -121,7 +127,7 @@ pub fn query_project_languages(db: &Sqlite) -> anyhow::Result<Vec<LanguageStat>>
             filtered.push(stat);
         }
     }
-    // CONC-1: release the connection guard before returning the result vec.
+    // Release the connection guard before returning the result vec.
     // `stmt` borrows `conn`, so it has to go first.
     drop(stmt);
     drop(conn);
@@ -214,7 +220,7 @@ pub fn query_rust_loc_summary(db: &Sqlite) -> anyhow::Result<Vec<RustLocStat>> {
 
     let stats =
         rows.map(|row| row.context("reading rust loc row")).collect::<anyhow::Result<Vec<_>>>()?;
-    // CONC-1: release the connection guard before returning the result vec.
+    // Release the connection guard before returning the result vec.
     // `stmt` borrows `conn`, so it has to go first.
     drop(stmt);
     drop(conn);
@@ -295,11 +301,11 @@ pub fn query_rust_loc_files(db: &Sqlite) -> anyhow::Result<Vec<(String, RustLocS
 pub fn query_crate_loc(db: &Sqlite, member_paths: &[&str]) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
-        table: QueryTableName::new("tokei_files")?,
+        table: TOKEI_FILES,
         member_paths,
         select_expr: "COALESCE(SUM(f.code), 0)",
-        join_alias: ColumnAlias::new("f")?,
-        join_column: ColumnName::new("file")?,
+        join_alias: FILE_ALIAS,
+        join_column: FILE_COLUMN,
         label: "query_crate_loc",
     })
 }

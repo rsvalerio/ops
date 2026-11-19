@@ -119,9 +119,28 @@ impl<'a> DataSourceMetadata<'a> {
 ///
 /// # Errors
 ///
+/// [`DbError::MutexPoisoned`] if the connection lock is poisoned,
 /// [`DbError::NonUtf8Path`] if `source_path` or the workspace root is not
-/// valid UTF-8, or [`DbError::Sqlite`] if the upsert fails.
+/// valid UTF-8, or [`DbError::QueryFailed`] if the upsert fails.
 pub fn upsert_data_source(db: &Sqlite, meta: &DataSourceMetadata<'_>) -> DbResult<()> {
+    let conn = db.lock()?;
+    upsert_data_source_with(&conn, meta)
+}
+
+/// [`upsert_data_source`] on an already-locked connection.
+///
+/// A loader that publishes its table and provenance row in one transaction
+/// (see [`crate::sql::in_transaction`]) holds the connection lock across
+/// both, so it upserts through the connection it already has.
+///
+/// # Errors
+///
+/// [`DbError::NonUtf8Path`] if `source_path` or the workspace root is not
+/// valid UTF-8, or [`DbError::QueryFailed`] if the upsert fails.
+pub fn upsert_data_source_with(
+    conn: &rusqlite::Connection,
+    meta: &DataSourceMetadata<'_>,
+) -> DbResult<()> {
     let path_str = meta
         .source_path
         .to_str()
@@ -135,7 +154,6 @@ pub fn upsert_data_source(db: &Sqlite, meta: &DataSourceMetadata<'_>) -> DbResul
         .ok_or_else(|| DbError::NonUtf8Path(meta.workspace_root.to_os_string()))?;
     let record_count_i64 = i64::try_from(meta.record_count)
         .map_err(|_| DbError::RecordCountOverflow(meta.record_count))?;
-    let conn = db.lock()?;
     conn.execute(
         r"
         INSERT INTO data_sources (source_name, workspace_root, source_path, record_count, checksum)
@@ -155,7 +173,6 @@ pub fn upsert_data_source(db: &Sqlite, meta: &DataSourceMetadata<'_>) -> DbResul
         ],
     )
     .map_err(|e| DbError::query_failed("upsert_data_source", e))?;
-    drop(conn);
     Ok(())
 }
 

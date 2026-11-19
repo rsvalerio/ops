@@ -63,10 +63,11 @@ pub fn file_slug(title: &str) -> String {
 /// A single-quoted scalar cannot encode a control character —
 /// a newline in the value would split the scalar across lines and desynchronise
 /// the document, so the `---` terminator is read as a second document and the
-/// file the crate just wrote no longer parses. Values are validated at the
-/// provider boundary, but the encoder does not rely on that: anything the
-/// single-quoted form cannot represent is emitted as a double-quoted scalar
-/// with escapes instead.
+/// file the crate just wrote no longer parses. The encoder therefore does
+/// not rely on callers validating scalars: anything the single-quoted form
+/// cannot represent is emitted as a double-quoted scalar with escapes
+/// instead. List items and `priority` are written bare and are guarded by
+/// [`validate_list_item`] and [`validate_priority`] at the write boundary.
 pub fn yaml_scalar(value: &str) -> String {
     if value.chars().any(char::is_control) {
         yaml_double_quoted(value)
@@ -93,6 +94,65 @@ fn bare_or_quoted(value: &str) -> String {
     } else {
         yaml_scalar(value)
     }
+}
+
+/// Whether `value` can be written as a bare token — a block-list item or the
+/// `priority` scalar — and read back unchanged by this parser and by YAML.
+///
+/// Rejected: empty, outer whitespace (the parser trims it), any control or
+/// Unicode line/paragraph separator (a newline would start a new frontmatter
+/// key — `a\nstatus: Done` injects a status), a leading YAML indicator
+/// (quote, flow bracket, anchor, alias, tag, comment, block scalar, …) that
+/// changes how the token parses, and `: ` / ` #` / a trailing `:`, which
+/// YAML reads as a mapping or a comment.
+fn is_bare_safe(value: &str) -> bool {
+    const LEADING_INDICATORS: &[char] =
+        &['\'', '"', '[', ']', '{', '}', '>', '|', '*', '&', '!', '%', '@', '`', '#', ',', '?'];
+    !value.is_empty()
+        && value.trim() == value
+        && !value.chars().any(|ch| ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}'))
+        && !value.starts_with(LEADING_INDICATORS)
+        && !value.starts_with("- ")
+        && value != "-"
+        && !value.contains(": ")
+        && !value.contains(" #")
+        && !value.ends_with(':')
+}
+
+/// Refuse a frontmatter list item that cannot be written bare and read back.
+///
+/// Applies to `labels`, `assignee`, `dependencies` and `modified_files`;
+/// see [`is_bare_safe`] for the rules. Callers run it at the write
+/// boundary, before anything touches disk.
+///
+/// # Errors
+///
+/// The item is not bare-safe; the error names `field` and shows the value
+/// escaped.
+pub fn validate_list_item(field: &str, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        is_bare_safe(value),
+        "{field} value {value:?} cannot be stored in task frontmatter: it is empty, has \
+         outer whitespace, a control character, or YAML syntax (`: `, ` #`, a leading \
+         quote/bracket/indicator)"
+    );
+    Ok(())
+}
+
+/// Refuse a `priority` that cannot be written bare and read back as the
+/// same scalar: an empty priority re-parses as an empty list and makes the
+/// file unparseable, and a multi-line one injects keys.
+///
+/// # Errors
+///
+/// The priority is not bare-safe; the error shows the value escaped.
+pub fn validate_priority(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        is_bare_safe(value),
+        "priority {value:?} cannot be stored in task frontmatter: it must be a non-empty, \
+         single-line word such as high, medium or low"
+    );
+    Ok(())
 }
 
 /// YAML single-quoted scalar: wrap in `'` and double any embedded `'`. The
@@ -938,6 +998,47 @@ priority: low
                 reparsed.frontmatter.status, hostile,
                 "the rendered status must survive its own writer: {rendered}"
             );
+        }
+    }
+
+    /// Every value the validators accept is written bare and re-parses to
+    /// itself; the hostile ones the review reproduced (a newline-bearing
+    /// label that injected `status: Done`, an empty priority that made the
+    /// file unparseable) are refused, so they can never reach the renderer.
+    #[test]
+    fn list_items_and_priority_round_trip_or_are_refused() {
+        for accepted in ["code-review-rust", "crates/foo/src/lib.rs", "TASK-0042", "-x", "a:b"] {
+            validate_list_item("labels", accepted)
+                .unwrap_or_else(|e| panic!("{accepted:?} must be accepted: {e:#}"));
+            let mut doc = TaskDoc::parse(SAMPLE).expect("must parse");
+            doc.frontmatter.labels = vec![accepted.to_string()];
+            let reparsed = TaskDoc::parse(&doc.render()).expect("re-parse");
+            assert_eq!(reparsed.frontmatter.labels, vec![accepted]);
+            assert_eq!(reparsed.frontmatter.status, "Done", "no key injected");
+        }
+        for hostile in [
+            "a\nstatus: Done",
+            "",
+            " padded",
+            "trailing ",
+            "key: value",
+            "x #comment",
+            "ends:",
+            "'quoted'",
+            ">-",
+            "[flow]",
+            "*alias",
+            "- nested",
+            "tab\there",
+            "line\u{2028}sep",
+        ] {
+            let err = validate_list_item("labels", hostile).expect_err("hostile item refused");
+            assert!(format!("{err:#}").contains("labels"), "the error names the field");
+        }
+        validate_priority("high").expect("plain priority");
+        for hostile in ["", "  ", "high\nstatus: Done", "a: b"] {
+            let err = validate_priority(hostile).expect_err("hostile priority refused");
+            assert!(format!("{err:#}").contains("priority"));
         }
     }
 

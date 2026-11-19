@@ -36,7 +36,7 @@ fn mint_db_id() -> u64 {
 
 /// Thread-safe SQLite connection wrapper.
 ///
-/// # Concurrency Design (EFF-001)
+/// # Concurrency Design
 ///
 /// All database operations serialize on one `Mutex<Connection>`:
 /// `rusqlite::Connection` is `Send` but not `Sync`, which rules out sharing
@@ -56,27 +56,18 @@ pub struct Sqlite {
     id: u64,
     /// Per-table ingest locks scoped to this `Sqlite` instance.
     ///
-    /// Keying by table name and storing the map in
-    /// the connection bounds growth to the database schema and releases
-    /// every entry when the instance is dropped, instead of leaking
-    /// `(db_path, table)` tuples in a process-global `OnceLock` for the
-    /// lifetime of the binary.
-    /// Keyed by `&'static str` so `ingest_mutex_for`
-    /// looks up an existing entry without paying the per-call
-    /// `String::to_owned` allocation that `HashMap<String, _>::entry`
-    /// charges on every probe. All call sites already pass static
-    /// literals; the signature change makes a future dynamic key a build
-    /// error rather than a silent regression.
+    /// Keyed by table name and owned by the instance, so the map is bounded
+    /// by the database schema and every entry is released when the instance
+    /// is dropped. Keys are `&'static str`, so a lookup of an existing entry
+    /// allocates nothing.
     ingest_locks: Mutex<HashMap<&'static str, Arc<Mutex<()>>>>,
 }
 
-// READ-10 / TASK-1873: no impl-wide `#[allow(dead_code)]`. Suppressing at the
-// block level hid every future unused constructor and method as well. Nothing
-// in this block is dead today; if something becomes API-surface-only, give it
-// its own `#[expect(dead_code, reason = "…")]` rather than restoring a
-// container-wide allow.
 impl Sqlite {
     /// Open (or create) a database at the given path, read-write.
+    ///
+    /// The path is always a literal file name: SQLite URI filenames are not
+    /// interpreted, by this opener or by [`Self::open_readonly`].
     ///
     /// # Errors
     ///
@@ -91,7 +82,14 @@ impl Sqlite {
                 ))
             })?;
         }
-        let conn = open_conn(path, rusqlite::OpenFlags::default())?;
+        // Explicit flags rather than `OpenFlags::default()`, which adds
+        // SQLITE_OPEN_URI; `open_conn` keeps a `file:` path literal for both
+        // openers (see `literal_path`). SQLITE_OPEN_NO_MUTEX: the handle is
+        // already serialized behind the crate's own `Mutex`.
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+            | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = open_conn(path, flags)?;
         Ok(Self {
             conn: Mutex::new(conn),
             db_path: path.to_path_buf(),
@@ -120,8 +118,8 @@ impl Sqlite {
         let path = path.to_path_buf();
         // SQLITE_OPEN_NO_MUTEX: the handle is already serialized behind the
         // crate's own `Mutex`, so SQLite's internal mutex is redundant.
-        // SQLITE_OPEN_READ_ONLY implies no-create; URI is off, so a literal
-        // path is taken as-is.
+        // SQLITE_OPEN_READ_ONLY implies no-create; the URI flag is off and
+        // `open_conn` keeps a `file:` path literal, as in `open`.
         let flags =
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = open_conn(&path, flags)?;
@@ -162,7 +160,9 @@ impl Sqlite {
         self.id
     }
 
-    /// Resolved absolute path to the database file.
+    /// The path this handle was opened with, as given: a file path (absolute
+    /// or relative) for [`Self::open`] / [`Self::open_readonly`], or the
+    /// [`IN_MEMORY_PATH`] sentinel for [`Self::open_in_memory`].
     pub fn path(&self) -> &Path {
         &self.db_path
     }
@@ -175,46 +175,32 @@ impl Sqlite {
     /// connection lock.
     pub fn lock(&self) -> DbResult<std::sync::MutexGuard<'_, rusqlite::Connection>> {
         // Intentionally no logging here: callers know the query/operation
-        // context and are responsible for either propagating or logging
-        // (READ-8). A library primitive should not double-log.
+        // context and are responsible for either propagating or logging;
+        // a library primitive should not double-log.
         self.conn.lock().map_err(|e| DbError::MutexPoisoned(e.to_string()))
     }
 
     /// Return the per-table ingest mutex, creating it on first use.
     ///
-    /// The registry mutex recovers from poisoning via
-    /// `into_inner` so a panic inside one ingestor's `collect`/`load` does
-    /// not permanently brick every other ingest. The connection lock at
-    /// `Self::lock` continues to surface poisoning as
-    /// [`DbError::MutexPoisoned`] because a poisoned SQLite connection
-    /// reflects partially applied state we cannot trust to keep using; a
-    /// poisoned per-table coordination mutex only guards a `()`, so
-    /// recovering is safe and avoids the documented denial-of-service.
+    /// Poisoning propagates, matching [`Self::lock`]: a poisoned
+    /// registry means a holder panicked mid-update, so the map is not
+    /// trusted and the caller gets [`DbError::MutexPoisoned`] instead.
     ///
-    /// Operator signal: when a prior panic poisons the per-table mutex,
-    /// `provide_via_ingestor` emits `tracing::warn!` on recovery, so a
-    /// transient ingest panic leaves an audit breadcrumb in production
-    /// logs rather than recovering silently.
-    pub(crate) fn ingest_mutex_for(&self, table_name: &'static str) -> Arc<Mutex<()>> {
-        let mut map = self.ingest_locks.lock().unwrap_or_else(|poisoned| {
-            tracing::warn!("ingest_locks registry mutex was poisoned by a prior panic; recovered");
-            // VER-4: the recovery re-establishes the registry's invariant, so
-            // clear the poison flag — later acquires take the fast path
-            // instead of re-entering this branch and re-emitting the warn on
-            // every call.
-            self.ingest_locks.clear_poison();
-            poisoned.into_inner()
-        });
-        // PERF-3 / TASK-1007: with the `&'static str` key, `entry` consumes
-        // a `Copy` &'static reference instead of allocating a fresh
-        // `String` on every probe. The hot path (entry already present)
-        // is now alloc-free.
-        Arc::clone(map.entry(table_name).or_default())
+    /// # Errors
+    ///
+    /// [`DbError::MutexPoisoned`] if another thread panicked while holding
+    /// the registry lock.
+    pub(crate) fn ingest_mutex_for(&self, table_name: &'static str) -> DbResult<Arc<Mutex<()>>> {
+        let mut map =
+            self.ingest_locks.lock().map_err(|e| DbError::MutexPoisoned(e.to_string()))?;
+        // The `&'static str` key is `Copy`, so `entry` allocates nothing and
+        // the hot path (entry already present) is alloc-free.
+        Ok(Arc::clone(map.entry(table_name).or_default()))
     }
 
     #[cfg(test)]
     pub(crate) fn ingest_lock_count(&self) -> usize {
-        self.ingest_locks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        self.ingest_locks.lock().expect("ingest_locks registry poisoned").len()
     }
 
     /// Resolve the DB path from config and workspace root.
@@ -241,8 +227,26 @@ impl Sqlite {
 ///
 /// [`DbError::Sqlite`] if the open fails or a pragma statement errors.
 fn open_conn(path: &Path, flags: rusqlite::OpenFlags) -> DbResult<rusqlite::Connection> {
-    let conn = rusqlite::Connection::open_with_flags(path, flags).map_err(DbError::Sqlite)?;
+    let conn = rusqlite::Connection::open_with_flags(literal_path(path), flags)
+        .map_err(DbError::Sqlite)?;
     tune(conn)
+}
+
+/// `path` in a form SQLite cannot parse as a URI filename.
+///
+/// The bundled SQLite is compiled with `SQLITE_USE_URI`, which turns URI
+/// interpretation on for every connection whatever the open flags say, so a
+/// name beginning with `file:` would be parsed as a URI whose query
+/// parameters (`mode=memory`, `vfs=…`, `nolock=1`) change what is opened.
+/// Only a name that *begins* with `file:` is parsed that way, and such a
+/// path is always relative, so prefixing `./` names the same file without
+/// the URI reading.
+fn literal_path(path: &Path) -> std::borrow::Cow<'_, Path> {
+    if path.as_os_str().as_encoded_bytes().starts_with(b"file:") {
+        std::borrow::Cow::Owned(Path::new(".").join(path))
+    } else {
+        std::borrow::Cow::Borrowed(path)
+    }
 }
 
 /// Apply connection-level settings shared by every open mode.
@@ -293,7 +297,47 @@ mod tests {
         assert_eq!(path, PathBuf::from("/absolute/shared.db"));
     }
 
-    /// TQ-004: Test `Sqlite` error path handling.
+    /// Child half of `sqlite_open_takes_a_file_prefix_literally`: does the
+    /// work only when re-executed by it, inside a scratch working directory,
+    /// because a literal `file:` name is relative and lands in the cwd.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run in a child process by sqlite_open_takes_a_file_prefix_literally"]
+    fn open_file_prefixed_path_in_cwd() {
+        if std::env::var_os(FILE_PREFIX_CHILD_ENV).is_none() {
+            return;
+        }
+        let db = Sqlite::open(Path::new(FILE_PREFIX_NAME)).expect("open");
+        db.lock().expect("lock").execute_batch("CREATE TABLE t (x)").expect("write");
+    }
+
+    #[cfg(unix)]
+    const FILE_PREFIX_CHILD_ENV: &str = "OPS_SQLITE_FILE_PREFIX_CHILD";
+    #[cfg(unix)]
+    const FILE_PREFIX_NAME: &str = "file:literal.db?mode=memory";
+
+    /// `Sqlite::open` takes a `file:`-prefixed path as a literal file name:
+    /// with URI parsing on, `?mode=memory` would open an in-memory database
+    /// and nothing would reach the disk.
+    #[cfg(unix)]
+    #[test]
+    fn sqlite_open_takes_a_file_prefix_literally() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", "connection::tests::open_file_prefixed_path_in_cwd"])
+            .args(["--ignored", "--quiet"])
+            .env(FILE_PREFIX_CHILD_ENV, "1")
+            .current_dir(cwd.path())
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("re-run the test binary");
+        assert!(status.success(), "child open failed: {status}");
+        assert!(
+            cwd.path().join(FILE_PREFIX_NAME).is_file(),
+            "a literal {FILE_PREFIX_NAME:?} file must be created"
+        );
+    }
+
     mod error_path_tests {
         use super::*;
 
@@ -363,11 +407,11 @@ mod tests {
             );
         }
 
-        /// After recovering a poisoned registry mutex,
-        /// the poison flag is cleared, so the recovery warn fires once —
-        /// not again on every subsequent acquire.
+        /// A poisoned registry mutex surfaces as
+        /// `DbError::MutexPoisoned` on every acquire; the poison is never
+        /// cleared.
         #[test]
-        fn ingest_mutex_for_clears_poison_so_recovery_warns_once() {
+        fn ingest_mutex_for_surfaces_a_poisoned_registry_as_an_error() {
             let db = Sqlite::open_in_memory().expect("open");
 
             // Poison the registry mutex: panic while holding its guard.
@@ -377,12 +421,13 @@ mod tests {
             }));
             assert!(panicked.is_err(), "setup must have poisoned the registry");
 
-            let ((), warns) = ops_core::test_utils::count_warnings(|| {
-                let _first = db.ingest_mutex_for("poison_once_table");
-                let _second = db.ingest_mutex_for("poison_once_table");
-                let _third = db.ingest_mutex_for("poison_once_other_table");
-            });
-            assert_eq!(warns, 1, "recovery warn must fire on the first acquire only, got {warns}");
+            for table in ["poisoned_table", "poisoned_table", "other_table"] {
+                let err = db
+                    .ingest_mutex_for(table)
+                    .expect_err("a poisoned registry must surface as an error");
+                assert!(matches!(err, DbError::MutexPoisoned(_)), "{table}: got {err:?}");
+            }
+            assert!(db.ingest_locks.is_poisoned(), "poison must not be cleared");
         }
     }
 }

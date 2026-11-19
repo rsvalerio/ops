@@ -221,3 +221,97 @@ fn a_signal_while_waiting_ends_the_wait_without_running_the_command() {
     signal(&holder, libc::SIGTERM);
     holder.wait().expect("holder exit");
 }
+
+/// A pseudo-terminal pair: `(master, slave)`.
+#[expect(unsafe_code, reason = "openpty FFI to give the holder a real terminal")]
+fn openpty() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
+    use std::os::fd::FromRawFd as _;
+    let (mut master, mut slave) = (-1, -1);
+    // SAFETY: `openpty` writes two descriptors into the out-pointers, which
+    // point at live locals; the name/termios/winsize arguments are null,
+    // which it documents as "use the defaults".
+    let rc = unsafe {
+        libc::openpty(
+            &raw mut master,
+            &raw mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(rc, 0, "openpty: {}", std::io::Error::last_os_error());
+    // SAFETY: `openpty` succeeded, so both are fresh descriptors we own.
+    unsafe { (std::os::fd::OwnedFd::from_raw_fd(master), std::os::fd::OwnedFd::from_raw_fd(slave)) }
+}
+
+/// Run `cmd` as the session leader of the terminal behind its stdin, the
+/// way a shell runs a foreground job: its process group is the terminal's
+/// foreground group, so a Ctrl-C written to the master reaches the group.
+#[expect(unsafe_code, reason = "setsid/ioctl in pre_exec to take the pty as controlling tty")]
+fn as_terminal_session(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt as _;
+    // SAFETY: the closure runs in the forked child before exec and calls
+    // only async-signal-safe functions (`setsid`, `ioctl`) on plain
+    // integers; stdin is already the pty slave by then.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+fn read_count(path: &Path) -> u32 {
+    std::fs::read_to_string(path).map_or(0, |s| s.trim().parse().expect("count"))
+}
+
+/// A single Ctrl-C at the terminal reaches the locked command exactly once:
+/// the tty already delivers it to the whole foreground group, so `ops` must
+/// not forward a second copy. A SIGTERM sent to `ops` alone is still
+/// forwarded, once.
+#[test]
+fn one_ctrl_c_at_the_terminal_reaches_the_locked_command_once() {
+    use std::io::Write as _;
+
+    let (dir, repo, _wt) = repo_with_worktree();
+    let [ints, terms, ready, stop] =
+        ["ints", "terms", "ready", "stop"].map(|name| dir.path().join(name));
+    // Counts each SIGINT / SIGTERM it receives into a file, then spins until
+    // told to stop. The loop is builtins only: a shell runs a trap only
+    // between commands, so waiting on an external `sleep` would let the tty
+    // copy and a forwarded duplicate coalesce into one pending trap and hide
+    // the bug this test exists to catch.
+    let script = r#"n=0; t=0
+trap 'n=$((n+1)); echo $n > "$1"' INT
+trap 't=$((t+1)); echo $t > "$2"' TERM
+: > "$3"
+while [ ! -e "$4" ]; do :; done"#;
+
+    let (master, slave) = openpty();
+    let mut cmd = ops(&repo);
+    cmd.args(["lock", "merge", "--", "sh", "-c", script, "sh"])
+        .args([&ints, &terms, &ready, &stop])
+        .stdin(Stdio::from(slave.try_clone().expect("dup slave")))
+        .stdout(Stdio::from(slave.try_clone().expect("dup slave")))
+        .stderr(Stdio::from(slave));
+    as_terminal_session(&mut cmd);
+    let mut holder = cmd.spawn().expect("spawn holder");
+    drop(cmd);
+    wait_until("the locked command to start", || ready.exists());
+
+    let mut tty = std::fs::File::from(master);
+    tty.write_all(&[0x03]).expect("type Ctrl-C");
+    wait_until("the SIGINT to arrive", || read_count(&ints) > 0);
+    // Leave room for a forwarded duplicate to land before counting.
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(read_count(&ints), 1, "one Ctrl-C must deliver exactly one SIGINT");
+
+    signal(&holder, libc::SIGTERM);
+    wait_until("the forwarded SIGTERM to arrive", || read_count(&terms) > 0);
+    std::fs::write(&stop, "").expect("stop");
+    holder.wait().expect("holder exit");
+    assert_eq!(read_count(&terms), 1, "SIGTERM to ops is forwarded once");
+    assert_eq!(read_count(&ints), 1, "no SIGINT arrives late");
+}

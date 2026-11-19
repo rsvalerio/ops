@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use ops_core::bounded_read::{
-    Rejected, SkipReason, read_candidate, record_failure, relative_to, report_walk_errors,
-};
+use ops_core::bounded_read::{Rejected, SkipReason, read_candidate, record_failure, relative_to};
 
 use crate::error::CheckError;
 use crate::options::CheckerOptions;
@@ -131,37 +129,23 @@ where
 }
 
 /// Discover the candidate files under `opts.root`, reporting what the
-/// discovery itself has to say.
-///
-/// A `--tracked` request that could not be honoured is announced on `writer`,
-/// because the candidate set widened from the git index to every non-ignored
-/// file. Traversal errors are printed and adopted into `report`; see
-/// [`report_walk_errors`] for why an untraversable directory must fail the
-/// run rather than only print.
+/// discovery itself has to say through the notice sequence shared with the
+/// fixers; see [`ops_text_fixers::discovery::Discovery::into_reported_files`].
 fn discover_candidates(
     opts: &CheckerOptions,
     writer: &mut dyn Write,
     label: &str,
     report: &mut CheckerReport,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    let discovered = ops_text_fixers::discovery::discover(&opts.root, opts.tracked_only)
+    ops_text_fixers::discovery::discover(&opts.root, opts.scope)
         .with_context(|| {
             format!(
-                "{label}: file discovery failed for root {} (tracked_only={})",
+                "{label}: file discovery failed for root {} (scope={:?})",
                 opts.root.display(),
-                opts.tracked_only
+                opts.scope
             )
-        })?;
-    if let Some(fallback) = discovered.fallback {
-        writeln!(
-            writer,
-            "{label}: --tracked unavailable ({fallback}); falling back to a full walk of {}",
-            opts.root.display()
-        )
-        .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
-    }
-    report_walk_errors(report, writer, label, discovered.walk_errors)?;
-    Ok(discovered.files)
+        })?
+        .into_reported_files(report, writer, label, &opts.root)
 }
 
 /// Read `path` under the byte cap and hand its bytes to `check`.

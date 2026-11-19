@@ -1125,7 +1125,9 @@ fn cli_create_review_tasks_dry_run_reports_the_plan_without_writing() {
         .stdout(predicate::str::contains(
             "would create TASK-0001.01 REVIEW: Run skill code-review-rust against demo",
         ))
-        .stdout(predicate::str::contains("list subtasks: backlog task list --parent TASK-0001"));
+        .stdout(predicate::str::contains(
+            "list subtasks: ops backlog task list --parent TASK-0001",
+        ));
 
     let written: Vec<_> = std::fs::read_dir(&tasks)
         .expect("read .backlog/tasks")

@@ -124,6 +124,10 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
 /// Truncate `s` to at most `max_width` display columns, appending a
 /// `\u{2026}` (HORIZONTAL ELLIPSIS) when anything was cut.
 ///
+/// A string that already fits (`display_width(s) <= max_width`) is returned
+/// unchanged, with no ellipsis. When `s` overflows, the result keeps whole
+/// clusters up to `max_width - 1` columns and ends in the ellipsis.
+///
 /// Measures **grapheme clusters** with the same cluster-aware
 /// [`display_width`] that [`pad_to_width_plain`] and [`wrap_text`] use —
 /// one definition of a column across the module. `cards.rs` guards with
@@ -153,6 +157,9 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
     }
+    if display_width(s) <= max_width {
+        return s.to_string();
+    }
     let mut result = String::new();
     let mut width: usize = 0;
 
@@ -173,16 +180,9 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     result
 }
 
-// Counts the characters `wrap_text` hands to `display_width`.
-//
-// The measurement contract is pinned by counting rather than a wall-clock
-// ratio (a 10x input under 20x the time): timing a debug build is
-// load-dependent under CPU contention, and a ratio could not catch the
-// regression this guards twice over: `max_lines` breaks the word loop
-// after at most that many lines, so both input sizes do nearly the same
-// work; and the regression itself is a constant factor rather than a
-// growth change (see the seam below), which no ratio bound can see.
-// Counting the characters measured pins the property directly.
+// Counts the characters `wrap_text` hands to `display_width`, so a test
+// can pin the contract that each word and each emitted line is measured
+// exactly once.
 //
 // **Thread-local**, not a process-wide counter, for the reason given at
 // `runner::command::resolve::STORE_WALKS`: test binaries run their tests in
@@ -235,11 +235,8 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
 
     let mut lines = Vec::new();
     let mut current_line = String::new();
-    // Track current line width incrementally rather than re-scanning
-    // `current_line` via display_width on every iteration. Scanning costs
-    // up to `max_width` columns per word — bounded, so growth stays
-    // linear, but the constant is ~5.6x on the shape
-    // `wrap_text_measures_each_word_and_line_exactly_once` exercises.
+    // Width of `current_line`, tracked incrementally so the accumulating
+    // line is never re-measured: each word is measured exactly once.
     let mut current_width: usize = 0;
     // Track whether the input had more words than `max_lines` could
     // accommodate, so the post-loop fixup can append an ellipsis to the
@@ -299,8 +296,9 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
 /// Appends `\u{2026}` and trims from the end if the resulting display
 /// width would exceed `max_width`, so the contract (every line <=
 /// `max_width`) is preserved. `truncate_to_width` already implements that
-/// shape — feed it the line-plus-ellipsis "intent" and it produces a
-/// single trailing ellipsis at most `max_width` columns wide.
+/// shape — feed it the line-plus-ellipsis "intent", which overflows by
+/// construction, and it produces a single trailing ellipsis at most
+/// `max_width` columns wide.
 fn mark_last_line_truncated(lines: &mut [String], max_width: usize) {
     if let Some(last) = lines.last_mut() {
         // Avoid double-ellipsis if the line already ends in U+2026
@@ -310,7 +308,7 @@ fn mark_last_line_truncated(lines: &mut [String], max_width: usize) {
             *last = if measure_width(&with_ellipsis) <= max_width {
                 with_ellipsis
             } else {
-                truncate_to_width(last, max_width)
+                truncate_to_width(&with_ellipsis, max_width)
             };
         }
     }
@@ -318,13 +316,16 @@ fn mark_last_line_truncated(lines: &mut [String], max_width: usize) {
 
 /// Enforce `display_width(line) <= max_width` on every line.
 ///
+/// Only lines strictly wider than `max_width` are truncated; a line that
+/// fills the width exactly is left intact.
+///
 /// An unbreakable word wider than `max_width` is pushed verbatim when
 /// `current_line` is empty and may land on an intermediate line, so
 /// truncating only the last line would let earlier lines exceed the
 /// contract.
 fn enforce_line_width_limit(lines: &mut [String], max_width: usize) {
     for line in lines {
-        if measure_width(line) > max_width.saturating_sub(1) {
+        if measure_width(line) > max_width {
             *line = truncate_to_width(line, max_width);
         }
     }
@@ -433,7 +434,19 @@ mod tests {
 
     #[test]
     fn truncate_to_width_exact_fit() {
-        assert_eq!(truncate_to_width("hello", 5), "hell\u{2026}");
+        assert_eq!(truncate_to_width("hello", 5), "hello");
+    }
+
+    #[test]
+    fn wrap_text_exact_width_line_is_not_ellipsized() {
+        assert_eq!(wrap_text("hello", 5, 1), vec!["hello"]);
+    }
+
+    #[test]
+    fn wrap_text_truncated_exact_width_last_line_keeps_ellipsis() {
+        // "hello" fills the width and "world" is dropped: the last line must
+        // still be marked, cut to make room for the ellipsis.
+        assert_eq!(wrap_text("hello world", 5, 1), vec!["hell\u{2026}"]);
     }
 
     #[test]
@@ -664,19 +677,18 @@ mod tests {
         let input = format!("ab{FAMILY}");
         assert_eq!(display_width(&input), 4);
 
-        // The function always reserves one column for a possible ellipsis,
-        // so content is kept up to `max_width - 1`. At 5 the whole 4-column
-        // input fits inside that budget and comes back untouched — a
+        // At 4 the 4-column input fits and comes back untouched — a
         // char-summing model fails here, counting the cluster as 6 columns
-        // and cutting after "a".
-        assert_eq!(truncate_to_width(&input, 5), input);
+        // and cutting it.
+        assert_eq!(truncate_to_width(&input, 4), input);
 
-        // At 4 the budget is 3: "ab" fits, the 2-column cluster does not, and
-        // it is dropped whole rather than cut open.
-        let tight = truncate_to_width(&input, 4);
+        // At 3 the input overflows, so content is kept up to `max_width - 1`
+        // = 2 columns: "ab" fits, the 2-column cluster does not, and it is
+        // dropped whole rather than cut open.
+        let tight = truncate_to_width(&input, 3);
         assert_eq!(tight, "ab\u{2026}");
         assert!(!tight.contains('\u{200D}'), "cluster must not be split");
-        assert!(display_width(&tight) <= 4);
+        assert!(display_width(&tight) <= 3);
     }
 
     #[test]

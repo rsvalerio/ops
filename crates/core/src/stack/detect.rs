@@ -42,13 +42,10 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
     let cache = CANONICALIZE_CACHE.get_or_init(|| {
         Mutex::new(CanonicalizeCache { map: HashMap::new(), order: VecDeque::new() })
     });
-    // Poisoning here is recoverable
-    // — the protected cache has no invariant a panicking caller could have
-    // broken. Route through the shared `sync::lock_recover` so a single
-    // poison does not turn every later `Stack::detect` into a hard panic
-    // for the rest of the process (which is reachable from production CLI
-    // dispatch). Mirrors the policy used in `expand.rs`.
-    if let Some(p) = crate::sync::lock_recover(cache).map.get(start) {
+    // Poison propagates (CONC-16) via the shared `sync::lock`: the insert
+    // path below evicts from `order` and updates `map` in separate steps, so
+    // a panic mid-update leaves them torn. Mirrors `expand.rs`.
+    if let Some(p) = crate::sync::lock(cache, "canonicalize_cache").map.get(start) {
         return p.clone();
     }
     let resolved = match std::fs::canonicalize(start) {
@@ -62,7 +59,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
             start.to_path_buf()
         }
     };
-    let mut guard = crate::sync::lock_recover(cache);
+    let mut guard = crate::sync::lock(cache, "canonicalize_cache");
     // Re-check after the syscall window — another thread may have resolved
     // and inserted the same start path meanwhile. Skipping the insert keeps
     // `order` free of duplicate keys, which the FIFO eviction below relies on.
@@ -88,14 +85,16 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
 /// tests' `detect()` calls.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
-    CANONICALIZE_CACHE.get().is_some_and(|c| crate::sync::lock_recover(c).map.contains_key(start))
+    CANONICALIZE_CACHE
+        .get()
+        .is_some_and(|c| crate::sync::lock(c, "canonicalize_cache").map.contains_key(start))
 }
 
 /// Test seam for the bounded-cache regression test —
 /// mirrors `ops_root_cache_len` in `expand.rs`.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_len() -> usize {
-    CANONICALIZE_CACHE.get().map_or(0, |c| crate::sync::lock_recover(c).map.len())
+    CANONICALIZE_CACHE.get().map_or(0, |c| crate::sync::lock(c, "canonicalize_cache").map.len())
 }
 
 /// Test seam clearing the cache between assertions —
@@ -103,7 +102,7 @@ pub(super) fn canonicalize_cache_len() -> usize {
 #[cfg(test)]
 pub(super) fn reset_canonicalize_cache() {
     if let Some(c) = CANONICALIZE_CACHE.get() {
-        let mut guard = crate::sync::lock_recover(c);
+        let mut guard = crate::sync::lock(c, "canonicalize_cache");
         guard.map.clear();
         guard.order.clear();
     }
@@ -189,39 +188,6 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
         }
     }
     false
-}
-
-/// Regression — pollute the canonicalize cache via a
-/// thread that panics while holding the lock, then assert the next
-/// `detect()` call still resolves rather than hard-panicking: an
-/// `.expect("canonicalize cache poisoned")` at either lock site would
-/// propagate the poison as a panic for the rest of the process.
-#[cfg(test)]
-#[test]
-fn detect_recovers_from_poisoned_canonicalize_cache() {
-    use std::sync::Arc;
-
-    // Force the cache to be initialised before we poison it so the
-    // post-poison `detect` call observes a populated, then-recovered map.
-    let dir = tempfile::tempdir().expect("tempdir");
-    let _ = detect(dir.path());
-
-    let cache: Arc<&'static Mutex<CanonicalizeCache>> =
-        Arc::new(CANONICALIZE_CACHE.get().expect("cache populated by detect() above"));
-    let poisoner = std::thread::spawn({
-        let cache = Arc::clone(&cache);
-        move || {
-            let _guard = cache.lock().expect("lock");
-            panic!("synthetic poison for TASK-1470");
-        }
-    });
-    // Join must report Err — confirming the thread panicked and left the
-    // mutex poisoned.
-    assert!(poisoner.join().is_err(), "poisoner thread must have panicked to poison the lock");
-
-    // Production policy: poison must not propagate. `detect` should
-    // continue to resolve.
-    let _ = detect(dir.path());
 }
 
 /// The canonicalize cache must stay bounded under a

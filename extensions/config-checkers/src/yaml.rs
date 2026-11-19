@@ -26,14 +26,8 @@ use std::collections::HashMap;
 
 use saphyr_parser::{Event, Parser};
 
+use crate::MAX_NESTING_DEPTH;
 use crate::error::{CheckError, LimitExceeded};
-
-/// Maximum collection nesting.
-///
-/// A re-export of [`crate::json::MAX_NESTING_DEPTH`]: the two checkers agree
-/// on what "too deep" means because there is a single definition, so raising
-/// the limit for one raises it for both.
-pub use crate::json::MAX_NESTING_DEPTH;
 
 /// Maximum number of nodes the **stream** would hold once every alias is
 /// expanded.

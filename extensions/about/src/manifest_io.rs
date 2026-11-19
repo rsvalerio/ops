@@ -14,8 +14,8 @@ use std::path::Path;
 /// Read a manifest's text content if it exists and stays inside `root`.
 ///
 /// The manifest path is canonicalized (which follows symlinks) and must sit
-/// under the canonicalized `root`, mirroring the workspace-member read in
-/// `ops_about::workspace`: a root manifest that is a symlink out of the
+/// under the canonicalized `root` — the same [`read_contained`] boundary the
+/// workspace-member read in `ops_about::workspace` uses: a root manifest that is a symlink out of the
 /// workspace is skipped with a `tracing::warn!` rather than having its
 /// fields surfaced, while a symlink that stays inside the root is followed.
 /// The read itself goes through [`ops_core::text::read_capped_to_string`] on
@@ -44,7 +44,34 @@ use std::path::Path;
 ///
 /// `kind` is included in the log event so operators can grep by manifest
 /// type ("package.json" vs "go.mod") without scraping paths.
+#[must_use]
 pub fn read_optional_text(path: &Path, root: &Path, kind: &str) -> Option<String> {
+    // Both sides are canonicalized so a symlinked operator prefix (`/var` on
+    // macOS) resolves the same way on each side of the comparison.
+    let canonical_root = std::fs::canonicalize(root).ok();
+    read_contained(path, canonical_root.as_deref(), kind)
+}
+
+/// Read `path` only if it resolves inside `canonical_root`, size-capped.
+///
+/// The single implementation of the about crates' manifest containment
+/// boundary, shared by [`read_optional_text`] and the workspace-member read
+/// in `ops_about::workspace` (which memoises `canonical_root`). `path` is
+/// canonicalized (following symlinks) and must sit under `canonical_root`;
+/// the read then goes through [`ops_core::text::read_capped_to_string`] on
+/// the canonical path, which refuses a symlink at every component and any
+/// non-regular file.
+///
+/// `canonical_root` must already be canonical; `None` means the root could
+/// not be canonicalized, and the read fails closed because containment
+/// cannot be shown. `NotFound` at either step is a silent `None`; every
+/// other failure, including a containment refusal, logs at `tracing::warn!`
+/// with `path` and `kind` and yields `None`.
+pub(crate) fn read_contained(
+    path: &Path,
+    canonical_root: Option<&Path>,
+    kind: &str,
+) -> Option<String> {
     let canonical = match std::fs::canonicalize(path) {
         Ok(canonical) => canonical,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
@@ -53,10 +80,7 @@ pub fn read_optional_text(path: &Path, root: &Path, kind: &str) -> Option<String
             return None;
         }
     };
-    // Fail closed: without a canonical root, containment cannot be shown.
-    // Both sides are canonicalized so a symlinked operator prefix (`/var` on
-    // macOS) resolves the same way on each side of the comparison.
-    let contained = std::fs::canonicalize(root).is_ok_and(|root| canonical.starts_with(root));
+    let contained = canonical_root.is_some_and(|root| canonical.starts_with(root));
     if !contained {
         tracing::warn!(
             path = ?path.display(),

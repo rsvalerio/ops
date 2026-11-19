@@ -15,7 +15,7 @@ use anyhow::Context as _;
 use jiff::Timestamp;
 
 use crate::config::BacklogConfig;
-use crate::render::{priority_rank, readiness_of};
+use crate::render::{priority_rank, readiness_of, StatusIndex};
 use crate::store::{LocatedTask, Store, TaskLocation};
 
 use super::cleanup::{parse_frontmatter_date, terminal_status};
@@ -115,7 +115,7 @@ fn overview(tasks: &[LocatedTask], cfg: &BacklogConfig, now: Timestamp) -> Backl
     let live: Vec<&LocatedTask> = tasks.iter().filter(|t| t.location.is_live()).collect();
     let live_open: Vec<&LocatedTask> =
         live.iter().copied().filter(|t| !is_terminal(&t.doc.frontmatter.status)).collect();
-    let (ready, blocked) = readiness_counts(&live_open, &live);
+    let (ready, blocked) = readiness_counts(&live_open, &live, terminal.as_deref());
     let (created_7d, created_30d, done_7d, done_30d) = activity_counts(tasks, &is_terminal, now);
 
     BacklogOverview {
@@ -183,16 +183,14 @@ fn status_rows(tasks: &[LocatedTask], cfg: &BacklogConfig) -> Vec<StatusRow> {
 /// answered against live tasks only: live ids are unique, while `completed/`
 /// and `archive/tasks/` hold real id collisions whose statuses must not flip
 /// a dependency between ready and blocked.
-fn readiness_counts(live_open: &[&LocatedTask], live: &[&LocatedTask]) -> (usize, usize) {
-    // Ids resolve case-insensitively everywhere else in the store
-    // (`Store::find` lowercases both sides); the lookup here must too, or a
-    // dependency written `task-0003` would miss live `TASK-0003`, count as
-    // missing — non-blocking — and flip a blocked task to ready.
-    let live_statuses: HashMap<String, &str> = live
-        .iter()
-        .map(|t| (t.doc.frontmatter.id.to_ascii_lowercase(), t.doc.frontmatter.status.as_str()))
-        .collect();
-    let lookup = |id: &str| live_statuses.get(&id.to_ascii_lowercase()).map(|s| (*s).to_string());
+fn readiness_counts(
+    live_open: &[&LocatedTask],
+    live: &[&LocatedTask],
+    terminal: Option<&str>,
+) -> (usize, usize) {
+    // The index `task view` / `task list --json` use: ids resolve the way
+    // `Store::find` does, statuses against the configured terminal one.
+    let lookup = StatusIndex::new(live.iter().map(|t| &t.doc), terminal);
     let mut ready: usize = 0;
     let mut blocked: usize = 0;
     for task in live_open {
