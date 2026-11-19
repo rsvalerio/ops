@@ -6,7 +6,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use ops_core::text::CappedReadError;
+use ops_core::text::{read_capped_bytes, read_capped_bytes_following, CappedReadError};
 
 /// Maximum number of parent directories to walk while searching for `.git`.
 /// Bounds the loop so a hostile cwd cannot force us to ascend to `/` repeatedly.
@@ -177,7 +177,13 @@ fn probe_git_entry(candidate: &Path) -> GitEntry {
 ///
 /// Returns `None` (and emits a `tracing::debug!`) for any other shape.
 fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
-    let content = match read_capped_to_string(file, MAX_GITDIR_POINTER_BYTES) {
+    // The pointer is reached by walking up from the caller's starting
+    // directory, which is not canonicalized: a symlinked ancestor (`/tmp` on
+    // macOS, a symlinked home or projects directory) is ordinary, so the
+    // strict no-symlink walk would refuse legitimate checkouts. The final
+    // component was already `lstat`ed as a regular file by the probe, and the
+    // following open still refuses a FIFO swapped in since then.
+    let content = match capped_utf8(read_capped_bytes_following(file, MAX_GITDIR_POINTER_BYTES)) {
         Ok(c) => c,
         Err(err) => {
             // A `.git` pointer file we can't read (EACCES, EISDIR, mid-write,
@@ -400,47 +406,36 @@ fn is_separate_git_dir(dir: &Path) -> bool {
     dir.join("HEAD").is_file() && dir.join("objects").is_dir() && dir.join("refs").is_dir()
 }
 
-/// Read at most `cap` bytes of `path` as UTF-8, mirroring the bounded-read
-/// posture of `MAX_GIT_CONFIG_BYTES` in `ops-git`.
+/// Decode a capped read as strict UTF-8, mirroring the bounded-read posture
+/// of `MAX_GIT_CONFIG_BYTES` in `ops-git`.
 ///
-/// Every failure mode — unreadable, over the cap, not valid UTF-8 — comes
-/// back typed so each caller can leave a breadcrumb naming its own file.
-fn read_capped_to_string(path: &Path, cap: u64) -> Result<String, CappedReadError> {
-    use std::io::Read as _;
-
-    let file = std::fs::File::open(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            CappedReadError::NotFound(e)
-        } else {
-            CappedReadError::Open(e)
-        }
-    })?;
-    let mut bytes = Vec::new();
-    // Read one byte past the cap so an oversize file is distinguishable from
-    // one that lands exactly on it.
-    let limit = cap.saturating_add(1);
-    file.take(limit).read_to_end(&mut bytes).map_err(CappedReadError::Read)?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        return Err(CappedReadError::TooLarge { cap });
-    }
-    String::from_utf8(bytes).map_err(|e| CappedReadError::InvalidUtf8(e.utf8_error()))
+/// Every failure mode — unreadable, a FIFO or other non-regular file, over
+/// the cap, not valid UTF-8 — comes back typed so each caller can leave a
+/// breadcrumb naming its own file. Both opens are `O_NONBLOCK` with a
+/// regular-file check on the handle, so a named pipe planted at either path
+/// is refused instead of hanging the walk.
+fn capped_utf8(read: Result<Vec<u8>, CappedReadError>) -> Result<String, CappedReadError> {
+    String::from_utf8(read?).map_err(|e| CappedReadError::InvalidUtf8(e.utf8_error()))
 }
 
 /// True when `gitdir/gitdir` names `pointer` — the reverse link `git worktree
 /// add` writes alongside the forward `gitdir:` pointer.
 fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
     let backreference = gitdir.join(GITDIR_BACKREFERENCE);
-    let recorded = match read_capped_to_string(&backreference, MAX_GITDIR_BACKREFERENCE_BYTES) {
-        Ok(recorded) => recorded,
-        Err(err) => {
-            tracing::debug!(
-                path = ?backreference.display(),
-                error = %err,
-                "no usable gitdir back-reference",
-            );
-            return false;
-        }
-    };
+    // `gitdir` is canonical, so its prefix holds no symlink, and git writes the
+    // back-reference as a plain file: the strict no-symlink read applies.
+    let recorded =
+        match capped_utf8(read_capped_bytes(&backreference, MAX_GITDIR_BACKREFERENCE_BYTES)) {
+            Ok(recorded) => recorded,
+            Err(err) => {
+                tracing::debug!(
+                    path = ?backreference.display(),
+                    error = %err,
+                    "no usable gitdir back-reference",
+                );
+                return false;
+            }
+        };
     let Some(canonical_pointer) = canonicalize_gitdir_target(pointer) else {
         return false;
     };
@@ -940,6 +935,62 @@ mod tests {
         .unwrap();
 
         assert_eq!(find_git_dir(&worktree), Some(canonical_gitdir));
+    }
+
+    /// A named pipe planted as the `<gitdir>/gitdir` back-reference is
+    /// refused at the open, so `find_git_dir` returns instead of blocking
+    /// until a writer appears.
+    #[cfg(unix)]
+    #[test]
+    fn find_git_dir_refuses_fifo_backreference_without_blocking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let gitdir = dir.path().join("repo/.git/worktrees/feature");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(gitdir.join("HEAD"), "ref: refs/heads/feature\n").unwrap();
+        let worktree = dir.path().join("far/away/from/the/repo/feature");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let canonical_gitdir = std::fs::canonicalize(&gitdir).unwrap();
+        std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", canonical_gitdir.display()))
+            .unwrap();
+        let status = std::process::Command::new("mkfifo")
+            .arg(gitdir.join("gitdir"))
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let _ = tx.send(find_git_dir(&worktree));
+        });
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("find_git_dir blocked on a FIFO back-reference instead of refusing it");
+        handle.join().unwrap();
+        // Neither anchored, back-referenced, nor a separate git dir.
+        assert_eq!(outcome, None);
+    }
+
+    /// The pointer read follows symlinks (its prefix is the caller's
+    /// unresolved starting directory) but still refuses a FIFO without
+    /// blocking.
+    #[cfg(unix)]
+    #[test]
+    fn read_gitdir_pointer_refuses_fifo_without_blocking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pointer = dir.path().join(".git");
+        let status =
+            std::process::Command::new("mkfifo").arg(&pointer).status().expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let _ = tx.send(read_gitdir_pointer(&pointer));
+        });
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("read_gitdir_pointer blocked on a FIFO instead of refusing it");
+        handle.join().unwrap();
+        assert_eq!(outcome, None);
     }
 
     /// A back-reference that names *someone else's*

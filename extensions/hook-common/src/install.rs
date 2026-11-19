@@ -150,7 +150,7 @@ fn classify_existing_hook(content: &str, config: &HookConfig) -> ExistingHook {
 
 /// Byte cap for reading an existing hook during
 /// classification, mirroring the bounded-read posture of `git.rs`'s
-/// `read_capped_to_string` (and its `MAX_GITDIR_BACKREFERENCE_BYTES`).
+/// capped reads (and its `MAX_GITDIR_BACKREFERENCE_BYTES`).
 /// Classification never needs more than
 /// [`HookConfig::hook_script`] plus a margin: `Current` is whole-script
 /// equality, `Partial` a strict prefix of the script, and legacy markers
@@ -169,39 +169,42 @@ fn existing_hook_read_cap(config: &HookConfig) -> u64 {
 /// [`existing_hook_read_cap`].
 ///
 /// The hook file is operator- or attacker-controlled
-/// content on a path ops does not own, so it is read through a `take()`
-/// bound rather than slurped whole. Returns `Ok(None)` — meaning "can only
-/// be [`ExistingHook::Foreign`]" — when the content is over the cap or not
-/// valid UTF-8: ops scripts are `&'static str` (valid UTF-8, shorter than
-/// the cap), so either signal rules out every classification ops could act
-/// on, and refusing the hook is both safer and more actionable than an
-/// `InvalidData` error with no path in it. Genuine I/O failures are still
-/// errors, with the path in the message.
+/// content on a path ops does not own, so it is read through
+/// [`ops_core::text::read_capped_bytes`] rather than slurped whole. Returns
+/// `Ok(None)` — meaning "can only be [`ExistingHook::Foreign`]" — when the
+/// content is over the cap or not valid UTF-8: ops scripts are
+/// `&'static str` (valid UTF-8, shorter than the cap), so either signal
+/// rules out every classification ops could act on, and refusing the hook is
+/// both safer and more actionable than an `InvalidData` error with no path in
+/// it. Genuine I/O failures are still errors, with the path in the message.
+///
+/// The strict no-symlink open fits here: `hook_path` sits under the
+/// canonicalized hooks directory, so its prefix holds no symlink, and
+/// `install_hook` refuses a symlinked hook before classification. The open is
+/// `O_NONBLOCK` with a regular-file check on the handle, so a FIFO (or
+/// socket, device) at the hook path is an error rather than a hang.
 fn read_existing_hook_capped(
     hook_path: &Path,
     config: &HookConfig,
 ) -> anyhow::Result<Option<String>> {
-    use std::io::Read as _;
+    use ops_core::text::{read_capped_bytes, CappedReadError};
 
     let cap = existing_hook_read_cap(config);
-    let mut file = std::fs::File::open(hook_path)
-        .with_context(|| format!("failed to read existing hook {}", hook_path.display()))?;
-    let mut bytes = Vec::new();
-    // Read one byte past the cap so an oversize hook is distinguishable from
-    // one that lands exactly on it.
-    let limit = cap.saturating_add(1);
-    (&mut file)
-        .take(limit)
-        .read_to_end(&mut bytes)
-        .with_context(|| format!("failed to read existing hook {}", hook_path.display()))?;
-    if bytes.len() > usize::try_from(cap).unwrap_or(usize::MAX) {
-        tracing::debug!(
-            path = ?hook_path.display(),
-            cap,
-            "existing hook exceeds byte cap; classifying as foreign",
-        );
-        return Ok(None);
-    }
+    let bytes = match read_capped_bytes(hook_path, cap) {
+        Ok(bytes) => bytes,
+        Err(CappedReadError::TooLarge { cap }) => {
+            tracing::debug!(
+                path = ?hook_path.display(),
+                cap,
+                "existing hook exceeds byte cap; classifying as foreign",
+            );
+            return Ok(None);
+        }
+        Err(err) => {
+            return Err(anyhow::Error::new(err)
+                .context(format!("failed to read existing hook {}", hook_path.display())));
+        }
+    };
     if let Ok(content) = String::from_utf8(bytes) {
         return Ok(Some(content));
     }
@@ -924,6 +927,39 @@ mod tests {
             err.to_string().contains("symlink") || err.to_string().contains("outside"),
             "unexpected: {err}"
         );
+    }
+
+    /// A named pipe at the hook path is refused at the open instead of
+    /// blocking classification until a writer appears.
+    #[cfg(unix)]
+    #[test]
+    fn install_hook_refuses_fifo_hook_without_blocking() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let hook_path = git_dir.join("hooks/pre-commit");
+        let status =
+            std::process::Command::new("mkfifo").arg(&hook_path).status().expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = tx.send(install_hook(&cfg, &git_dir, &mut buf).map_err(|e| format!("{e:#}")));
+        });
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("install_hook blocked on a FIFO hook instead of refusing it");
+        handle.join().unwrap();
+
+        let err = outcome.expect_err("a FIFO hook must be refused");
+        assert!(err.contains("non-regular"), "unexpected: {err}");
+        {
+            use std::os::unix::fs::FileTypeExt as _;
+            assert!(std::fs::symlink_metadata(&hook_path).unwrap().file_type().is_fifo());
+        }
     }
 
     /// A symlinked `pre-commit` pointing at a file whose
