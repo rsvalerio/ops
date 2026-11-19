@@ -271,6 +271,36 @@ fn b() {}
 
     let err = super::count_capped(LanguageType::Rust, dir.path(), &config, 1024)
         .expect_err("a directory is not a regular file");
+    assert_eq!(err.kind(), std::io::ErrorKind::IsADirectory);
+}
+
+/// A candidate the walk saw as a regular file and that was then swapped for
+/// a named pipe is refused at the open, so the count returns promptly
+/// instead of blocking until a writer appears.
+#[cfg(unix)]
+#[test]
+fn count_capped_refuses_a_candidate_swapped_for_a_fifo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("a.rs");
+    std::fs::write(&path, "fn a() {}\n").expect("write");
+    let (candidates, _) =
+        super::collect_candidates(dir.path(), super::ScanLimits::DEFAULT, None).expect("walk");
+    assert_eq!(candidates, vec![path.clone()]);
+
+    std::fs::remove_file(&path).expect("remove");
+    let status = std::process::Command::new("mkfifo").arg(&path).status().expect("run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let config = TokeiConfig::default();
+        let _ = tx.send(super::count_capped(LanguageType::Rust, &path, &config, 1024).map(|_| ()));
+    });
+    let outcome = rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("count_capped blocked on a FIFO instead of refusing it");
+    handle.join().expect("join");
+    let err = outcome.expect_err("a FIFO is not a regular file");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
