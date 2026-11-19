@@ -43,7 +43,9 @@ const SHORTNAME: &str = "meta";
 /// Public so consumers reading the warmed document (`ctx.cached(..)`) key on
 /// the producer's own constant: a cache miss is the documented "not warmed"
 /// fallback, so a drifted literal would compile and silently read nothing.
-pub const DATA_PROVIDER_NAME: &str = "metadata";
+/// Owned by [`ops_extension::provider_names`] so stack-agnostic consumers
+/// that cannot depend on this crate warm the same key.
+pub const DATA_PROVIDER_NAME: &str = ops_extension::provider_names::CARGO_METADATA;
 
 /// Default timeout for `cargo metadata`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.

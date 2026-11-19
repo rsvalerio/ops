@@ -6,6 +6,7 @@
 use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::{ProjectUnit, UnitTarget};
+use ops_extension::provider_names::CARGO_METADATA;
 use ops_extension::{Context, DataRegistry};
 
 use crate::cards::{layout_cards_in_grid_with_width, render_card};
@@ -217,7 +218,7 @@ pub fn run_about_units_json_with(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("units")?;
-    warm_providers(&mut ctx, data_registry, &["metadata"], "units");
+    warm_providers(&mut ctx, data_registry, &[CARGO_METADATA], "units");
     let units: Vec<ProjectUnit> = load_or_default(&mut ctx, data_registry, PROJECT_UNITS_PROVIDER)?;
     crate::write_json_document(writer, &units_json(&units))
 }
