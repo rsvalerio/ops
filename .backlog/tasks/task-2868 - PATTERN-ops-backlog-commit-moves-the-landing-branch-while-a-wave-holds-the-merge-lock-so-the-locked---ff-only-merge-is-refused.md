@@ -1,10 +1,10 @@
 ---
 id: TASK-2868
 title: 'PATTERN: ops backlog commit moves the landing branch while a wave holds the merge lock, so the locked --ff-only merge is refused'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 21:33'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:28'
 labels:
   - code-review-rust
   - PATTERN
@@ -30,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A backlog bookkeeping commit cannot move the landing branch between a wave's integration verify and its --ff-only merge (e.g. ops backlog commit also serialises on code-review-merge, or the merge step rebases backlog-only commits without re-verifying)
+- [x] #1 A backlog bookkeeping commit cannot move the landing branch between a wave's integration verify and its --ff-only merge (e.g. ops backlog commit also serialises on code-review-merge, or the merge step rebases backlog-only commits without re-verifying)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ops backlog commit now takes the code-review-merge lock (waits, no timeout) unless an enclosing ops lock already holds it (OPS_LOCKS_HELD env set by ops lock for its child). Tests: crates/cli/tests/lock.rs backlog_commit_waits_for_the_merge_lock, backlog_commit_inside_the_merge_lock_does_not_deadlock.
+<!-- SECTION:NOTES:END -->

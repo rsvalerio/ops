@@ -1,10 +1,10 @@
 ---
 id: TASK-2865
 title: 'SEC-25: cleanup moves task files to completed/ outside the allocation lock, racing task edit'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 21:21'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:28'
 labels:
   - code-review-rust
   - SEC
@@ -30,6 +30,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cleanup holds Store::lock_allocation() across the scan and each move, so a concurrent task edit either sees the task in completed/ or finishes before it moves
-- [ ] #2 A test interleaves an edit with a cleanup move and asserts exactly one file carries the id afterwards
+- [x] #1 cleanup holds Store::lock_allocation() across the scan and each move, so a concurrent task edit either sees the task in completed/ or finishes before it moves
+- [x] #2 A test interleaves an edit with a cleanup move and asserts exactly one file carries the id afterwards
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+cleanup re-scans and moves under lock_allocation after confirmation, refusing if the selection changed. Tests: edit_before_the_move_rides_into_completed, edit_that_changes_the_selection_moves_nothing, racing_edit_and_cleanup_leave_one_file_with_the_note.
+<!-- SECTION:NOTES:END -->
