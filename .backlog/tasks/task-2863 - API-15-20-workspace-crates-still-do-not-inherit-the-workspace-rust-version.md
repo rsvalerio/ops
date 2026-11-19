@@ -1,10 +1,10 @@
 ---
 id: TASK-2863
 title: 'API-15: 20 workspace crates still do not inherit the workspace rust-version'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 21:12'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 08:08'
 labels:
   - code-review-rust
   - api
@@ -49,6 +49,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every workspace member manifest declares rust-version.workspace = true
-- [ ] #2 cargo metadata reports rust_version 1.97 for every workspace package
+- [x] #1 Every workspace member manifest declares rust-version.workspace = true
+- [x] #2 cargo metadata reports rust_version 1.97 for every workspace package
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added rust-version.workspace = true to all 20 listed member manifests (after license.workspace). cargo metadata --no-deps now reports rust_version 1.97 for all 32 workspace packages. Regression gate filed as TASK-2886.
+<!-- SECTION:NOTES:END -->
