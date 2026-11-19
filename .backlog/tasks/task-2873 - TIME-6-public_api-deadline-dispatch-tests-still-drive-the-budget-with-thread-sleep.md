@@ -1,10 +1,10 @@
 ---
 id: TASK-2873
 title: 'TIME-6: public_api deadline dispatch tests still drive the budget with thread::sleep'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 22:11'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:38'
 labels:
   - code-review-rust
   - TIME
@@ -31,6 +31,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Context deadline installation and checks can be driven by an injected clock (test-support)
-- [ ] #2 The public_api deadline dispatch tests run without std::thread::sleep
+- [x] #1 Context deadline installation and checks can be driven by an injected clock (test-support)
+- [x] #2 The public_api deadline dispatch tests run without std::thread::sleep
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added a test-support ManualClock (ops_extension::ManualClock) and Context::with_clock. Deadline carries its clock so detached handles read the same source; begin_deadline, is_expired and check use it. ops-extension self dev-dependency enables test-support for the integration tests. All public_api deadline dispatch tests now advance the manual clock; no std::thread::sleep remains in the file.
+<!-- SECTION:NOTES:END -->

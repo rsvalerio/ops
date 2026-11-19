@@ -1,10 +1,10 @@
 ---
 id: TASK-2884
 title: 'code-review-plan-wave32'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 07:57'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:55'
 labels:
   - code-review-wave
 dependencies:
@@ -38,4 +38,8 @@ extension and core test support: poison-recovering test helpers and sleep-driven
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2884
+Worktree: /home/rsvalerio/projects/.wave-TASK-2884
+
 <!-- SECTION:NOTES:END -->
