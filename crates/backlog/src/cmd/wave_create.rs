@@ -389,4 +389,37 @@ mod tests {
         let linked = doc_of(&dir, "task-0001 - a.md");
         assert_eq!(linked.frontmatter.updated_date.as_deref(), Some("2026-03-04 05:06"));
     }
+
+    /// Wave create and a member edit racing: whichever goes first, the
+    /// member carries both its wave link and the appended note.
+    #[test]
+    fn racing_member_edit_and_wave_create_both_survive() {
+        for _ in 0..20 {
+            let (dir, store) = scratch(&[("task-0001 - a.md", member("TASK-0001", ""))]);
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    let edit = crate::cmd::edit::EditOptions {
+                        task_id: "TASK-0001".to_string(),
+                        append_notes: vec!["raced note".to_string()],
+                        ..crate::cmd::edit::EditOptions::default()
+                    };
+                    crate::cmd::edit::run_edit(&store, &edit, &mut std::io::sink()).expect("edit");
+                });
+                barrier.wait();
+                run_wave_create(
+                    &store,
+                    &BacklogConfig::default(),
+                    &opts(&["TASK-0001"]),
+                    &mut std::io::sink(),
+                )
+                .expect("wave create");
+            });
+            let doc = doc_of(&dir, "task-0001 - a.md");
+            assert_eq!(doc.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0002"));
+            let notes = doc.body.notes().unwrap_or_default();
+            assert!(notes.contains("raced note"), "the edit was lost: {notes}");
+        }
+    }
 }
