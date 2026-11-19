@@ -136,26 +136,45 @@ fn join(location: &str, key: &str) -> String {
     }
 }
 
-/// One key-path segment, double-quoted when it holds a `.` so the dot cannot
-/// be read as a segment boundary.
+/// One key-path segment, double-quoted when it holds a `.`, `"` or `\\` so
+/// none of them can be read as a segment boundary. Inside the quotes, `"` and
+/// `\\` are backslash-escaped, so a name's own quote cannot end the segment
+/// early (see [`key_segments`]).
 pub fn key_segment(key: &str) -> std::borrow::Cow<'_, str> {
-    if key.contains('.') {
-        std::borrow::Cow::Owned(format!("\"{key}\""))
-    } else {
-        std::borrow::Cow::Borrowed(key)
+    if !key.contains(['.', '"', '\\']) {
+        return std::borrow::Cow::Borrowed(key);
     }
+    let mut quoted = String::with_capacity(key.len().saturating_add(2));
+    quoted.push('"');
+    for c in key.chars() {
+        if matches!(c, '"' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(c);
+    }
+    quoted.push('"');
+    std::borrow::Cow::Owned(quoted)
 }
 
 /// Split a dotted key path into its segments, treating dots inside a
-/// double-quoted segment as part of the name.
+/// double-quoted segment as part of the name. Inside quotes a backslash
+/// escapes the next character, so an escaped `"` does not close the quote.
+/// Segments are returned in their written (quoted, escaped) form.
 pub fn key_segments(path: &str) -> Vec<&str> {
     let mut segments = Vec::new();
     let mut rest = path;
     loop {
         let mut quoted = false;
+        let mut escaped = false;
         let cut = rest.char_indices().find(|&(_, c)| {
-            if c == '"' {
-                quoted = !quoted;
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            match c {
+                '\\' if quoted => escaped = true,
+                '"' => quoted = !quoted,
+                _ => {}
             }
             c == '.' && !quoted
         });

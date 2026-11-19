@@ -658,3 +658,30 @@ fn leaving_a_nested_workspace_out_is_a_waiver() {
     assert!(workspace_drift(&report).is_empty());
     assert_eq!(report.waived.len(), 1);
 }
+
+fn workspace_location(dir: &str) -> String {
+    format!("{WORKSPACES_LOCATION}.{}", compare::key_segment(dir))
+}
+
+/// A directory whose name holds a quote stays one segment, so a waiver
+/// for a sibling whose name is its prefix does not cover it.
+#[test]
+fn a_quote_in_a_directory_name_does_not_widen_a_waiver() {
+    let waiver = workspace_location("tools.x");
+    let other = workspace_location("tools.x\".extra");
+    assert!(waiver_covers(&waiver, &waiver));
+    assert!(!waiver_covers(&waiver, &other), "{waiver} must not cover {other}");
+    assert!(waiver_covers(&other, &other));
+}
+
+#[test]
+fn quotes_and_backslashes_are_escaped_and_split_as_one_segment() {
+    assert_eq!(compare::key_segment("plain"), "plain");
+    assert_eq!(compare::key_segment("a.b"), "\"a.b\"");
+    assert_eq!(compare::key_segment("a\"b"), "\"a\\\"b\"");
+    assert_eq!(compare::key_segment("a\\b"), "\"a\\\\b\"");
+    let path = format!("x.{}.y", compare::key_segment("tools.x\".extra"));
+    assert_eq!(compare::key_segments(&path), ["x", "\"tools.x\\\".extra\"", "y"]);
+    let path = format!("x.{}.y", compare::key_segment("end\\"));
+    assert_eq!(compare::key_segments(&path), ["x", "\"end\\\\\"", "y"]);
+}
