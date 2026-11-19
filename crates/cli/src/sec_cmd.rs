@@ -259,6 +259,12 @@ fn is_k8s_manifest(path: &Path) -> bool {
             let rest = line.get(3..).unwrap_or_default().trim_start();
             (rest, 0)
         } else {
+            // Blank and comment-only lines may carry any YAML whitespace,
+            // tabs included; they must not fix the root's indentation.
+            let content = line.trim_start_matches([' ', '\t']);
+            if content.is_empty() || content.starts_with('#') {
+                continue;
+            }
             let rest = line.trim_start_matches(' ');
             (rest, line.len().saturating_sub(rest.len()))
         };
@@ -1111,6 +1117,19 @@ mod tests {
         let plan = build_plan(dir.path(), &[], &[]);
         let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
         assert!(misconfig.selected, "an indented root mapping must enable the misconfig scan");
+    }
+
+    #[test]
+    fn tab_led_comment_and_blank_lines_do_not_fix_the_root_indent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pod.yaml"),
+            "  \t# comment\n \t\napiVersion: v1\nkind: Pod\n",
+        )
+        .unwrap();
+        let plan = build_plan(dir.path(), &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(misconfig.selected, "a tab-led comment must not hide a column-zero manifest");
     }
 
     #[test]
