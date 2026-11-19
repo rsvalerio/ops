@@ -219,6 +219,46 @@ pub(crate) fn open_refusing_symlinks(path: &Path) -> std::io::Result<std::fs::Fi
     }
 }
 
+/// Open `path` as a regular file, **following** symlinks, without ever
+/// blocking in `open(2)`.
+///
+/// The counterpart of the strict no-symlink walk for paths where a symlink is
+/// legitimate input: a source file in a scanned tree, a pointer file reached
+/// through a symlinked ancestor of the working directory, the user's own
+/// dotfiles. The open carries `O_NONBLOCK`, so a FIFO planted at `path`
+/// cannot wedge the caller waiting for a writer, and the type check runs on
+/// the opened descriptor (`fstat(2)`), so nothing can be swapped in between.
+/// `O_NONBLOCK` is cleared again before the handle is returned.
+///
+/// # Errors
+///
+/// A FIFO, socket or device surfaces as [`std::io::ErrorKind::InvalidInput`]
+/// (`refusing to open non-regular file at <path>`), a directory as the
+/// platform `IsADirectory` error, and every other open failure verbatim.
+/// On non-Unix targets the type check still runs on the handle, but the open
+/// itself is a plain `File::open`.
+pub fn open_regular_following(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        unix_open::open_regular_following(path)
+    }
+    #[cfg(not(unix))]
+    {
+        let file = std::fs::File::open(path)?;
+        let meta = file.metadata()?;
+        if meta.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::IsADirectory,
+                format!("is a directory: {:?}", path.display()),
+            ));
+        }
+        if !meta.is_file() {
+            return Err(refused_non_regular(path));
+        }
+        Ok(file)
+    }
+}
+
 /// Stable `InvalidInput` surface for a refused symlink. Shared by the Unix
 /// walk and the non-Unix fallback so both spell the message identically.
 fn refused_symlink(path: &Path) -> std::io::Error {
@@ -373,6 +413,25 @@ mod unix_open {
             return Err(io::Error::last_os_error());
         }
         Ok(())
+    }
+
+    /// Open `path` **following** symlinks, under `O_NONBLOCK`, and hand it
+    /// back only when the descriptor is a regular file. Backs
+    /// [`super::open_regular_following`].
+    pub(super) fn open_regular_following(path: &Path) -> io::Result<std::fs::File> {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // std already sets `O_CLOEXEC`; `O_NONBLOCK` keeps a FIFO from
+        // blocking the `open(2)` itself while it waits for a writer.
+        let file =
+            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)?;
+        let fd = OwnedFd::from(file);
+        match file_type_bits(&fd)? {
+            libc::S_IFREG => {}
+            libc::S_IFDIR => return Err(io::Error::from_raw_os_error(libc::EISDIR)),
+            _ => return Err(super::refused_non_regular(path)),
+        }
+        clear_nonblock(&fd)?;
+        Ok(std::fs::File::from(fd))
     }
 
     fn is_symlink_refusal(e: &io::Error) -> bool {
@@ -587,8 +646,10 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
 ///
 /// [`SymlinkPolicy::Refuse`] goes through [`open_refusing_symlinks`], which
 /// refuses a symlink at any path component and a non-regular final component
-/// (FIFO, socket, device) without blocking. [`SymlinkPolicy::Follow`] is a
-/// plain `File::open`, for paths the user owns rather than the repository.
+/// (FIFO, socket, device) without blocking. [`SymlinkPolicy::Follow`] goes
+/// through [`open_regular_following`], which follows symlinks but still
+/// refuses a non-regular file without blocking, for paths the user owns
+/// rather than the repository.
 /// The config loader is the one caller with both kinds of path, and its
 /// **two paths are not the same trust boundary**:
 ///
@@ -669,6 +730,22 @@ pub fn read_capped_bytes(path: &Path, cap: u64) -> Result<Vec<u8>, CappedReadErr
     read_capped_bytes_with_policy(path, cap, SymlinkPolicy::Refuse)
 }
 
+/// [`read_capped_bytes`], but **following** symlinks: the open goes through
+/// [`open_regular_following`], so a FIFO, socket or device is still refused
+/// without blocking.
+///
+/// For paths where a symlink is legitimate input, such as a file reached
+/// through a symlinked ancestor of the working directory. Prefer
+/// [`read_capped_bytes`] wherever the path is repository-supplied and its
+/// prefix is already canonical.
+///
+/// # Errors
+///
+/// As [`read_capped_bytes`].
+pub fn read_capped_bytes_following(path: &Path, cap: u64) -> Result<Vec<u8>, CappedReadError> {
+    read_capped_bytes_with_policy(path, cap, SymlinkPolicy::Follow)
+}
+
 /// The one open + capped read + size check shared by every `read_capped_*`
 /// entry point, so the cap semantics cannot drift between them.
 pub(crate) fn read_capped_bytes_with_policy(
@@ -678,7 +755,7 @@ pub(crate) fn read_capped_bytes_with_policy(
 ) -> Result<Vec<u8>, CappedReadError> {
     let opened = match symlinks {
         SymlinkPolicy::Refuse => open_refusing_symlinks(path),
-        SymlinkPolicy::Follow => std::fs::File::open(path),
+        SymlinkPolicy::Follow => open_regular_following(path),
     };
     let file = opened.map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -1453,6 +1530,46 @@ mod tests {
         assert!(
             err.to_string().contains("go.mod"),
             "error should name the offending path, got {err}"
+        );
+    }
+
+    /// The symlink-following open still refuses a FIFO without blocking, and
+    /// reads a regular file reached through a symlink.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_bytes_following_refuses_fifo_and_follows_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let fifo = root.join("pipe");
+        let c_path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: `c_path` is a NUL-terminated path inside a temp dir that
+        // outlives the call; `mkfifo` takes no other pointer arguments.
+        let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let probe = fifo;
+        let handle = std::thread::spawn(move || {
+            let _ = tx.send(read_capped_bytes_following(&probe, 1024).map(|_| ()));
+        });
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("read_capped_bytes_following blocked on a FIFO instead of refusing it");
+        handle.join().unwrap();
+        match outcome {
+            Err(CappedReadError::Open(e)) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
+            other => panic!("a FIFO must be refused at the open, got {other:?}"),
+        }
+
+        let target = root.join("real.txt");
+        std::fs::write(&target, b"hello").unwrap();
+        let link = root.join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(read_capped_bytes_following(&link, 1024).unwrap(), b"hello");
+        assert!(matches!(read_capped_bytes(&link, 1024), Err(CappedReadError::Open(_))));
+        assert_eq!(
+            open_regular_following(&root).unwrap_err().kind(),
+            std::io::ErrorKind::IsADirectory
         );
     }
 
