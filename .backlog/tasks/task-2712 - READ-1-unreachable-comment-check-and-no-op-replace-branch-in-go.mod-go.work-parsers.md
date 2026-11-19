@@ -1,10 +1,10 @@
 ---
 id: TASK-2712
 title: 'READ-1: unreachable comment check and no-op replace branch in go.mod/go.work parsers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - READ
@@ -32,9 +32,10 @@ dedup_key: 'review-2667.07-4'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The unreachable starts_with("//") check in go_work::parse_use_dirs is removed
-- [ ] #2 The empty replace branch in go_mod::parse is removed (a short comment may note that top-level replace lines are intentionally ignored)
-- [ ] #3 All existing parser tests pass unchanged
+- [x] #1 The unreachable starts_with("//") check in go_work::parse_use_dirs is removed
+- [x] #2 The empty replace branch in go_mod::parse is removed (a short comment may note that top-level replace lines are intentionally ignored)
+- [x] #3 All existing parser tests pass unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes

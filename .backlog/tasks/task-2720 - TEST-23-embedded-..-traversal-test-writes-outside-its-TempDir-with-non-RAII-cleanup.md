@@ -1,10 +1,10 @@
 ---
 id: TASK-2720
 title: 'TEST-23: embedded-.. traversal test writes outside its TempDir with non-RAII cleanup'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:33'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'review-2667.07-9'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test uses a single TempDir root with cwd = root/project and the traversal target inside root, so all state is removed by TempDir's Drop
-- [ ] #2 The manual remove_dir_all and the inaccurate comment are gone
+- [x] #1 The test uses a single TempDir root with cwd = root/project and the traversal target inside root, so all state is removed by TempDir's Drop
+- [x] #2 The manual remove_dir_all and the inaccurate comment are gone
+
 <!-- AC:END -->
 
 ## Implementation Notes

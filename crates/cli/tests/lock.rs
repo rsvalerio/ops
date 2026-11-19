@@ -263,8 +263,18 @@ fn as_terminal_session(cmd: &mut Command) {
     }
 }
 
+/// Reads a trap's counter file. The trap's `echo > file` truncates before it
+/// writes, so a poll can observe the file empty mid-update; that reads as "not
+/// counted yet" rather than a parse failure.
 fn read_count(path: &Path) -> u32 {
-    std::fs::read_to_string(path).map_or(0, |s| s.trim().parse().expect("count"))
+    std::fs::read_to_string(path).map_or(0, |s| {
+        let s = s.trim();
+        if s.is_empty() {
+            0
+        } else {
+            s.parse().expect("count")
+        }
+    })
 }
 
 /// A single Ctrl-C at the terminal reaches the locked command exactly once:

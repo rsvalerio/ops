@@ -1,10 +1,10 @@
 ---
 id: TASK-2719
 title: 'TEST-11: nested use( opener test neither asserts the warn nor the entry after it'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'review-2667.07-8'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts exactly one warn via ops_core::test_utils::count_warnings
-- [ ] #2 The test asserts the exact resulting list (assert_eq!(dirs, vec!["./api", "./cmd"]))
+- [x] #1 The test asserts exactly one warn via ops_core::test_utils::count_warnings
+- [x] #2 The test asserts the exact resulting list (assert_eq!(dirs, vec!["./api", "./cmd"]))
+
 <!-- AC:END -->
 
 ## Implementation Notes

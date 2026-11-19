@@ -634,6 +634,20 @@ fn impl_extension_macro_info() {
     assert_eq!(info.data_provider_name, Some("macro_data"));
 }
 
+#[test]
+fn extension_info_is_debug_clone_copy_and_eq() {
+    let info = MacroTestExtFull.info();
+    #[expect(clippy::clone_on_copy, reason = "exercises the derived Clone impl itself")]
+    let cloned = info.clone();
+    let copied = info;
+    assert_eq!(cloned, info);
+    assert_eq!(copied, info);
+    assert_ne!(info, MacroTestExtShort.info());
+    let rendered = format!("{info:?}");
+    assert!(rendered.starts_with("ExtensionInfo {"), "{rendered}");
+    assert!(rendered.contains("\"macro-full\""), "{rendered}");
+}
+
 // --- DataRegistry::about_fields ---
 
 struct AboutFieldProvider;

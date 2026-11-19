@@ -22,7 +22,7 @@ fn render_slot_separator_depends_only_on_trailing_width() {
                 label: "Section",
                 trailing,
                 trailing_prefix: None,
-                is_running: false,
+                state: RowState::Finished,
             },
             80,
         )
@@ -169,7 +169,7 @@ fn render_summary_text_matches_render_summary_done_case() {
         ConfigurableTheme::new(ThemeConfig::classic()),
         ConfigurableTheme::new(ThemeConfig::compact()),
     ] {
-        let via_summary = theme.render_summary(true, 1.5);
+        let via_summary = theme.render_summary(RunOutcome::Success, 1.5);
         let via_text = theme.render_summary_text("Done in 1.50s");
         assert_eq!(via_summary, via_text);
     }

@@ -6,14 +6,14 @@
 //! path.
 //!
 //! - [`sgr`]   — SGR token parsing, gated style application,
-//!   `precompute_sgr_prefix` / `apply_with_prefix_gated` (rendering crate
-//!   internal API).
+//!   `precompute_sgr_prefix` / `apply_with_prefix_gated`.
 //! - [`strip`] — ANSI escape stripping, visible-width measurement and
 //!   width-bounded truncation (cross-crate read-only API; no TTY/env
 //!   coupling).
 //!
-//! The flat `theme::style::*` re-exports below are the module's API, so
-//! consumers do not need to import the submodules directly.
+//! The flat `ops_theme::style::*` re-exports below are the module's API and
+//! the only public path to these items: the crate root does not re-export
+//! them, so each helper is named one way across the workspace.
 
 mod sgr;
 mod strip;
@@ -60,9 +60,9 @@ mod tests {
     /// The proptest over a CSI/OSC/two-byte-escape corpus locks in that
     /// `visible_width` and `display_width(&strip_ansi(_))` agree on
     /// inputs that mix escapes with arbitrary visible text.
-    #[test]
-    fn visible_width_matches_display_width_proptest() {
-        use ops_core::output::display_width;
+    /// Inputs mixing every grammar arm (complete escapes, unterminated
+    /// escapes, bare controls, tab) with arbitrary visible text.
+    fn ansi_corpus() -> impl proptest::strategy::Strategy<Value = String> {
         use proptest::prelude::*;
 
         // Escape-sequence atoms that exercise each grammar arm.
@@ -85,6 +85,18 @@ mod tests {
             Just("\x1b)0".to_string()),
             Just("\x1b#8".to_string()),
         ];
+        // Escapes that never terminate, or that a following character
+        // proves malformed: each yields a Raw piece.
+        let unterminated = prop_oneof![
+            Just("\x1b".to_string()),
+            Just("\x1b[".to_string()),
+            Just("\x1b[12345678".to_string()),
+            Just("\x1b[1;".to_string()),
+            Just("\x1b(".to_string()),
+            Just("\x1b(#".to_string()),
+            Just("\x1b]unterminated".to_string()),
+            Just("\u{9b}12".to_string()),
+        ];
         // Raw C0 and C1 code points are part of the corpus even though
         // `UnicodeWidthStr` and `UnicodeWidthChar` disagree on them: none
         // survives `strip_ansi` (which drops every control character,
@@ -102,9 +114,21 @@ mod tests {
             Just("\u{90}payload\u{9c}".to_string()),
             Just("\t".to_string()),
         ];
-        let visible = "[a-zA-Z0-9 résumé café 🚀ビルド]{0,8}";
-        let chunk = prop_oneof![escapes, controls, visible.prop_map(String::from)];
-        let strategy = proptest::collection::vec(chunk, 0..12).prop_map(|v| v.concat());
+        let visible = "[a-zA-Z0-9 résumé café 🚀ビルド\\[(#;]{0,8}";
+        let chunk = prop_oneof![escapes, unterminated, controls, visible.prop_map(String::from)];
+        proptest::collection::vec(chunk, 0..12).prop_map(|v| v.concat())
+    }
+
+    /// `visible_width` must produce identical results to
+    /// `display_width(&strip_ansi(s))` across the `strip_ansi` corpus — that is
+    /// the contract that lets every hot-path call site swap the allocating
+    /// pair for the inline scan without a behaviour change.
+    #[test]
+    fn visible_width_matches_display_width_proptest() {
+        use ops_core::output::display_width;
+        use proptest::prelude::*;
+
+        let strategy = ansi_corpus();
 
         proptest!(|(s in strategy)| {
             prop_assert_eq!(
@@ -191,25 +215,21 @@ mod tests {
         assert_eq!(truncate_to_width("a\rb", 10), "ab");
     }
 
-    /// A C0 control can hide inside a *raw* run — an escape introducer whose
-    /// sequence never terminated, with the scan swallowing the control while
-    /// chasing it (`"\x1b(\r"`). The Char arm has always dropped such
-    /// controls; the Raw arm must apply the same filter instead of pushing
-    /// the run verbatim, or the surviving CR/LF could repaint the terminal
-    /// from inside a "measured" string. The introducer itself is a droppable
-    /// control and goes with it; the non-control bytes of the run survive.
+    /// No byte of an unterminated escape reaches the output: `visible_width`
+    /// scores it zero columns, so a surviving byte would be visible text the
+    /// budget never paid for. A control character next to the stray
+    /// introducer is not part of the run and is dropped by the Char policy.
     #[test]
-    fn truncate_to_width_drops_controls_inside_raw_runs() {
-        // `ESC (` never terminates before the CR, so `\x1b(\r` is one raw
-        // run; filtering leaves `(` and the visible text.
-        assert_eq!(truncate_to_width("\x1b(\rtext", 10), "(text");
-        // The same input under truncation keeps the filter, still marks
-        // the cut, and — the raw run counted as an escape — is reset after
-        // the cut: body budget 2 → "(", "t", "e", then the ellipsis.
-        assert_eq!(truncate_to_width("\x1b(\rtext", 3), "(te\u{2026}\x1b[0m");
-        // No swallowed C0 control survives at any budget. (The appended
-        // reset's ESC is policy — escapes and resets are preserved — so the
-        // invariant is CR/LF, the bytes that would forge new lines.)
+    fn truncate_to_width_drops_unterminated_escapes() {
+        assert_eq!(truncate_to_width("abc\x1b[12345678", 3), "abc");
+        assert_eq!(truncate_to_width("ab\x1b(\u{e9}xyz", 3), "ab\u{2026}");
+        assert_eq!(truncate_to_width("\x1b(\rtext", 10), "text");
+        assert_eq!(truncate_to_width("\x1b(\rtext", 3), "te\u{2026}");
+        for (s, n) in [("abc\x1b[12345678", 3), ("ab\x1b(\u{e9}xyz", 3)] {
+            let out = truncate_to_width(s, n);
+            assert!(visible_width(&out) <= n, "{s:?} at {n} cols -> {out:?}");
+            assert!(!out.contains('['), "unterminated CSI bytes survived: {out:?}");
+        }
         for cols in [0, 1, 3, 10] {
             let out = truncate_to_width("\x1b(\rte\nxt", cols);
             assert!(
@@ -217,6 +237,81 @@ mod tests {
                 "control survived at {cols} cols: {out:?}"
             );
         }
+    }
+
+    /// The truncation contract, over the full grammar corpus: the result
+    /// never measures wider than the budget it was given.
+    #[test]
+    fn truncate_to_width_bound_proptest() {
+        use proptest::prelude::*;
+
+        proptest!(|(s in ansi_corpus(), n in 0usize..40)| {
+            let out = truncate_to_width(&s, n);
+            prop_assert!(
+                visible_width(&out) <= n,
+                "visible_width(truncate_to_width({:?}, {})) = {} for {:?}",
+                s,
+                n,
+                visible_width(&out),
+                out
+            );
+        });
+    }
+
+    /// A stray `ESC [` before non-ASCII text ends at the first character
+    /// outside the CSI parameter/intermediate range instead of swallowing
+    /// everything up to the next ASCII letter.
+    #[test]
+    fn stray_csi_before_non_ascii_does_not_swallow_text() {
+        let s = "\x1b[日本語abc";
+        assert_eq!(strip_ansi(s), "日本語abc");
+        assert_eq!(visible_width(s), 9);
+        assert_eq!(strip_ansi_preserving_raw(s), s);
+        // A non-ASCII character after parameter bytes ends it the same way.
+        assert_eq!(strip_ansi("\x1b[1;\u{2014}abc"), "\u{2014}abc");
+    }
+
+    /// The character that proves an nF escape malformed is re-emitted, not
+    /// folded into the raw run.
+    #[test]
+    fn stray_nf_before_non_ascii_keeps_the_character() {
+        let s = "ab\x1b(\u{e9}xyz";
+        assert_eq!(strip_ansi(s), "ab\u{e9}xyz");
+        assert_eq!(visible_width(s), 6);
+        assert_eq!(strip_ansi_preserving_raw(s), s);
+    }
+
+    /// `strip_ansi_preserving_raw` removes complete sequences only; the
+    /// bytes of truncated or stray escapes, control characters and tab
+    /// survive verbatim for the caller's own validator.
+    #[test]
+    fn strip_ansi_preserving_raw_removes_only_complete_sequences() {
+        // Complete CSI, OSC (BEL- and ST-terminated) and 8-bit C1 forms.
+        assert_eq!(strip_ansi_preserving_raw("\x1b[1;31mred\x1b[0m"), "red");
+        assert_eq!(strip_ansi_preserving_raw("\x1b]0;title\x07after"), "after");
+        assert_eq!(
+            strip_ansi_preserving_raw("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\"),
+            "link"
+        );
+        assert_eq!(strip_ansi_preserving_raw("\u{9b}2Jhello"), "hello");
+        assert_eq!(strip_ansi_preserving_raw("\u{9d}0;t\u{9c}x"), "x");
+        // Truncated and stray escapes are kept verbatim.
+        assert_eq!(strip_ansi_preserving_raw("abc\x1b[12"), "abc\x1b[12");
+        assert_eq!(strip_ansi_preserving_raw("trailing\x1b"), "trailing\x1b");
+        assert_eq!(strip_ansi_preserving_raw("\x1b]8;;no-terminator"), "\x1b]8;;no-terminator");
+        // Control characters and tab are kept, unlike `strip_ansi`.
+        assert_eq!(strip_ansi_preserving_raw("\x1b[1ma\rb\tc\u{85}d"), "a\rb\tc\u{85}d");
+    }
+
+    /// Input with no escape introducer is returned borrowed, even when it
+    /// carries control characters or tab.
+    #[test]
+    fn strip_ansi_preserving_raw_borrows_without_an_introducer() {
+        let s = "plain\ttext\r";
+        let out = strip_ansi_preserving_raw(s);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)), "{out:?}");
+        assert_eq!(out, s);
+        assert!(matches!(strip_ansi_preserving_raw("x\x1b[1my"), std::borrow::Cow::Owned(_)));
     }
 
     #[test]

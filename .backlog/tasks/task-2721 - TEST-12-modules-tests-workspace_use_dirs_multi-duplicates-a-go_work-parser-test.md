@@ -1,10 +1,10 @@
 ---
 id: TASK-2721
 title: 'TEST-12: modules::tests::workspace_use_dirs_multi duplicates a go_work parser test'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:33'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - TEST
@@ -29,7 +29,8 @@ dedup_key: 'review-2667.07-10'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 workspace_use_dirs_multi is removed (or rewritten to assert modules-level behaviour not covered by collect_units_workspace)
+- [x] #1 workspace_use_dirs_multi is removed (or rewritten to assert modules-level behaviour not covered by collect_units_workspace)
+
 <!-- AC:END -->
 
 ## Implementation Notes

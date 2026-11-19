@@ -1,5 +1,52 @@
 //! Step-line shared types and duration formatting.
 
+use ops_core::output::StepStatus;
+
+/// Whether a rendered row is a live, still-running step or a finished one.
+///
+/// A running row is drawn through the theme's `running_template` (spinner,
+/// live elapsed time), so it lays out differently from a finished row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowState {
+    /// The step is still running.
+    Running,
+    /// The step has reached a terminal state, or the row is not a step.
+    Finished,
+}
+
+impl RowState {
+    /// The row state a step in `status` is drawn with.
+    #[must_use]
+    pub const fn of(status: StepStatus) -> Self {
+        if matches!(status, StepStatus::Running) {
+            Self::Running
+        } else {
+            Self::Finished
+        }
+    }
+}
+
+/// Whether a run (so far) has succeeded, as shown in its summary line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunOutcome {
+    /// Every step succeeded.
+    Success,
+    /// At least one step did not succeed.
+    Failure,
+}
+
+impl RunOutcome {
+    /// [`Self::Success`] when `success`, otherwise [`Self::Failure`].
+    #[must_use]
+    pub const fn from_success(success: bool) -> Self {
+        if success {
+            Self::Success
+        } else {
+            Self::Failure
+        }
+    }
+}
+
 /// Format a duration in seconds into a human-friendly string.
 ///
 /// - `< 60s` → `"0.74s"`, `"5.37s"` (two decimal places)
@@ -72,18 +119,14 @@ pub fn format_running_elapsed(secs: f64) -> String {
 /// `as u64` cast, so huge values saturate to `u64::MAX` visibly rather
 /// than by accident. Callers reject NaN, negative and infinite input first.
 const fn whole_secs(secs: f64) -> u64 {
-    // The casts are the point: `u64::MAX as f64` rounds up to the nearest
-    // representable f64 (the clamp bound), and `clamped as u64` saturates
-    // there. Both directions are intended and bounded by the callers' guards.
-    // `as_conversions` is allowed for the same reason: no `From`/`TryFrom` pair
-    // expresses "round `u64::MAX` up to the nearest representable f64" or
-    // "saturate an already-clamped f64 down to u64", so the `as` casts are the
-    // only spelling of the intended, guard-bounded conversion.
-    #[allow(
+    #[expect(
         clippy::as_conversions,
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
-        clippy::cast_sign_loss
+        clippy::cast_sign_loss,
+        reason = "no From/TryFrom spells the intended guard-bounded conversion: \
+                  `u64::MAX as f64` rounds up to the clamp bound, and the clamped \
+                  value saturates to u64 there"
     )]
     let total_secs = {
         let clamped = secs.trunc().clamp(0.0, u64::MAX as f64);
@@ -114,7 +157,7 @@ pub struct BoxSnapshot<'a> {
     /// Elapsed seconds since the plan started (wall-clock).
     pub elapsed_secs: f64,
     /// Whether the run has been fully successful up to this point.
-    pub success: bool,
+    pub outcome: RunOutcome,
     /// Terminal columns available for the border.
     pub columns: u16,
     /// Command IDs of the plan, for headers that list them (e.g. `Running: build, test`).
@@ -148,7 +191,7 @@ pub struct SlotLine<'a> {
     /// runner; the per-row report color for reports). `None` renders plain.
     pub trailing_prefix: Option<&'a str>,
     /// Running rows drop the left pad and reserve spinner width.
-    pub is_running: bool,
+    pub state: RowState,
 }
 
 /// Plain layout pieces that make up the left portion of a step line:

@@ -1,10 +1,10 @@
 ---
 id: TASK-2716
 title: 'TEST-33: go.mod/go.work parsers are fused to filesystem reads with no &str entry point'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - TEST
@@ -30,13 +30,17 @@ dedup_key: 'review-2667.07-6'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each parser is split into a thin I/O wrapper and a pure fn over &str (e.g. parse_content / parse_use_dirs_content)
-- [ ] #2 Grammar-only unit tests call the pure fn without tempdir; tests that exercise missing/unreadable files keep using tempdir
-- [ ] #3 Public behaviour of parse / parse_use_dirs is unchanged
+- [x] #1 Each parser is split into a thin I/O wrapper and a pure fn over &str (e.g. parse_content / parse_use_dirs_content)
+- [x] #2 Grammar-only unit tests call the pure fn without tempdir; tests that exercise missing/unreadable files keep using tempdir
+- [x] #3 Public behaviour of parse / parse_use_dirs is unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.07 (code-review-rust run, 2026-11-18).
+
+Pure fns go_mod::parse_content(&str, &Path) and go_work::parse_use_dirs_content(&str, &Path); the Path is diagnostics-only. Grammar tests call them via parse_str; missing-file and one happy-path test per parser stay on tempdir.
+
 <!-- SECTION:NOTES:END -->

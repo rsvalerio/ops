@@ -65,8 +65,13 @@ pub enum CommandSelector<'a> {
     /// Bypass the prompt and use these names verbatim. Only constructed
     /// from tests today, but the variant is part of the public seam so
     /// future scripted callers (a `--commands=…` non-interactive install
-    /// flag, for instance) can land without a second entry point.
-    #[allow(dead_code)]
+    /// flag, for instance) can land without a second entry point. The
+    /// expectation below fails the build once a production caller appears,
+    /// so it cannot outlive that change.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "test-only seam until a scripted install caller lands")
+    )]
     Fixed(&'a [String]),
 }
 

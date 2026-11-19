@@ -1,10 +1,10 @@
 ---
 id: TASK-2681
 title: 'FN-1: run_sec_to mixes plan rendering with scan execution (104 lines)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:27'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - FN
@@ -29,13 +29,17 @@ dedup_key: 'FN-1:crates/cli/src/sec_cmd.rs:run_sec_to'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Dry-run preview rendering is extracted into its own function (e.g. write_dry_run(w, &plan, &opts, ...))
-- [ ] #2 Live execution and exit-code aggregation is extracted into its own function
-- [ ] #3 run_sec_to stays under 50 lines with existing sec_cmd tests unchanged and passing
+- [x] #1 Dry-run preview rendering is extracted into its own function (e.g. write_dry_run(w, &plan, &opts, ...))
+- [x] #2 Live execution and exit-code aggregation is extracted into its own function
+- [x] #3 run_sec_to stays under 50 lines with existing sec_cmd tests unchanged and passing
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.02 (code-review-rust run, 2026-11-18).
+
+run_sec_to is now 29 lines: SecRun::prepare resolves plan/opts/outside, write_dry_run renders the preview, run_live runs the scans and aggregates the exit code.
+
 <!-- SECTION:NOTES:END -->

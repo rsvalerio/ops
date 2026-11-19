@@ -1,10 +1,10 @@
 ---
 id: TASK-2674
 title: 'ERR-13: check-workspaces errors drop the failing file path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - ERR
@@ -33,8 +33,9 @@ dedup_key: 'ERR-13:crates/cli/src/workspace_check_cmd.rs:run_workspace_check'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every fs and TOML-parse error in workspace_check_cmd names the file it concerns
-- [ ] #2 A test asserts the path appears in the error for an unparsable nested Cargo.toml
+- [x] #1 Every fs and TOML-parse error in workspace_check_cmd names the file it concerns
+- [x] #2 A test asserts the path appears in the error for an unparsable nested Cargo.toml
+
 <!-- AC:END -->
 
 ## Implementation Notes

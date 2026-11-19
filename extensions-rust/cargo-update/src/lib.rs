@@ -15,7 +15,7 @@ use ops_core::subprocess::{run_cargo, RunError};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
-use ops_theme::strip_ansi_preserving_raw;
+use ops_theme::style::strip_ansi_preserving_raw;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Output;
@@ -365,7 +365,7 @@ fn absorb_outcome(
     }
 }
 
-// ANSI stripping lives in `ops-theme`. `ops_theme::strip_ansi_preserving_raw`
+// ANSI stripping lives in `ops-theme`. `ops_theme::style::strip_ansi_preserving_raw`
 // runs the workspace's single ANSI grammar — the same iterator `strip_ansi` /
 // `visible_width` / `truncate_to_width` consume — under the policy this parser
 // needs: complete sequences are removed, while truncated or runaway escapes and
@@ -482,7 +482,7 @@ fn is_version_shaped(tok: &str) -> bool {
 
 /// `true` iff `tok` carries no control character.
 ///
-/// [`ops_theme::strip_ansi_preserving_raw`] deliberately preserves truncated
+/// [`ops_theme::style::strip_ansi_preserving_raw`] deliberately preserves truncated
 /// escape sequences and bare `ESC` bytes so visible text is never swallowed, so
 /// a field reaching this point can still contain `ESC`, `NUL`, `BEL`, ... Crate
 /// names and versions never legitimately do, and these values are serialised

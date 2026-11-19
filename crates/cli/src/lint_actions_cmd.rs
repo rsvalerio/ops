@@ -102,11 +102,12 @@ fn workflow_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in entries {
         let entry = entry.with_context(|| format!("reading {}", dir.display()))?;
+        let path = entry.path();
         // `DirEntry::file_type` does not follow symlinks.
-        if !entry.file_type()?.is_file() {
+        let file_type = entry.file_type().with_context(|| format!("reading {}", path.display()))?;
+        if !file_type.is_file() {
             continue;
         }
-        let path = entry.path();
         if matches!(path.extension().and_then(|e| e.to_str()), Some("yml" | "yaml")) {
             files.push(path);
         }
@@ -129,9 +130,12 @@ fn action_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
             std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?;
         for entry in entries {
             let entry = entry.with_context(|| format!("reading {}", dir.display()))?;
+            let path = entry.path();
             // `DirEntry::file_type` does not follow symlinks.
-            if entry.file_type()?.is_dir() {
-                files.extend(manifests_in(&entry.path())?);
+            let file_type =
+                entry.file_type().with_context(|| format!("reading {}", path.display()))?;
+            if file_type.is_dir() {
+                files.extend(manifests_in(&path)?);
             }
         }
     }
@@ -202,7 +206,7 @@ fn uses_problem(value: &str, rest: &str, allow: &[String]) -> Option<String> {
     if value.is_empty() {
         return Some("`uses:` has no reference on the same line".to_owned());
     }
-    if value.starts_with("./") || allow.iter().any(|p| value.starts_with(p.as_str())) {
+    if value.starts_with("./") || allow.iter().any(|p| is_allowed_by(value, p)) {
         return None;
     }
     if let Some(image) = value.strip_prefix("docker://") {
@@ -225,6 +229,22 @@ fn uses_problem(value: &str, rest: &str, allow: &[String]) -> Option<String> {
         ));
     }
     None
+}
+
+/// Whether the allow-list entry `prefix` exempts the reference `value`. The
+/// match holds only at a path boundary: `prefix` ends with `/`, or the
+/// character of `value` right after it is `/` or `@` (or there is none). So
+/// `my-org` exempts `my-org/x@main` but not the look-alike owner
+/// `my-org-other/x@main`, and `my-org/act` does not exempt
+/// `my-org/action-typosquat@main`. An empty entry exempts nothing.
+fn is_allowed_by(value: &str, prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return false;
+    }
+    let Some(after) = value.strip_prefix(prefix) else {
+        return false;
+    };
+    prefix.ends_with('/') || after.is_empty() || after.starts_with(['/', '@'])
 }
 
 /// `secrets: inherit`, ignoring quotes and a trailing comment.
@@ -289,6 +309,22 @@ mod tests {
             "    uses: ./.github/workflows/x.yml\n    uses: me/forge/.github/workflows/b.yml@v1\n";
         assert!(lines(text, &["me/forge/"]).is_empty());
         assert_eq!(lines(text, &[]), [2]);
+    }
+
+    #[test]
+    fn allow_prefixes_match_only_at_a_path_boundary() {
+        let text = format!(
+            "  - uses: my-org/x@main\n  - uses: my-org-other/x@main\n\
+             \x20 - uses: my-org/action-typosquat@main\n  - uses: my-org/act@{SHA}\n"
+        );
+        // A bare owner exempts that owner's repos only, not a look-alike owner.
+        assert_eq!(lines(&text, &["my-org"]), [2]);
+        // An owner/repo prefix without a trailing slash exempts that repo only.
+        assert_eq!(lines(&text, &["my-org/act"]), [1, 2, 3]);
+        // A trailing slash is a boundary by itself.
+        assert_eq!(lines(&text, &["my-org/"]), [2]);
+        // An empty entry exempts nothing.
+        assert_eq!(lines(&text, &[""]), [1, 2, 3, 4]);
     }
 
     #[test]

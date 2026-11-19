@@ -25,7 +25,6 @@ pub(super) use conf_d::read_conf_d_files;
 mod env;
 mod global;
 
-use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -34,7 +33,9 @@ use tracing::{debug, instrument};
 
 use super::merge::merge_config;
 use super::{default_ops_toml, Config, ConfigOverlay};
-use crate::text::{cached_byte_cap_env, open_refusing_symlinks};
+use crate::text::{
+    cached_byte_cap_env, read_capped_utf8_with_policy, CappedReadError, SymlinkPolicy,
+};
 
 #[cfg(test)]
 pub use global::resolve_global_config_path;
@@ -76,36 +77,6 @@ pub fn ops_toml_max_bytes() -> u64 {
     cached_byte_cap_env(&OPS_TOML_MAX_BYTES, OPS_TOML_MAX_BYTES_ENV, DEFAULT_OPS_TOML_MAX_BYTES)
 }
 
-/// Which trust boundary a config path sits on, and therefore whether a
-/// symlink at that path is refused.
-///
-/// Every config open passes `O_NOFOLLOW`, to stop an adversarial repo
-/// planting `.ops.toml -> /etc/shadow`. The **two paths are not the same
-/// trust boundary**:
-///
-/// - **Workspace-relative** (`.ops.toml`, `.ops.d/*.toml`) is content supplied
-///   by whatever repository `ops` happens to be run inside. It is attacker
-///   controlled, and a symlink there is refused ([`SymlinkPolicy::Refuse`]).
-/// - **The global config** (`~/.config/ops/config.toml`) belongs to the user
-///   running `ops`. It is not a privilege boundary — a user who can symlink
-///   inside their own `$HOME` can equally well edit the file — and a symlink
-///   there is the *normal* state under GNU Stow, chezmoi, and nix
-///   home-manager, the mainstream dotfile managers. Applying the repo policy
-///   there bought no security and broke the whole layered load, because
-///   `load_config_at` propagates the refusal with `?` **before** the local
-///   layers are read: a symlinked global config cost the user every command,
-///   theme, and stack setting from the repo's own `.ops.toml` and `.ops.d`.
-///   So the global layer follows ([`SymlinkPolicy::Follow`]).
-///
-/// Do not widen `Follow` back over the workspace paths.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymlinkPolicy {
-    /// Refuse to open through a symlink (workspace-relative config paths).
-    Refuse,
-    /// Follow symlinks (the user's own global config).
-    Follow,
-}
-
 /// Read a `.ops.toml`-style file with a hard byte cap.
 ///
 /// Returns `Ok(None)` if the file does not exist, `Ok(Some(content))`
@@ -134,60 +105,36 @@ fn read_capped_toml_file_with_policy(
     cap: u64,
     symlinks: SymlinkPolicy,
 ) -> anyhow::Result<Option<String>> {
-    // Refuse to follow symlinks at *workspace* config
-    // paths. An adversarial repo planting `.ops.toml -> /etc/shadow` would
-    // otherwise be slurped into the TOML parser and echoed back through
-    // diagnostics. Shared with `text::read_capped_to_string_with` so the two
-    // read_capped_* entry points cannot diverge again.
+    // Workspace config paths refuse symlinks: an adversarial repo planting
+    // `.ops.toml -> /etc/shadow` would otherwise be slurped into the TOML
+    // parser and echoed back through diagnostics. The global config takes
+    // `Follow` instead — see [`SymlinkPolicy`] for why the two paths are
+    // different trust boundaries. The open, cap and decode are the shared
+    // `text::read_capped_utf8_with_policy`, so this entry point and
+    // `text::read_capped_to_string` cannot diverge.
     //
-    // The global config takes `Follow` instead — see
-    // [`SymlinkPolicy`] for why the two paths are different trust boundaries.
-    let opened = match symlinks {
-        SymlinkPolicy::Refuse => open_refusing_symlinks(path),
-        SymlinkPolicy::Follow => std::fs::File::open(path),
-    };
-    let mut file = match opened {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => {
-            // Debug-format the path so a user-controlled
-            // cwd containing newlines / ANSI escapes cannot forge log lines
-            // through `tracing::warn!` consumers of this anyhow chain (e.g.
-            // `load_config_or_default_with`). Matches the policy at
-            // `text.rs::for_each_trimmed_line_with` and `stack/detect.rs`.
-            return Err(e)
-                .with_context(|| format!("failed to open config file: {:?}", path.display()));
+    // Every message Debug-formats the path so a user-controlled cwd
+    // containing newlines / ANSI escapes cannot forge log lines through
+    // `tracing::warn!` consumers of this anyhow chain (e.g.
+    // `load_config_or_default_with`).
+    match read_capped_utf8_with_policy(path, cap, symlinks) {
+        Ok(content) => Ok(Some(content)),
+        Err(CappedReadError::NotFound(_)) => Ok(None),
+        Err(CappedReadError::Open(e)) => {
+            Err(e).with_context(|| format!("failed to open config file: {:?}", path.display()))
         }
-    };
-    let limit = cap.saturating_add(1);
-    // Read **bytes**, not a `String`. `read_to_string`
-    // decodes the truncated `cap + 1` window, so an oversized `.ops.toml`
-    // whose cap boundary splits a multi-byte character would fail with
-    // "stream did not contain valid UTF-8" and never reach the bail below:
-    // the user was told their config was corrupt instead of too large, with
-    // no mention of the override env var. Size first, decode second — same
-    // ordering as `text::read_capped_to_string_with`.
-    let mut bytes = Vec::new();
-    (&mut file)
-        .take(limit)
-        .read_to_end(&mut bytes)
-        .with_context(|| format!("failed to read config file: {:?}", path.display()))?;
-    // `usize` is never wider than `u64` on any target rustc supports, so the
-    // widening is total and the fallback is unreachable; saturating to
-    // `u64::MAX` would report the file as oversize, which is the safe
-    // direction for a size cap.
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        // Same Debug-format policy for the bounded-read
-        // bail. The `?` debug repr keeps newlines / ANSI escapes inert.
-        anyhow::bail!(
+        Err(CappedReadError::Read(e)) => {
+            Err(e).with_context(|| format!("failed to read config file: {:?}", path.display()))
+        }
+        Err(CappedReadError::TooLarge { cap }) => anyhow::bail!(
             "config file at {:?} exceeds {cap} bytes (override via {OPS_TOML_MAX_BYTES_ENV})",
             path.display()
-        );
+        ),
+        // Under the cap: a genuinely corrupt config.
+        Err(CappedReadError::InvalidUtf8(e)) => {
+            Err(e).with_context(|| format!("failed to read config file: {:?}", path.display()))
+        }
     }
-    // Under the cap: a UTF-8 failure here is a genuinely corrupt config.
-    let content = String::from_utf8(bytes)
-        .with_context(|| format!("failed to read config file: {:?}", path.display()))?;
-    Ok(Some(content))
 }
 
 /// Counter for `load_config` invocations. Used by the CLI regression test

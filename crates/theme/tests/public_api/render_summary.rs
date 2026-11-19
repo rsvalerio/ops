@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn classic_render_summary_success() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
-    let summary = theme.render_summary(true, 1.5);
+    let summary = theme.render_summary(RunOutcome::Success, 1.5);
     assert!(summary.contains("Done"));
     assert!(summary.contains("1.50s"));
     assert!(summary.starts_with(" └──"));
@@ -15,7 +15,7 @@ fn classic_render_summary_success() {
 #[test]
 fn classic_render_summary_failure() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
-    let summary = theme.render_summary(false, 0.75);
+    let summary = theme.render_summary(RunOutcome::Failure, 0.75);
     assert!(summary.contains("Failed"));
     assert!(summary.contains("0.75s"));
     assert!(summary.starts_with(" └──"));
@@ -24,7 +24,7 @@ fn classic_render_summary_failure() {
 #[test]
 fn classic_render_summary_minutes() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
-    let summary = theme.render_summary(true, 278.04);
+    let summary = theme.render_summary(RunOutcome::Success, 278.04);
     assert!(summary.contains("Done"));
     assert!(summary.contains("4m38s"));
 }
@@ -32,7 +32,7 @@ fn classic_render_summary_minutes() {
 #[test]
 fn compact_render_summary_success() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
-    let summary = theme.render_summary(true, 2.0);
+    let summary = theme.render_summary(RunOutcome::Success, 2.0);
     assert!(summary.contains("Done"));
     assert!(summary.contains("2.00s"));
     assert!(!summary.contains("└──"));
@@ -41,7 +41,7 @@ fn compact_render_summary_success() {
 #[test]
 fn compact_render_summary_failure() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
-    let summary = theme.render_summary(false, 0.5);
+    let summary = theme.render_summary(RunOutcome::Failure, 0.5);
     assert!(summary.contains("Failed"));
     assert!(summary.contains("0.50s"));
 }

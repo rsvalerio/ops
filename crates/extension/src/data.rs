@@ -103,7 +103,8 @@ impl DataProviderSchema {
 /// impl DataProvider for MetadataProvider {
 ///     fn name(&self) -> &'static str { "metadata" }
 ///     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-///         // Load or compute data, possibly using ctx.db
+///         // Load or compute data, possibly using `ctx.db()` (available
+///         // only with the `sqlite` feature)
 ///         Ok(serde_json::json!({"version": "1.0"}))
 ///     }
 /// }
@@ -333,7 +334,10 @@ impl DataRegistry {
         names
     }
 
-    /// Returns schemas for all providers that have non-empty descriptions.
+    /// Returns every registered provider's schema, sorted by provider name.
+    ///
+    /// Providers are not filtered: one that keeps the default (empty) schema
+    /// is listed with that empty schema.
     #[must_use]
     pub fn schemas(&self) -> Vec<(&str, DataProviderSchema)> {
         let mut result: Vec<_> =

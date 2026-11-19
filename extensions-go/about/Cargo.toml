@@ -6,19 +6,10 @@ edition = "2024"
 license.workspace = true
 rust-version.workspace = true
 
-[package.metadata.cargo-machete]
-# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
-# in this crate, which machete cannot see through.
-ignored = ["linkme"]
-
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
-# `linkme` has no textual use here — `impl_extension!` expands to
-# `#[linkme::distributed_slice(...)]` and resolves the path in the
-# calling crate, so this entry is load-bearing despite the empty grep.
-linkme = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 

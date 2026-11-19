@@ -9,15 +9,7 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one.
 
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 // The four modules below are private, so every `pub` item inside them is
 // crate-internal already — that spelling, rather than `pub(crate)`, is what
@@ -82,7 +74,8 @@ impl DataProvider for GoIdentityProvider {
             let name = go_mod
                 .as_ref()
                 .and_then(|m| m.module.as_deref())
-                .and_then(|m| modules::last_segment(Some(m)));
+                .and_then(modules::last_segment)
+                .map(str::to_owned);
 
             let stack_detail =
                 go_mod.as_ref().and_then(|m| m.go_version.clone()).map(|v| format!("Go {v}"));
@@ -143,12 +136,6 @@ mod tests {
     }
 
     // --- provider tests ---
-
-    #[test]
-    fn provider_name() {
-        let provider = GoIdentityProvider;
-        assert_eq!(provider.name(), "project_identity");
-    }
 
     /// The Go provider exposes exactly the base about fields, in the base
     /// order — no stack-specific extras and none missing. The expected ids

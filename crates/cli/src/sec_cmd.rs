@@ -228,7 +228,7 @@ fn is_yaml_file(name: &str) -> bool {
 
 /// Heuristically decide whether `path` is a Kubernetes manifest. Generic k8s
 /// YAML is indistinguishable from any other YAML by filename, so we sniff a
-/// bounded prefix for the two top-level keys every manifest declares —
+/// bounded prefix for the two root-mapping keys every manifest declares —
 /// `apiVersion:` and `kind:`. Reading is capped so a giant YAML data file can't
 /// turn detection into a full-file read.
 fn is_k8s_manifest(path: &Path) -> bool {
@@ -244,13 +244,39 @@ fn is_k8s_manifest(path: &Path) -> bool {
     }
     let mut has_api_version = false;
     let mut has_kind = false;
+    // Indentation of the current document's root mapping, fixed by its first
+    // content line. YAML allows a uniformly indented root, so the root is not
+    // assumed to sit at column zero.
+    let mut root_indent: Option<usize> = None;
     for line in buf.lines() {
-        // Top-level mapping keys are unindented; `trim_start` also tolerates
-        // a leading document marker without matching list items.
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("apiVersion:") {
+        // Only root mapping keys count: a `kind:` / `apiVersion:` indented
+        // deeper than the root belongs to a nested mapping (a CI config, an
+        // OpenAPI spec, Helm values) and is not a signature. A `---` document
+        // marker starts a new document whose root is measured afresh; one
+        // written inline (`--- apiVersion: v1`) puts that root at column zero.
+        let (key, indent) = if line == "---" || line.starts_with("--- ") {
+            root_indent = None;
+            let rest = line.get(3..).unwrap_or_default().trim_start();
+            (rest, 0)
+        } else {
+            // Blank and comment-only lines may carry any YAML whitespace,
+            // tabs included; they must not fix the root's indentation.
+            let content = line.trim_start_matches([' ', '\t']);
+            if content.is_empty() || content.starts_with('#') {
+                continue;
+            }
+            let rest = line.trim_start_matches(' ');
+            (rest, line.len().saturating_sub(rest.len()))
+        };
+        if key.is_empty() || key.starts_with('#') {
+            continue;
+        }
+        if *root_indent.get_or_insert(indent) != indent {
+            continue;
+        }
+        if key.starts_with("apiVersion:") {
             has_api_version = true;
-        } else if trimmed.starts_with("kind:") {
+        } else if key.starts_with("kind:") {
             has_kind = true;
         }
         if has_api_version && has_kind {
@@ -746,7 +772,7 @@ fn run_sec_to(
     overrides: &SecOverrides,
     w: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
-    let SecOverrides { skip, force, no_default_skips, no_dev_deps, repo } = overrides;
+    let SecOverrides { skip, force, repo, .. } = overrides;
     // A scan named in both lists is contradictory intent — reject it loudly
     // rather than silently letting one side win.
     if let Some(conflict) = skip.iter().find(|s| force.contains(s)) {
@@ -761,56 +787,96 @@ fn run_sec_to(
     } else {
         root
     };
-    // One walk feeds everything: the scan plan and the generated-build-dir
-    // inventory the Trivy invocations skip per-path.
-    let walk = detect(scan_root);
-    let plan = build_plan_from(walk.found, skip, force);
-    let selected: Vec<Scan> = plan.iter().filter(|e| e.selected).map(|e| e.scan).collect();
-
-    // Out-of-scope IaC files matter only to the misconfig scan — enumerate
-    // them when it is selected, or in the dry-run preview where the plan
-    // display is the point. With `--skip misconfig` a subproject scan no
-    // longer walks the rest of the repository to list files nothing will
-    // look at.
-    let outside: Vec<PathBuf> = if dry_run || selected.contains(&Scan::Misconfig) {
-        match toplevel.as_deref() {
-            Some(top) if top != scan_root => outside_iac_markers(top, scan_root),
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-
-    let opts = TrivyOpts {
-        skip_patterns: if *no_default_skips {
-            Vec::new()
-        } else {
-            trivy_skip_patterns(&walk.generated)
-        },
-        ignore_file: find_ignore_file(scan_root, toplevel.as_deref()),
-        include_dev_deps: !*no_dev_deps,
-    };
-
+    let run = SecRun::prepare(scan_root, toplevel.as_deref(), dry_run, overrides);
     if dry_run {
-        // Preview only — print the full plan (run + skip, with reasons) and
-        // never execute Trivy, so do not require it installed. A heads-up keeps
-        // the preview honest when it would have failed live.
-        write_plan(w, &plan).context("failed to write scan plan")?;
-        writeln!(w, "  scan root: {}", scan_root.display()).context("failed to write scan root")?;
-        write_skip_dirs(w, *no_default_skips, &opts.skip_patterns)
-            .context("failed to write skip-dir plan")?;
-        write_ignore_file(w, &opts, scan_root, toplevel.as_deref())
-            .context("failed to write ignore-file plan")?;
-        write_dev_deps(w, opts.include_dev_deps).context("failed to write dev-deps plan")?;
-        if let Some(top) = toplevel.as_deref() {
-            write_outside(w, top, &outside).context("failed to write out-of-scope files")?;
-        }
-        if !trivy_on_path() {
-            ops_core::ui::warn(TRIVY_MISSING_HELP);
-        }
-        return Ok(ExitCode::SUCCESS);
+        write_dry_run(w, &run, overrides.no_default_skips)?;
+        Ok(ExitCode::SUCCESS)
+    } else {
+        run_live(w, &run)
     }
+}
 
+/// Everything one `ops sec` invocation resolved before either previewing or
+/// running: the scan plan, where it scans, the out-of-scope `IaC` files, and
+/// the options every Trivy invocation receives.
+struct SecRun<'a> {
+    plan: Vec<PlanEntry>,
+    selected: Vec<Scan>,
+    scan_root: &'a Path,
+    toplevel: Option<&'a Path>,
+    outside: Vec<PathBuf>,
+    opts: TrivyOpts,
+}
+
+impl<'a> SecRun<'a> {
+    /// Detect, plan, and resolve the Trivy options for a scan of `scan_root`.
+    fn prepare(
+        scan_root: &'a Path,
+        toplevel: Option<&'a Path>,
+        dry_run: bool,
+        overrides: &SecOverrides,
+    ) -> Self {
+        // One walk feeds everything: the scan plan and the generated-build-dir
+        // inventory the Trivy invocations skip per-path.
+        let walk = detect(scan_root);
+        let plan = build_plan_from(walk.found, &overrides.skip, &overrides.force);
+        let selected: Vec<Scan> = plan.iter().filter(|e| e.selected).map(|e| e.scan).collect();
+
+        // Out-of-scope IaC files matter only to the misconfig scan — enumerate
+        // them when it is selected, or in the dry-run preview where the plan
+        // display is the point. With `--skip misconfig` a subproject scan no
+        // longer walks the rest of the repository to list files nothing will
+        // look at.
+        let outside: Vec<PathBuf> = if dry_run || selected.contains(&Scan::Misconfig) {
+            match toplevel {
+                Some(top) if top != scan_root => outside_iac_markers(top, scan_root),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+
+        let opts = TrivyOpts {
+            skip_patterns: if overrides.no_default_skips {
+                Vec::new()
+            } else {
+                trivy_skip_patterns(&walk.generated)
+            },
+            ignore_file: find_ignore_file(scan_root, toplevel),
+            include_dev_deps: !overrides.no_dev_deps,
+        };
+        Self { plan, selected, scan_root, toplevel, outside, opts }
+    }
+}
+
+/// The `--dry-run` preview: print the full plan (run + skip, with reasons)
+/// and what the scans would walk, and never execute Trivy, so do not require
+/// it installed. A heads-up keeps the preview honest when it would have
+/// failed live.
+fn write_dry_run(
+    w: &mut dyn std::io::Write,
+    run: &SecRun<'_>,
+    no_default_skips: bool,
+) -> anyhow::Result<()> {
+    let SecRun { plan, scan_root, toplevel, outside, opts, .. } = run;
+    write_plan(w, plan).context("failed to write scan plan")?;
+    writeln!(w, "  scan root: {}", scan_root.display()).context("failed to write scan root")?;
+    write_skip_dirs(w, no_default_skips, &opts.skip_patterns)
+        .context("failed to write skip-dir plan")?;
+    write_ignore_file(w, opts, scan_root, *toplevel).context("failed to write ignore-file plan")?;
+    write_dev_deps(w, opts.include_dev_deps).context("failed to write dev-deps plan")?;
+    if let Some(top) = toplevel {
+        write_outside(w, top, outside).context("failed to write out-of-scope files")?;
+    }
+    if !trivy_on_path() {
+        ops_core::ui::warn(TRIVY_MISSING_HELP);
+    }
+    Ok(())
+}
+
+/// The live run: refuse an empty plan, require Trivy, run every selected
+/// scan, and aggregate — success only when every scan was clean.
+fn run_live(w: &mut dyn std::io::Write, run: &SecRun<'_>) -> anyhow::Result<ExitCode> {
     // Zero scans selected must not fall through the loop
     // into SUCCESS. `run_cmd/plan.rs::plans_for_names` refuses the same shape for
     // the same reason — "executed zero steps, reported success" masks an
@@ -818,8 +884,8 @@ fn run_sec_to(
     // that reports healthy without scanning anything. Checked before the
     // `trivy` probe so an all-skipped run says what is actually wrong rather
     // than complaining about a tool it would never have spawned.
-    if selected.is_empty() {
-        write_no_scans_ran(w, &plan).context("failed to write empty-plan report")?;
+    if run.selected.is_empty() {
+        write_no_scans_ran(w, &run.plan).context("failed to write empty-plan report")?;
         return Ok(ExitCode::FAILURE);
     }
 
@@ -829,16 +895,16 @@ fn run_sec_to(
 
     // A live run is quiet, but files silently left out of a security gate
     // deserve their one line.
-    if let Some(top) = toplevel.as_deref() {
-        write_outside(w, top, &outside).context("failed to write out-of-scope files")?;
+    if let Some(top) = run.toplevel {
+        write_outside(w, top, &run.outside).context("failed to write out-of-scope files")?;
     }
 
     // Stay quiet by default: one `scanning <scan> ✓` line per scan. Run every
     // applicable scan even after one reports findings, then aggregate: success
     // only when every scan was clean.
     let mut all_ok = true;
-    for scan in selected {
-        if !run_scan(scan_root, scan, w, &opts)? {
+    for &scan in &run.selected {
+        if !run_scan(run.scan_root, scan, w, &run.opts)? {
             all_ok = false;
         }
     }
@@ -1016,6 +1082,67 @@ mod tests {
         let plan = build_plan(dir.path(), &[], &[]);
         let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
         assert!(misconfig.selected, "a k8s manifest YAML must enable the misconfig scan");
+    }
+
+    #[test]
+    fn nested_kind_and_api_version_keys_are_not_a_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("ci.yaml"),
+            "jobs:\n  build:\n    apiVersion: v2\n    kind: pipeline\n",
+        )
+        .unwrap();
+        let plan = build_plan(dir.path(), &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(!misconfig.selected, "nested kind:/apiVersion: keys must not enable misconfig");
+    }
+
+    #[test]
+    fn a_manifest_after_a_document_marker_is_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.yaml"), "---\napiVersion: v1\nkind: Service\n").unwrap();
+        std::fs::write(dir.path().join("b.yaml"), "--- apiVersion: v1\nkind: Service\n").unwrap();
+        assert!(is_k8s_manifest(&dir.path().join("a.yaml")));
+        assert!(is_k8s_manifest(&dir.path().join("b.yaml")));
+    }
+
+    #[test]
+    fn a_uniformly_indented_root_mapping_is_a_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pod.yaml"),
+            "# demo pod\n  apiVersion: v1\n  kind: Pod\n  metadata:\n    name: demo\n",
+        )
+        .unwrap();
+        let plan = build_plan(dir.path(), &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(misconfig.selected, "an indented root mapping must enable the misconfig scan");
+    }
+
+    #[test]
+    fn tab_led_comment_and_blank_lines_do_not_fix_the_root_indent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pod.yaml"),
+            "  \t# comment\n \t\napiVersion: v1\nkind: Pod\n",
+        )
+        .unwrap();
+        let plan = build_plan(dir.path(), &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(misconfig.selected, "a tab-led comment must not hide a column-zero manifest");
+    }
+
+    #[test]
+    fn keys_nested_under_an_indented_root_or_a_list_item_are_not_a_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("nested.yaml"),
+            "  spec:\n    apiVersion: v1\n    kind: Pod\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("list.yaml"), "- apiVersion: v1\n  kind: Pod\n").unwrap();
+        assert!(!is_k8s_manifest(&dir.path().join("nested.yaml")));
+        assert!(!is_k8s_manifest(&dir.path().join("list.yaml")));
     }
 
     #[test]

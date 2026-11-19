@@ -46,7 +46,15 @@ pub struct GoMod {
 pub fn parse(dir: &Path) -> Option<GoMod> {
     let path = dir.join("go.mod");
     let content = ops_about::manifest_io::read_optional_text(&path, dir, "go.mod")?;
+    Some(parse_content(&content, &path))
+}
 
+/// Parse `go.mod` text for module path and toolchain version.
+///
+/// The pure grammar behind [`parse`]: `path` is used only to name the
+/// manifest in diagnostics, so a workspace with several `go.mod` files says
+/// which one is malformed.
+fn parse_content(content: &str, path: &Path) -> GoMod {
     let mut out = GoMod::default();
     let mut block: Option<Block> = None;
     // Snapshot of the fields a block can mutate, taken when the block opens.
@@ -99,10 +107,10 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
             set_module(&mut out, rest);
         } else if let Some(rest) = strip_verb(line, "go") {
             set_go_version(&mut out, rest);
-        } else if strip_verb(line, "replace").is_some() {
-            // Skipped: a replace is a dependency substitution, not a
-            // workspace member, and nothing reads its target.
         }
+        // Any other line — a single-line `replace`, `require`, `exclude`,
+        // ... — is intentionally ignored: a replace is a dependency
+        // substitution, not a workspace member, and nothing reads its target.
     }
 
     // A block still open at EOF means the file is truncated or hand-mangled.
@@ -118,6 +126,7 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
         };
         tracing::warn!(
             manifest = "go.mod",
+            path = ?path,
             directive = directive,
             "go.mod: unterminated block directive at end of file; dropping values absorbed by the block"
         );
@@ -127,7 +136,7 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
         }
     }
 
-    Some(out)
+    out
 }
 
 /// The directive-value policy the `module` and `go` setters share: the first
@@ -159,6 +168,11 @@ fn set_go_version(out: &mut GoMod, rest: &str) {
 mod tests {
     use super::*;
 
+    /// Run the pure grammar over `content`, as if read from a root `go.mod`.
+    fn parse_str(content: &str) -> GoMod {
+        parse_content(content, Path::new("go.mod"))
+    }
+
     #[test]
     fn parses_module_and_go_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -170,13 +184,8 @@ mod tests {
 
     #[test]
     fn strips_trailing_comments() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m // toolchain note\n\ngo 1.22 // toolchain hint\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module example.com/m // toolchain note\n\ngo 1.22 // toolchain hint\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
@@ -185,13 +194,8 @@ mod tests {
     /// disturbing the directives the card does read.
     #[test]
     fn replace_directives_are_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\ngo 1.22\n\nreplace example.com/m/api => ./api\n\nreplace (\n\texample.com/m/sdk => ./sdk\n\texample.com/m/x => github.com/fork/x v1.0.0\n)\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module example.com/m\n\ngo 1.22\n\nreplace example.com/m/api => ./api\n\nreplace (\n\texample.com/m/sdk => ./sdk\n\texample.com/m/x => github.com/fork/x v1.0.0\n)\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
@@ -200,26 +204,17 @@ mod tests {
     /// block, so the `go` directive after the terminator parses.
     #[test]
     fn replace_block_opener_accepts_trailing_comment() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\nreplace ( // local fork pins\n\texample.com/m/api => ./api\n)\n\ngo 1.22\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module example.com/m\n\nreplace ( // local fork pins\n\texample.com/m/api => ./api\n)\n\ngo 1.22\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
 
     #[test]
     fn replace_block_opener_accepts_no_space_before_paren() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\nreplace(\n\texample.com/m/api => ./api\n)\n\ngo 1.22\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content =
+            "module example.com/m\n\nreplace(\n\texample.com/m/api => ./api\n)\n\ngo 1.22\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
@@ -232,37 +227,32 @@ mod tests {
 
     #[test]
     fn no_go_version_yields_none_field() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "module example.com/foo\n").unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module example.com/foo\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/foo"));
         assert!(m.go_version.is_none());
     }
 
     #[test]
     fn whitespace_handling() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "  module   example.com/ws  \n\n  go   1.23  \n")
-            .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "  module   example.com/ws  \n\n  go   1.23  \n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/ws"));
         assert_eq!(m.go_version.as_deref(), Some("1.23"));
     }
 
     #[test]
     fn empty_file_yields_empty_struct() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "").unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "";
+        let m = parse_str(content);
         assert!(m.module.is_none());
         assert!(m.go_version.is_none());
     }
 
     #[test]
     fn no_module_line_yields_none_module() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "go 1.21\n").unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "go 1.21\n";
+        let m = parse_str(content);
         assert!(m.module.is_none());
         assert_eq!(m.go_version.as_deref(), Some("1.21"));
     }
@@ -271,9 +261,8 @@ mod tests {
     /// delimits a comment only at start-of-line or after whitespace.
     #[test]
     fn module_path_with_literal_double_slash_is_preserved() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "module example.com/foo//bar\n").unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module example.com/foo//bar\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/foo//bar"));
     }
 
@@ -282,13 +271,8 @@ mod tests {
     /// top-level directives.
     #[test]
     fn replace_block_with_inline_comment_no_whitespace_is_skipped() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\nreplace(//local-pins\n\texample.com/m/api => ./api\n)\n\ngo 1.22\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module example.com/m\n\nreplace(//local-pins\n\texample.com/m/api => ./api\n)\n\ngo 1.22\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
@@ -297,27 +281,20 @@ mod tests {
     /// About-card name derives from the bare module path.
     #[test]
     fn parses_quoted_module_directives() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "module \"example.com/m\"\n\ngo \"1.22\"\n")
-            .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module \"example.com/m\"\n\ngo \"1.22\"\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
         // The About-card name derives from the unquoted path.
-        assert_eq!(crate::modules::last_segment(m.module.as_deref()).as_deref(), Some("m"));
+        assert_eq!(m.module.as_deref().and_then(crate::modules::last_segment), Some("m"));
     }
 
     /// Verb and argument are separated by arbitrary whitespace, so
     /// tab-separated `module` and `go` directives parse.
     #[test]
     fn parses_tab_separated_directives() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module\texample.com/m\n\ngo\t1.22\n\nreplace\tex.com/m => ./api\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module\texample.com/m\n\ngo\t1.22\n\nreplace\tex.com/m => ./api\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
@@ -326,13 +303,8 @@ mod tests {
     /// inside the block, not the literal `(`.
     #[test]
     fn parses_block_form_module_and_go_directives() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module (\n\texample.com/m\n)\n\ngo (\n\t1.22\n)\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content = "module (\n\texample.com/m\n)\n\ngo (\n\t1.22\n)\n";
+        let m = parse_str(content);
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
@@ -341,13 +313,9 @@ mod tests {
     /// directives after it are still parsed.
     #[test]
     fn replace_block_terminator_accepts_trailing_comment() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\nreplace (\n\tex.com/a => ./api\n) // local pins\n\ngo 1.22\n",
-        )
-        .unwrap();
-        let m = parse(dir.path()).unwrap();
+        let content =
+            "module example.com/m\n\nreplace (\n\tex.com/a => ./api\n) // local pins\n\ngo 1.22\n";
+        let m = parse_str(content);
         // The block closed, so the trailing `go` line is a top-level
         // directive and parses.
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
@@ -358,16 +326,10 @@ mod tests {
     /// swallowed are dropped, and the directives before the block survive.
     #[test]
     fn unterminated_replace_block_warns_once_and_rolls_back_absorbed_values() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\nreplace ex.com/a => ./api\n\nreplace (\n\tex.com/sdk => ./sdk\ngo 1.22\n",
-        )
-        .unwrap();
+        let content = "module example.com/m\n\nreplace ex.com/a => ./api\n\nreplace (\n\tex.com/sdk => ./sdk\ngo 1.22\n";
 
-        let (m, warn_count) = ops_core::test_utils::count_warnings(|| parse(dir.path()));
+        let (m, warn_count) = ops_core::test_utils::count_warnings(|| parse_str(content));
 
-        let m = m.unwrap();
         // The directive before the block survives.
         assert_eq!(m.module.as_deref(), Some("example.com/m"));
         // The `go 1.22` line swallowed by the block is gone with it.
@@ -375,20 +337,15 @@ mod tests {
         assert_eq!(warn_count, 1);
     }
 
-    /// The rendered diagnostic names the manifest and the unterminated
+    /// The rendered diagnostic names the manifest path and the unterminated
     /// directive.
     #[test]
     fn unterminated_replace_block_warn_names_manifest_and_directive() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/m\n\nreplace (\n\tex.com/sdk => ./sdk\n",
-        )
-        .unwrap();
+        let content = "module example.com/m\n\nreplace (\n\tex.com/sdk => ./sdk\n";
         let rendered = ops_core::test_utils::capture_warn(|| {
-            parse(dir.path());
+            parse_content(content, Path::new("svc/go.mod"));
         });
-        assert!(rendered.contains("go.mod"), "warn should name the manifest: {rendered}");
+        assert!(rendered.contains("svc/go.mod"), "warn should name the manifest path: {rendered}");
         assert!(rendered.contains("unterminated"), "warn should say what is wrong: {rendered}");
         assert!(rendered.contains("replace"), "warn should name the directive: {rendered}");
     }

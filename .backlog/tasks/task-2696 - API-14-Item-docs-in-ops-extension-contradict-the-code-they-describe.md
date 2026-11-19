@@ -1,10 +1,10 @@
 ---
 id: TASK-2696
 title: 'API-14: Item docs in ops-extension contradict the code they describe'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:29'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - API
@@ -33,9 +33,10 @@ dedup_key: 'API-14:crates/extension/src/data.rs:DataRegistry::schemas'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DataRegistry::schemas docs match its behaviour (or the behaviour is changed to match and the test updated)
-- [ ] #2 DataProvider example refers to ctx.db() and notes the sqlite feature gate
-- [ ] #3 Extension::register_commands links to CommandRegistry::insert for its duplicate contract
+- [x] #1 DataRegistry::schemas docs match its behaviour (or the behaviour is changed to match and the test updated)
+- [x] #2 DataProvider example refers to ctx.db() and notes the sqlite feature gate
+- [x] #3 Extension::register_commands links to CommandRegistry::insert for its duplicate contract
+
 <!-- AC:END -->
 
 ## Implementation Notes

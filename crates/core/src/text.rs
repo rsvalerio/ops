@@ -144,6 +144,17 @@ pub fn manifest_max_bytes() -> u64 {
 ///    between two steps cannot redirect a later one outside the chain
 ///    (`..` and `/` are resolved by the kernel and are never symlinks).
 ///
+/// The walk needs only search (`+x`) permission on the ancestors, as plain
+/// path resolution does, on targets that can open a directory for search
+/// alone: Linux and Android open each ancestor `O_PATH`, and Apple targets,
+/// FreeBSD and NetBSD open it `O_SEARCH`. Every ancestor is held as an open
+/// descriptor and the next component is resolved relative to it, so a
+/// checked directory is never resolved by path a second time. Unix targets
+/// with neither flag open each ancestor for reading, which also needs read
+/// permission: a directory that can be searched but not read fails the walk
+/// with the platform `EACCES` (fail closed) rather than being stepped over
+/// by path.
+///
 /// `ops` is invoked on third-party repos; an
 /// adversarial repo can plant
 /// `package.json -> /etc/passwd` (or `.ops.toml -> /etc/shadow`) and leak
@@ -265,7 +276,7 @@ mod unix_open {
     /// indistinguishable from "a plain file in the middle of the path".
     /// Opening without it yields an unambiguous `ELOOP`, and the `fstat`
     /// below enforces the type requirement instead.
-    const FILE_FLAGS: libc::c_int =
+    pub(super) const FILE_FLAGS: libc::c_int =
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
 
     /// Flags for the **intermediate** components, which are only ever used as
@@ -289,13 +300,30 @@ mod unix_open {
     /// the symlink itself. [`open_dir_component`] therefore rejects `S_IFLNK`
     /// from the `fstat` explicitly, which keeps the refusal surface identical
     /// to the `O_RDONLY` path.
-    #[cfg(target_os = "linux")]
-    const DIR_FLAGS: libc::c_int = libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub(super) const DIR_FLAGS: libc::c_int = libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC;
 
-    /// Non-Linux Unix has no `O_PATH`; intermediate components use the same
-    /// flags as the final one.
-    #[cfg(not(target_os = "linux"))]
-    const DIR_FLAGS: libc::c_int = FILE_FLAGS;
+    /// Without `O_PATH`, `O_SEARCH` opens a directory for search only, so the
+    /// walk still needs nothing beyond `+x` on each ancestor. `O_DIRECTORY`
+    /// (implied by `O_SEARCH` on Apple targets) makes the kernel report a
+    /// symlink as `ENOTDIR` rather than `ELOOP`; [`open_dir_component`]
+    /// relabels that case with the stable symlink refusal.
+    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "netbsd"))]
+    pub(super) const DIR_FLAGS: libc::c_int =
+        libc::O_SEARCH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+
+    /// With neither `O_PATH` nor `O_SEARCH`, intermediate components use the
+    /// same flags as the final one, which need read permission on the
+    /// directory. A directory that is searchable but not readable answers
+    /// `EACCES` and the walk fails closed with it.
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    )))]
+    pub(super) const DIR_FLAGS: libc::c_int = FILE_FLAGS;
 
     /// `openat(2)` relative to `dir` (or the process cwd when `dir` is
     /// `None`), returning an owned descriptor.
@@ -381,28 +409,83 @@ mod unix_open {
         super::refused_symlink(path)
     }
 
-    /// Open one intermediate component and prove it is a directory.
-    fn open_dir_component(cur: Option<&OwnedFd>, name: &CStr, path: &Path) -> io::Result<OwnedFd> {
-        let fd = openat(cur, name, DIR_FLAGS).map_err(|e| {
-            if is_symlink_refusal(&e) {
-                refused_symlink_component(path, name, "openat")
-            } else {
-                e
-            }
-        })?;
-        match file_type_bits(&fd)? {
-            libc::S_IFDIR => Ok(fd),
-            // Reachable only on the `O_PATH` (Linux) path, where
-            // `O_NOFOLLOW` hands back the symlink itself instead of failing
-            // with `ELOOP`. Spell the refusal the same way either way.
-            libc::S_IFLNK => Err(refused_symlink_component(path, name, "fstat")),
+    /// `st_mode & S_IFMT` for `name` relative to `dir`, without following a
+    /// symlink at its final component.
+    fn lstat_type_bits(dir: Option<&OwnedFd>, name: &CStr) -> io::Result<libc::mode_t> {
+        let dirfd = dir.map_or(libc::AT_FDCWD, AsRawFd::as_raw_fd);
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `dirfd` is `AT_FDCWD` or a live borrowed descriptor, `name`
+        // is NUL-terminated and outlives the call, and `stat` is a valid,
+        // writable `libc::stat` slot for its duration.
+        let ret = unsafe {
+            libc::fstatat(dirfd, name.as_ptr(), stat.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+        };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fstatat` returned 0, so it fully initialised `stat`.
+        let stat = unsafe { stat.assume_init() };
+        Ok(stat.st_mode & libc::S_IFMT)
+    }
+
+    /// Accept `mode` only for a directory; refuse a symlink with the
+    /// documented surface.
+    fn require_dir(
+        mode: libc::mode_t,
+        name: &CStr,
+        path: &Path,
+        kind: &'static str,
+    ) -> io::Result<()> {
+        match mode {
+            libc::S_IFDIR => Ok(()),
+            libc::S_IFLNK => Err(refused_symlink_component(path, name, kind)),
             _ => Err(io::Error::from_raw_os_error(libc::ENOTDIR)),
         }
+    }
+
+    /// Open one intermediate component and prove it is a directory.
+    fn open_dir_component(
+        cur: Option<&OwnedFd>,
+        name: &CStr,
+        path: &Path,
+        dir_flags: libc::c_int,
+    ) -> io::Result<OwnedFd> {
+        let fd = match openat(cur, name, dir_flags) {
+            Ok(fd) => fd,
+            Err(e) if is_symlink_refusal(&e) => {
+                return Err(refused_symlink_component(path, name, "openat"));
+            }
+            // With `O_DIRECTORY` the open already refused a symlink, but as
+            // `ENOTDIR`. Inspecting the entry through the same parent
+            // descriptor only picks the error label; nothing is opened
+            // through it.
+            Err(e) if e.raw_os_error() == Some(libc::ENOTDIR) => {
+                return Err(match lstat_type_bits(cur, name) {
+                    Ok(libc::S_IFLNK) => refused_symlink_component(path, name, "openat"),
+                    _ => e,
+                });
+            }
+            Err(e) => return Err(e),
+        };
+        // A symlink is reachable here only on the `O_PATH` path, where
+        // `O_NOFOLLOW` hands back the symlink itself instead of failing with
+        // `ELOOP`. Spell the refusal the same way either way.
+        require_dir(file_type_bits(&fd)?, name, path, "fstat")?;
+        Ok(fd)
     }
 
     /// Walk `path` component by component, refusing a symlink at any step,
     /// and return the final component as a regular-file handle.
     pub(super) fn open_regular_no_symlink(path: &Path) -> io::Result<std::fs::File> {
+        open_regular_no_symlink_with(path, DIR_FLAGS)
+    }
+
+    /// [`open_regular_no_symlink`] with explicit flags for the intermediate
+    /// components, so tests can drive the walk used where `O_PATH` is absent.
+    pub(super) fn open_regular_no_symlink_with(
+        path: &Path,
+        dir_flags: libc::c_int,
+    ) -> io::Result<std::fs::File> {
         let components: Vec<Component<'_>> = path.components().collect();
         let Some((last, prefix)) = components.split_last() else {
             // An empty path never names a file; report it the way `open(2)`
@@ -428,7 +511,7 @@ mod unix_open {
                 }
             };
             let c_name = to_cstring(name, path)?;
-            cur = Some(open_dir_component(cur.as_ref(), &c_name, path)?);
+            cur = Some(open_dir_component(cur.as_ref(), &c_name, path, dir_flags)?);
         }
         let Component::Normal(final_name) = last else {
             // `/`, `.`, or `..` as the whole path: a directory, never a
@@ -477,38 +560,158 @@ pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
 /// Used by unit tests to exercise the cap-handling behaviour without
 /// depending on the process-global memoised [`manifest_max_bytes`] value.
 fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> {
-    // Attach the path to io::Error propagation so a
-    // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
-    // file name, matching the oversize InvalidData branch below.
-    let mut file = open_refusing_symlinks(path).map_err(|e| with_path(&e, path))?;
-    // Read **bytes**, not a `String`. `read_to_string`
-    // decodes the truncated `cap + 1` window and fails with "stream did not
-    // contain valid UTF-8" whenever byte `cap` lands inside a multi-byte
-    // sequence — which any oversized non-ASCII file does routinely. That
-    // error short-circuited the size check below, so the one input that
-    // needs the "raise OPS_MANIFEST_MAX_BYTES" hint was exactly the input
-    // that never got it. Size first, decode second.
-    let mut bytes = Vec::new();
-    let limit = cap.saturating_add(1);
-    (&mut file).take(limit).read_to_end(&mut bytes).map_err(|e| with_path(&e, path))?;
-    // `usize` is never wider than `u64` on any target rustc supports, so the
-    // widening is total and the fallback is unreachable; saturating to
-    // `u64::MAX` would report the file as oversize, which is the safe
-    // direction for a size cap.
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        return Err(std::io::Error::new(
+    // Attach the path to every io::Error so a bare
+    // `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the file
+    // name, matching the oversize `InvalidData` branch.
+    read_capped_utf8_with_policy(path, cap, SymlinkPolicy::Refuse).map_err(|e| match e {
+        CappedReadError::NotFound(e) | CappedReadError::Open(e) | CappedReadError::Read(e) => {
+            with_path(&e, path)
+        }
+        CappedReadError::TooLarge { cap } => std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
                 "file exceeds {cap}-byte cap at {} (override via {MANIFEST_MAX_BYTES_ENV})",
                 path.display()
             ),
-        ));
-    }
-    // Under the cap: a UTF-8 failure here is a genuinely corrupt file, and
-    // keeps the same `InvalidData` kind `read_to_string` produced before.
-    String::from_utf8(bytes).map_err(|e| {
-        with_path(&std::io::Error::new(std::io::ErrorKind::InvalidData, e.utf8_error()), path)
+        ),
+        // Under the cap: a genuinely corrupt file, with the same
+        // `InvalidData` kind `read_to_string` produced before.
+        CappedReadError::InvalidUtf8(e) => {
+            with_path(&std::io::Error::new(std::io::ErrorKind::InvalidData, e), path)
+        }
     })
+}
+
+/// Whether a byte-capped open refuses symlinks, and the trust boundary that
+/// decides it.
+///
+/// [`SymlinkPolicy::Refuse`] goes through [`open_refusing_symlinks`], which
+/// refuses a symlink at any path component and a non-regular final component
+/// (FIFO, socket, device) without blocking. [`SymlinkPolicy::Follow`] is a
+/// plain `File::open`, for paths the user owns rather than the repository.
+/// The config loader is the one caller with both kinds of path, and its
+/// **two paths are not the same trust boundary**:
+///
+/// - **Workspace-relative** (`.ops.toml`, `.ops.d/*.toml`) is content supplied
+///   by whatever repository `ops` happens to be run inside. It is attacker
+///   controlled, and a symlink there is refused ([`SymlinkPolicy::Refuse`]).
+/// - **The global config** (`~/.config/ops/config.toml`) belongs to the user
+///   running `ops`. It is not a privilege boundary — a user who can symlink
+///   inside their own `$HOME` can equally well edit the file — and a symlink
+///   there is the *normal* state under GNU Stow, chezmoi, and nix
+///   home-manager, the mainstream dotfile managers. Applying the repo policy
+///   there bought no security and broke the whole layered load, because
+///   `load_config_at` propagates the refusal with `?` **before** the local
+///   layers are read: a symlinked global config cost the user every command,
+///   theme, and stack setting from the repo's own `.ops.toml` and `.ops.d`.
+///   So the global layer follows ([`SymlinkPolicy::Follow`]).
+///
+/// Do not widen `Follow` back over the workspace paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SymlinkPolicy {
+    /// Refuse to open through a symlink (workspace-relative config paths).
+    Refuse,
+    /// Follow symlinks (the user's own global config).
+    Follow,
+}
+
+/// Why a byte-capped read produced no content.
+///
+/// The variants carry no path: each caller names the file in its own error
+/// shape (an `io::Error` message, an `anyhow` context, a `tracing` field).
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CappedReadError {
+    /// The file (or a component on the way to it) does not exist.
+    NotFound(std::io::Error),
+    /// The open failed for any other reason, including a refused symlink or
+    /// non-regular file (`InvalidInput`, see [`open_refusing_symlinks`]).
+    Open(std::io::Error),
+    /// The open succeeded but reading the bytes failed.
+    Read(std::io::Error),
+    /// The file holds more than `cap` bytes; nothing past `cap + 1` bytes
+    /// was read.
+    TooLarge {
+        /// The byte cap the file exceeded.
+        cap: u64,
+    },
+    /// The file is within the cap but is not valid UTF-8.
+    InvalidUtf8(std::str::Utf8Error),
+}
+
+impl std::fmt::Display for CappedReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(e) | Self::Open(e) => write!(f, "open failed: {e}"),
+            Self::Read(e) => write!(f, "read failed: {e}"),
+            Self::TooLarge { cap } => write!(f, "file exceeds {cap}-byte cap"),
+            Self::InvalidUtf8(e) => write!(f, "not valid UTF-8: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for CappedReadError {}
+
+/// Read at most `cap` bytes of `path`, refusing symlinks at any component and
+/// non-regular files (FIFO, socket, device) without blocking.
+///
+/// The cap is enforced on the raw bytes before any decoding, so callers that
+/// decode lossily cannot be pushed past it by replacement-character
+/// expansion.
+///
+/// # Errors
+///
+/// [`CappedReadError::NotFound`] when the file is absent,
+/// [`CappedReadError::Open`] for a refused or failed open,
+/// [`CappedReadError::Read`] for a failed read, and
+/// [`CappedReadError::TooLarge`] when the file exceeds `cap`.
+pub fn read_capped_bytes(path: &Path, cap: u64) -> Result<Vec<u8>, CappedReadError> {
+    read_capped_bytes_with_policy(path, cap, SymlinkPolicy::Refuse)
+}
+
+/// The one open + capped read + size check shared by every `read_capped_*`
+/// entry point, so the cap semantics cannot drift between them.
+pub(crate) fn read_capped_bytes_with_policy(
+    path: &Path,
+    cap: u64,
+    symlinks: SymlinkPolicy,
+) -> Result<Vec<u8>, CappedReadError> {
+    let opened = match symlinks {
+        SymlinkPolicy::Refuse => open_refusing_symlinks(path),
+        SymlinkPolicy::Follow => std::fs::File::open(path),
+    };
+    let file = opened.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CappedReadError::NotFound(e)
+        } else {
+            CappedReadError::Open(e)
+        }
+    })?;
+    // Read **bytes**, not a `String`. `read_to_string` decodes the truncated
+    // `cap + 1` window and fails with "stream did not contain valid UTF-8"
+    // whenever byte `cap` lands inside a multi-byte sequence — which any
+    // oversized non-ASCII file does routinely — so the size check would
+    // never report the cap. Size first, decode second.
+    let mut bytes = Vec::new();
+    file.take(cap.saturating_add(1)).read_to_end(&mut bytes).map_err(CappedReadError::Read)?;
+    // `usize` is never wider than `u64` on any target rustc supports, so the
+    // widening is total and the fallback is unreachable; saturating to
+    // `u64::MAX` would report the file as oversize, which is the safe
+    // direction for a size cap.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
+        return Err(CappedReadError::TooLarge { cap });
+    }
+    Ok(bytes)
+}
+
+/// [`read_capped_bytes_with_policy`] followed by a strict UTF-8 decode.
+pub(crate) fn read_capped_utf8_with_policy(
+    path: &Path,
+    cap: u64,
+    symlinks: SymlinkPolicy,
+) -> Result<String, CappedReadError> {
+    let bytes = read_capped_bytes_with_policy(path, cap, symlinks)?;
+    String::from_utf8(bytes).map_err(|e| CappedReadError::InvalidUtf8(e.utf8_error()))
 }
 
 fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
@@ -1081,6 +1284,136 @@ mod tests {
             got.expect("search permission must be enough to reach the manifest"),
             "[package]"
         );
+    }
+
+    /// Read `p` through the walk with explicit intermediate-component flags.
+    #[cfg(unix)]
+    fn read_with_dir_flags(p: &Path, dir_flags: libc::c_int) -> std::io::Result<String> {
+        unix_open::open_regular_no_symlink_with(p, dir_flags).and_then(|mut f| {
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).map(|_| s)
+        })
+    }
+
+    /// On targets that open ancestors for search alone (`O_PATH` or
+    /// `O_SEARCH`), the default walk steps through a directory that is
+    /// searchable but not readable, at any depth below it.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
+    #[test]
+    fn walk_traverses_a_search_only_directory_with_search_flags() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if crate::test_utils::is_root_euid() {
+            return; // TEST-19: root bypasses DAC, so the fixture proves nothing.
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mid = crate::test_utils::canonical_root(&root).join("search-only");
+        let inner = mid.join("inner");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(mid.join("Cargo.toml"), b"[package]").unwrap();
+        std::fs::write(inner.join("Cargo.toml"), b"[inner]").unwrap();
+        // --x--x--x: traversable, not listable, not readable.
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let read = |p: &Path| read_with_dir_flags(p, unix_open::DIR_FLAGS).map_err(|e| e.kind());
+        let direct = read(&mid.join("Cargo.toml"));
+        let nested = read(&inner.join("Cargo.toml"));
+
+        // Restore before asserting so the tempdir can always be cleaned up.
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(direct, Ok("[package]".to_string()));
+        assert_eq!(nested, Ok("[inner]".to_string()));
+    }
+
+    /// With neither `O_PATH` nor `O_SEARCH` the walk opens ancestors for
+    /// reading. A directory that is searchable but not readable must fail
+    /// the walk closed, not be stepped over by path, which a concurrent
+    /// writer could swap for a symlink between the check and the use.
+    #[cfg(unix)]
+    #[test]
+    fn walk_with_read_flags_fails_closed_on_a_search_only_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if crate::test_utils::is_root_euid() {
+            return; // TEST-19: root bypasses DAC, so the fixture proves nothing.
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mid = crate::test_utils::canonical_root(&root).join("search-only");
+        let inner = mid.join("inner");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("Cargo.toml"), b"[inner]").unwrap();
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let got = read_with_dir_flags(&inner.join("Cargo.toml"), unix_open::FILE_FLAGS);
+
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let err = got.expect_err("a search-only ancestor must fail the read-flag walk closed");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
+    /// A symlinked intermediate component is refused with the stable
+    /// `InvalidInput` surface under every flag set the walk uses: the
+    /// platform default, the plain read flags, and read flags carrying
+    /// `O_DIRECTORY`, which report the symlink as `ENOTDIR` the way
+    /// `O_SEARCH` does on Apple targets.
+    #[cfg(unix)]
+    #[test]
+    fn walk_refuses_a_symlinked_component_under_every_dir_flag_set() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), b"secret").unwrap();
+        let link = crate::test_utils::canonical_root(&root).join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        let target = link.join("Cargo.toml");
+
+        for (label, flags) in [
+            ("default", unix_open::DIR_FLAGS),
+            ("read", unix_open::FILE_FLAGS),
+            ("read+directory", unix_open::FILE_FLAGS | libc::O_DIRECTORY),
+        ] {
+            let err = read_with_dir_flags(&target, flags)
+                .expect_err("a symlinked component must be refused");
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput, "{label} flags: {err}");
+            assert!(err.to_string().contains("symlink"), "{label} flags: {err}");
+        }
+    }
+
+    /// A symlink planted inside a search-only directory is refused too when
+    /// the walk holds that directory as a search-only descriptor.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
+    #[test]
+    fn walk_refuses_a_symlink_inside_a_search_only_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if crate::test_utils::is_root_euid() {
+            return; // TEST-19: root bypasses DAC, so the fixture proves nothing.
+        }
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), b"secret").unwrap();
+        let mid = crate::test_utils::canonical_root(&root).join("search-only");
+        std::fs::create_dir(&mid).unwrap();
+        std::os::unix::fs::symlink(outside.path(), mid.join("link")).unwrap();
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let got = read_with_dir_flags(&mid.join("link").join("Cargo.toml"), unix_open::DIR_FLAGS);
+
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let err = got.expect_err("a symlink below a search-only directory must be refused");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("symlink"), "error should mention symlink, got {err}");
     }
 
     /// a FIFO planted at a manifest path must be refused,

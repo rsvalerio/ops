@@ -1,10 +1,10 @@
 ---
 id: TASK-2709
 title: 'CL-3: running-row column budget reserves left_pad in two places and not in the final clamp'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - cognitive-load
@@ -31,13 +31,17 @@ Related doc drift in the same arithmetic: `render_separator`'s doc says "a floor
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The running-row reservation (template overhead plus or minus left_pad) is computed by one helper used by label_budget, render_separator and the final clamp in render_slot_gated
-- [ ] #2 Whether a running row reserves left_pad is decided and documented, with a test pinning the rendered running-row width for a built-in theme against columns
-- [ ] #3 render_separator's doc states the actual minimum separator run (columns including the leading space, or glyphs) consistently with MIN_SEP_GLYPHS
+- [x] #1 The running-row reservation (template overhead plus or minus left_pad) is computed by one helper used by label_budget, render_separator and the final clamp in render_slot_gated
+- [x] #2 Whether a running row reserves left_pad is decided and documented, with a test pinning the rendered running-row width for a built-in theme against columns
+- [x] #3 render_separator's doc states the actual minimum separator run (columns including the leading space, or glyphs) consistently with MIN_SEP_GLYPHS
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.06 (code-review-rust run, 2026-11-18).
+
+Decision: a running row reserves left_pad — build_running_style in the runner prepends left_pad_str to running_template, so the on-screen row is left_pad + running_template_overhead + body. reserved_chrome(RowState) is the single helper used by label_budget, render_separator and the final clamp (the clamp now applies to the body, before a finished row's pad is prefixed). Pinned by left_pad::running_row_fills_columns_with_left_pad_and_template_overhead (classic, 80 cols).
+
 <!-- SECTION:NOTES:END -->

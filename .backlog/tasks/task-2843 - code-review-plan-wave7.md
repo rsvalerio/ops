@@ -1,10 +1,10 @@
 ---
 id: TASK-2843
 title: 'code-review-plan-wave7'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:09'
 labels:
   - code-review-wave
 dependencies:
@@ -44,4 +44,8 @@ Grouping: ops cli: check-workspaces, lint-actions, sec, hook_shared
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2843
+Worktree: /home/rsvalerio/projects/.wave-TASK-2843
+
 <!-- SECTION:NOTES:END -->

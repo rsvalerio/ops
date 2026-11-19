@@ -11,6 +11,7 @@
 use indexmap::IndexMap;
 use ops_core::output::{ErrorDetail, StepLine, StepStatus};
 use ops_core::test_utils::EnvGuard;
+use ops_theme::style::strip_ansi;
 use ops_theme::*;
 use serial_test::serial;
 

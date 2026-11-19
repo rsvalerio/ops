@@ -24,7 +24,7 @@ fn left_pad_prepends_spaces_to_plan_header() {
 #[test]
 fn left_pad_prepends_spaces_to_summary() {
     let theme = theme_with_pad(2);
-    let summary = theme.render_summary(true, 1.0);
+    let summary = theme.render_summary(RunOutcome::Success, 1.0);
     assert!(summary.starts_with("  Done"));
 }
 
@@ -37,4 +37,41 @@ fn left_pad_zero_produces_no_padding() {
     let padded = theme_with_pad(2);
     let padded_line = render_line(&padded, StepStatus::Succeeded, "cargo test", Some(1.0));
     assert!(padded_line.starts_with("    ✓"), "should have 2-space pad + step_indent");
+}
+
+/// The left pad counts against a finished row's budget: a nonzero column
+/// budget narrower than the pad yields a row no wider than that budget.
+#[test]
+fn finished_row_narrower_than_left_pad_fits_its_budget() {
+    let theme = theme_with_pad(4);
+    let step = StepLine::new(StepStatus::Succeeded, "cargo build".to_string(), Some(0.5));
+    for columns in 1..=4u16 {
+        let line = theme.render(&step, columns);
+        assert_eq!(
+            ops_theme::style::visible_width(&line),
+            usize::from(columns),
+            "columns {columns}: {line:?}"
+        );
+        assert!(line.chars().all(|c| c == ' '), "columns {columns}: {line:?}");
+    }
+}
+
+/// A running row reserves the left pad too: the runner's running style
+/// prepends it to `running_template`, so the row on screen is
+/// `left_pad + running_template_overhead + rendered` columns and must fill
+/// the terminal exactly, whatever the label length.
+#[test]
+fn running_row_fills_columns_with_left_pad_and_template_overhead() {
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
+    assert_eq!(theme.left_pad(), 1, "fixture assumes classic's one-column pad");
+    let columns: u16 = 80;
+    for label in ["build", &"x".repeat(200)] {
+        let step = StepLine::new(StepStatus::Running, label.to_string(), None);
+        let line = theme.render(&step, columns);
+        let on_screen = theme
+            .left_pad()
+            .saturating_add(theme.running_template_overhead())
+            .saturating_add(ops_theme::style::visible_width(&line));
+        assert_eq!(on_screen, usize::from(columns), "label {} cols: {line:?}", label.len());
+    }
 }

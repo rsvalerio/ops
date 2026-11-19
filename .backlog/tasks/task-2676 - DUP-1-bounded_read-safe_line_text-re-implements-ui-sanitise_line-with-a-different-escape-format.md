@@ -1,10 +1,10 @@
 ---
 id: TASK-2676
 title: 'DUP-1: bounded_read::safe_line_text re-implements ui::sanitise_line with a different escape format'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:14'
 labels:
   - code-review-rust
   - DUP
@@ -30,9 +30,10 @@ dedup_key: 'DUP-1:crates/core/src/bounded_read.rs:safe_line_text'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 bounded_read report lines are escaped through ui::sanitise_line / sanitise_to_string (or one shared helper both call)
-- [ ] #2 safe_line_text is removed or reduced to a thin call into the shared escaper
-- [ ] #3 Existing bounded_read escaping tests are updated to the shared escape format and still pass
+- [x] #1 bounded_read report lines are escaped through ui::sanitise_line / sanitise_to_string (or one shared helper both call)
+- [x] #2 safe_line_text is removed or reduced to a thin call into the shared escaper
+- [x] #3 Existing bounded_read escaping tests are updated to the shared escape format and still pass
+
 <!-- AC:END -->
 
 ## Implementation Notes

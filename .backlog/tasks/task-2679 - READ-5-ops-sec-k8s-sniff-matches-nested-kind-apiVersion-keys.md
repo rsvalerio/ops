@@ -1,10 +1,10 @@
 ---
 id: TASK-2679
 title: 'READ-5: ops sec k8s sniff matches nested kind/apiVersion keys'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:26'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:07'
 labels:
   - code-review-rust
   - READ
@@ -29,9 +29,10 @@ dedup_key: 'READ-5:crates/cli/src/sec_cmd.rs:is_k8s_manifest'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Only unindented apiVersion:/kind: keys (optionally after a '---' marker line) count as a manifest signature
-- [ ] #2 The comment describes the implemented behaviour
-- [ ] #3 A test covers a YAML file with nested kind:/apiVersion: that is not detected as a manifest
+- [x] #1 Only unindented apiVersion:/kind: keys (optionally after a '---' marker line) count as a manifest signature
+- [x] #2 The comment describes the implemented behaviour
+- [x] #3 A test covers a YAML file with nested kind:/apiVersion: that is not detected as a manifest
+
 <!-- AC:END -->
 
 ## Implementation Notes

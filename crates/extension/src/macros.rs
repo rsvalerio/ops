@@ -29,7 +29,7 @@
 #[macro_export]
 macro_rules! impl_extension {
     // Internal rule: shared accessor methods
-    (@accessors $struct:ty, $name:expr, $desc:expr, $short:expr, $types:expr, $dp:expr $(, stack: $stack:expr)? $(, command_names: $cn:expr)?) => {
+    (@accessors $name:expr, $desc:expr, $short:expr, $types:expr, $dp:expr $(, stack: $stack:expr)? $(, command_names: $cn:expr)?) => {
         fn name(&self) -> &'static str {
             $name
         }
@@ -57,6 +57,25 @@ macro_rules! impl_extension {
         }
     };
 
+    // Internal rule: the auto-registration static shared by both factory arms.
+    //
+    // linkme is reached through this crate's hidden re-export, so invoking
+    // crates need no direct `linkme` dependency. linkme's distributed_slice
+    // expansion emits `#[link_section]` (an unsafe attribute wrapper) on the
+    // static — unsafe tokens the compiler counts into the invoking crate. The
+    // allow must live here, on the generated item: rustc ignores `#[allow]`
+    // applied to the macro *invocation*. In crates where `unsafe_code` is not
+    // denied this is inert. The expansion requires `deny(unsafe_code)` or a
+    // less restrictive level in the invoking crate: under `forbid(unsafe_code)`
+    // the generated `#[allow]` is itself rejected (E0451 — an allow cannot
+    // override a forbid).
+    (@factory $factory_ident:ident = $factory_fn:expr) => {
+        #[allow(unsafe_code)]
+        #[$crate::__private::linkme::distributed_slice($crate::EXTENSION_REGISTRY)]
+        #[linkme(crate = $crate::__private::linkme)]
+        static $factory_ident: $crate::ExtensionFactory = $factory_fn;
+    };
+
     // Full form with register_commands + factory (auto-registration)
     (
         $struct:ty,
@@ -71,33 +90,19 @@ macro_rules! impl_extension {
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block,
         factory: $factory_ident:ident = $factory_fn:expr $(,)?
     ) => {
-        impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
-            fn register_commands(&self, registry: &mut $crate::CommandRegistry) {
-                let $self_cmd = self;
-                let $reg_cmd = registry;
-                $cmd_body
-            }
-            fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
-                let $self_dp = self;
-                let $reg_dp = registry;
-                $dp_body
-            }
+        $crate::impl_extension! {
+            $struct,
+            name: $name,
+            description: $desc,
+            shortname: $short,
+            types: $types,
+            $(stack: $stack,)?
+            $(command_names: $cn,)?
+            data_provider_name: $dp,
+            register_commands: |$self_cmd, $reg_cmd| $cmd_body,
+            register_data_providers: |$self_dp, $reg_dp| $dp_body,
         }
-
-        // linkme's distributed_slice expansion emits
-        // `#[link_section]` (an unsafe attribute wrapper) on this static —
-        // unsafe tokens the compiler counts into the invoking crate. The
-        // allow must live here, on the generated item: rustc ignores
-        // `#[allow]` applied to the macro *invocation*. In crates where
-        // `unsafe_code` is not denied this is inert. Note the expansion
-        // requires `deny(unsafe_code)` or a less restrictive level in the
-        // invoking crate: under `forbid(unsafe_code)` the generated
-        // `#[allow]` is itself rejected (E0451 — an allow cannot override a
-        // forbid).
-        #[allow(unsafe_code)]
-        #[linkme::distributed_slice($crate::EXTENSION_REGISTRY)]
-        static $factory_ident: $crate::ExtensionFactory = $factory_fn;
+        $crate::impl_extension!(@factory $factory_ident = $factory_fn);
     };
 
     // Full form with register_commands (no factory — legacy)
@@ -114,7 +119,7 @@ macro_rules! impl_extension {
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block $(,)?
     ) => {
         impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
+            $crate::impl_extension!(@accessors $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
             fn register_commands(&self, registry: &mut $crate::CommandRegistry) {
                 let $self_cmd = self;
                 let $reg_cmd = registry;
@@ -141,22 +146,18 @@ macro_rules! impl_extension {
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block,
         factory: $factory_ident:ident = $factory_fn:expr $(,)?
     ) => {
-        impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
-            fn register_commands(&self, _registry: &mut $crate::CommandRegistry) {}
-            fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
-                let $self_dp = self;
-                let $reg_dp = registry;
-                $dp_body
-            }
+        $crate::impl_extension! {
+            $struct,
+            name: $name,
+            description: $desc,
+            shortname: $short,
+            types: $types,
+            $(stack: $stack,)?
+            $(command_names: $cn,)?
+            data_provider_name: $dp,
+            register_data_providers: |$self_dp, $reg_dp| $dp_body,
         }
-
-        // As in the full factory arm above — the
-        // allow rides the generated static because linkme's expansion emits
-        // an unsafe `#[link_section]` attribute wrapper.
-        #[allow(unsafe_code)]
-        #[linkme::distributed_slice($crate::EXTENSION_REGISTRY)]
-        static $factory_ident: $crate::ExtensionFactory = $factory_fn;
+        $crate::impl_extension!(@factory $factory_ident = $factory_fn);
     };
 
     // Short form without register_commands (no factory — legacy)
@@ -172,7 +173,7 @@ macro_rules! impl_extension {
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block $(,)?
     ) => {
         impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
+            $crate::impl_extension!(@accessors $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
             fn register_commands(&self, _registry: &mut $crate::CommandRegistry) {}
             fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
                 let $self_dp = self;

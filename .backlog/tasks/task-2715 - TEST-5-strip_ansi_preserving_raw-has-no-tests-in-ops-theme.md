@@ -1,10 +1,10 @@
 ---
 id: TASK-2715
 title: 'TEST-5: strip_ansi_preserving_raw has no tests in ops-theme'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:03'
 labels:
   - code-review-rust
   - test-quality
@@ -30,8 +30,9 @@ dedup_key: 'review-2667.06-6'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops-theme tests assert strip_ansi_preserving_raw removes complete CSI/OSC/C1 sequences, keeps truncated or stray escape bytes and control characters verbatim, and keeps tab
-- [ ] #2 A test asserts the no-introducer input returns Cow::Borrowed
+- [x] #1 ops-theme tests assert strip_ansi_preserving_raw removes complete CSI/OSC/C1 sequences, keeps truncated or stray escape bytes and control characters verbatim, and keeps tab
+- [x] #2 A test asserts the no-introducer input returns Cow::Borrowed
+
 <!-- AC:END -->
 
 ## Implementation Notes

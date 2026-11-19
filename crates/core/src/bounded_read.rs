@@ -241,27 +241,6 @@ pub trait FileRunReport {
     fn add_skipped(&mut self, count: usize);
 }
 
-/// Render report-line text with newlines and terminal control characters
-/// escaped, so a hostile filename (or an I/O error message embedding one)
-/// cannot forge extra report lines or repaint the operator terminal. The
-/// escaped forms stay readable (`\n`, not a replacement character).
-fn safe_line_text(text: &str) -> String {
-    if !text.chars().any(crate::text::is_unsafe_display_char) {
-        return text.to_string();
-    }
-    text.chars()
-        .map(|c| {
-            if crate::text::is_unsafe_display_char(c) {
-                // `{:?}` of a char yields `'\n'`; drop the quotes so the
-                // escape blends into the surrounding text.
-                format!("{c:?}").trim_matches('\'').to_string()
-            } else {
-                c.to_string()
-            }
-        })
-        .collect()
-}
-
 /// Emit one failure line and record it, so the failure sources cannot drift
 /// apart in either wording or bookkeeping.
 ///
@@ -272,7 +251,8 @@ fn safe_line_text(text: &str) -> String {
 ///
 /// Both the path and the message originate in the walked tree (an extension
 /// root can be repo-supplied), so the rendered line goes through
-/// [`safe_line_text`]; the `FailedFile` record keeps the raw path for
+/// [`crate::ui::sanitise_to_string`], the crate's one escaping channel for
+/// the display-safety policy; the `FailedFile` record keeps the raw path for
 /// programmatic consumers (JSON, exit-code mapping), which do not interpret
 /// control bytes.
 ///
@@ -288,8 +268,8 @@ pub fn record_failure<R: FileRunReport>(
     writeln!(
         writer,
         "{label}: {}: {}",
-        safe_line_text(&failure.path.display().to_string()),
-        safe_line_text(&failure.message)
+        crate::ui::sanitise_to_string(&failure.path.display().to_string()),
+        crate::ui::sanitise_to_string(&failure.message)
     )
     .with_context(|| format!("{label}: writing failure line failed"))?;
     report.push_failure(failure);
@@ -297,6 +277,12 @@ pub fn record_failure<R: FileRunReport>(
 }
 
 /// Print every discovery walk error and adopt it into the report.
+///
+/// A rendered walk error embeds the offending path, which originates in the
+/// walked tree just like a [`record_failure`] path, so the printed line goes
+/// through the same [`crate::ui::sanitise_to_string`] escaping. The report
+/// adopts the raw strings for programmatic consumers, which do not interpret
+/// control bytes.
 ///
 /// An entry the walk could not traverse hides an unknown number of files, and
 /// a gate that reports "clean" over them is fail-open. Printing the notice is
@@ -313,7 +299,7 @@ pub fn report_walk_errors<R: FileRunReport>(
     errors: Vec<String>,
 ) -> anyhow::Result<()> {
     for error in &errors {
-        writeln!(writer, "{label}: walk error: {error}")
+        writeln!(writer, "{label}: walk error: {}", crate::ui::sanitise_to_string(error))
             .with_context(|| format!("{label}: writing the walk-error notice failed"))?;
     }
     report.adopt_walk_errors(errors);
@@ -436,11 +422,41 @@ mod tests {
         };
         record_failure(&mut sink, &mut line, "fix", failure).unwrap();
         let rendered = String::from_utf8(line).unwrap();
-        assert_eq!(rendered, "fix: evil\\nINJECT.txt: read: \\u{1b}[31mdenied\n");
+        assert_eq!(rendered, "fix: evil\\x0aINJECT.txt: read: \\x1b[31mdenied\n");
         // The record keeps the raw path for programmatic consumers.
         assert_eq!(sink.failures[0].path, std::path::Path::new("evil\nINJECT.txt"));
         // Clean text is untouched.
-        assert_eq!(safe_line_text("plain/path.txt"), "plain/path.txt");
+        assert_eq!(crate::ui::sanitise_to_string("plain/path.txt"), "plain/path.txt");
+    }
+
+    /// A walk error embeds a repo-controlled path, so its rendered line is
+    /// escaped exactly like a failure line, while the report adopts the raw
+    /// strings for programmatic consumers.
+    #[test]
+    fn report_walk_errors_escapes_control_bytes_in_the_rendered_line() {
+        struct Sink {
+            walk_errors: Vec<String>,
+        }
+        impl FileRunReport for Sink {
+            fn push_failure(&mut self, _failure: FailedFile) {}
+            fn adopt_walk_errors(&mut self, errors: Vec<String>) {
+                self.walk_errors = errors;
+            }
+            fn add_skipped(&mut self, _count: usize) {}
+        }
+
+        let raw = "IO error for operation on evil\nok: all clean\u{1b}[2J: denied".to_string();
+        let mut sink = Sink { walk_errors: Vec::new() };
+        let mut line = Vec::new();
+        report_walk_errors(&mut sink, &mut line, "fix", vec![raw.clone()]).unwrap();
+        let rendered = String::from_utf8(line).unwrap();
+        assert_eq!(
+            rendered,
+            "fix: walk error: IO error for operation on evil\\x0aok: all clean\\x1b[2J: denied\n"
+        );
+        assert_eq!(rendered.matches('\n').count(), 1, "one physical line per error");
+        assert!(!rendered.contains('\u{1b}'), "no raw ESC may reach the terminal");
+        assert_eq!(sink.walk_errors, vec![raw]);
     }
 
     /// The skip wording is user-facing (it lands on the per-file line), so

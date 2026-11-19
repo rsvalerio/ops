@@ -1,10 +1,10 @@
 ---
 id: TASK-2705
 title: 'SEC-11: truncate_to_width emits unmeasured visible bytes from unterminated escapes, breaking its width contract'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:31'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:03'
 labels:
   - code-review-rust
   - security
@@ -37,13 +37,17 @@ truncate_to_width("ab\x1b(\u{e9}xyz", 3)  -> "ab(\u{e9}…\x1b[0m"   visible_wid
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 truncate_to_width's output satisfies visible_width(out) <= max_cols for every input, including unterminated CSI/nF/OSC runs (either charge the Raw run's surviving characters to the budget, or drop the whole Raw run as strip_ansi does)
-- [ ] #2 The push_filtered_run doc comment matches what the code does with the introducer
-- [ ] #3 A proptest over the existing escape/control/visible chunk strategy asserts visible_width(&truncate_to_width(&s, n)) <= n for arbitrary n, with regression cases for the two inputs above
+- [x] #1 truncate_to_width's output satisfies visible_width(out) <= max_cols for every input, including unterminated CSI/nF/OSC runs (either charge the Raw run's surviving characters to the budget, or drop the whole Raw run as strip_ansi does)
+- [x] #2 The push_filtered_run doc comment matches what the code does with the introducer
+- [x] #3 A proptest over the existing escape/control/visible chunk strategy asserts visible_width(&truncate_to_width(&s, n)) <= n for arbitrary n, with regression cases for the two inputs above
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.06 (code-review-rust run, 2026-11-18).
+
+truncate_to_width now drops Raw runs whole (same policy as strip_ansi), so push_filtered_run was removed; AC#2 is satisfied by the removal and the module/truncate_to_width docs now state the drop policy.
+
 <!-- SECTION:NOTES:END -->

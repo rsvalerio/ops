@@ -37,115 +37,126 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         return dirs.into_iter().map(|dir| unit_from_use_dir(cwd, &dir)).collect();
     }
     let (module, go_version) = read_mod_info(cwd);
-    // The `Some` arm builds the unit across several statements; a
-    // `map_or_else` closure would put the empty-vec default first and read
-    // backwards.
-    #[allow(clippy::option_if_let_else)]
-    match module {
-        Some(m) => {
-            let mut unit = ProjectUnit::new(
-                last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
-                // Root-module sentinel. A non-workspace `go.mod` lives at the
-                // project root, so its unit subpath is `"."` — the same thing
-                // `normalize_module_path` produces for a `use .` workspace
-                // directive. Enrichment in `extensions/about/src/units.rs`
-                // accepts either `""` or `"."` as that sentinel and takes LOC
-                // and file counts from the project-wide totals instead of the
-                // per-module `starts_with(file, path || '/')` join, so the
-                // single-module card is project-wide by design: non-Go
-                // content in cwd (vendored JS, generated artefacts) counts
-                // toward it, as it does for single-package `package.json` and
-                // `pyproject.toml` projects.
-                ".".to_string(),
-            );
-            unit.version = go_version;
-            unit.description = Some(m);
-            vec![unit]
-        }
-        None => vec![],
-    }
+    let Some(module) = module else {
+        return vec![];
+    };
+    let mut unit = ProjectUnit::new(
+        // A module path with no non-empty segment (`/`) has no better
+        // display name than itself.
+        last_segment(&module).unwrap_or(&module).to_string(),
+        // Root-module sentinel. A non-workspace `go.mod` lives at the
+        // project root, so its unit subpath is `"."` — the same thing
+        // `normalize_module_path` produces for a `use .` workspace
+        // directive. Enrichment in `extensions/about/src/units.rs` accepts
+        // either `""` or `"."` as that sentinel and takes LOC and file
+        // counts from the project-wide totals instead of the per-module
+        // `starts_with(file, path || '/')` join, so the single-module card
+        // is project-wide by design: non-Go content in cwd (vendored JS,
+        // generated artefacts) counts toward it, as it does for
+        // single-package `package.json` and `pyproject.toml` projects.
+        ".".to_string(),
+    );
+    unit.version = go_version;
+    unit.description = Some(module);
+    vec![unit]
 }
 
-/// Build the [`ProjectUnit`] for a single `go.work` `use` directive: path
-/// normalisation, the out-of-tree classification and its diagnostic, the
-/// per-module `go.mod` lookup, and the description-shaping that marks
-/// `(outside project root)` members.
-///
-/// A directive is out-of-tree when it is absolute or root-prefixed, when its
-/// first path component is `..`, or when it carries a `..` past a real
-/// segment. All three still produce a unit — the workspace member is real and
-/// belongs on the card — but the first and third skip the `go.mod` read,
-/// because the path they name lies outside the project root.
-fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
-    let normalized = normalize_module_path(dir);
-    // Absolute and root-prefixed directives (`use /etc/secrets`,
-    // `use \\?\C:\...`) point outside the project root as surely as a `..`
-    // prefix does, so RootDir and Prefix count alongside ParentDir. This is
-    // the `resolve_member_globs` threat model (`extensions/about/src/
-    // workspace.rs`), one step stricter.
-    let first_component = Path::new(&normalized).components().next();
-    let out_of_tree_via_components = matches!(
-        first_component,
-        Some(Component::RootDir | Component::Prefix(_) | Component::ParentDir)
-    );
-    // Compare the *first path component* against `..`, not the raw string: a
-    // `starts_with("..")` test would also flag legal directories such as
-    // `..staging/api` or `..backup-2025`, whose first component merely begins
-    // with two dots. Splitting on `/` and `\\` covers go.work entries
-    // authored on Windows.
-    let out_of_tree_via_string =
-        normalized.split(['/', '\\']).next().is_some_and(|first| first == "..");
-    // The two checks above inspect only the first component, so
-    // `use ./api/../../../etc` normalises to `api/../../../etc` and reads as
-    // in-tree. `Path::join` does not normalise `..` and the OS resolves it
-    // lexically on open, so a `..` past a real segment escapes the root too.
-    // The predicate is the crate's one traversal policy for filesystem-valued
-    // directives — the same one `resolve_member_globs` applies in
-    // `extensions/about/src/workspace.rs`.
-    let has_embedded_traversal = crate::go_syntax::has_embedded_parent_dir_segment(&normalized);
-    let out_of_tree =
-        out_of_tree_via_components || out_of_tree_via_string || has_embedded_traversal;
-    // Debug-format the directive so embedded newlines or ANSI escapes cannot
-    // forge log lines, matching the project-wide path-log policy. Exactly one
-    // warn per rejected directive.
-    if has_embedded_traversal {
-        tracing::warn!(
-            directive = ?dir,
-            "go.work `use` directive contains an embedded `..` traversal segment past the leading prefix; skipping the go.mod read",
-        );
-    } else if out_of_tree {
-        // Out-of-tree workspace members (e.g. `use ../shared`) match no
-        // `tokei_files.file` entry under cwd, so the unit would render with
-        // zero LOC and no diagnostic. Surface it instead.
-        tracing::warn!(
-            directive = ?dir,
-            "go.work `use` directive points outside the project root; LOC stats will be empty",
-        );
+/// Where a normalized `go.work` `use` directive points, relative to the
+/// project root. This is the crate's one traversal policy for
+/// filesystem-valued directives — the same one `resolve_member_globs`
+/// applies in `extensions/about/src/workspace.rs`, one step stricter — and
+/// each variant fixes the warn, whether the member's `go.mod` is read, and
+/// whether the description is marked `(outside project root)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectivePlacement {
+    /// Inside the project root: read `go.mod`, no warn, no marker.
+    InTree,
+    /// A leading run of `..` (`use ../shared`): a legal cmd/go sibling
+    /// member, so its `go.mod` is read, but it matches no `tokei_files` row
+    /// under cwd and renders with zero LOC.
+    OutOfTreeReadable,
+    /// Absolute or root-prefixed (`use /etc/secrets`, `use \\?\C:\...`):
+    /// `cwd.join` would return the target verbatim, so no `go.mod` is read.
+    OutOfTreeAbsolute,
+    /// A `..` past a real segment (`use ./api/../../etc`): `Path::join` does
+    /// not normalise `..` and the OS resolves it lexically on open, so it
+    /// escapes the root and no `go.mod` is read.
+    EmbeddedTraversal,
+}
+
+impl DirectivePlacement {
+    /// Classify a directive already passed through [`normalize_module_path`].
+    fn classify(normalized: &str) -> Self {
+        // Checked first: an embedded traversal skips the read whatever the
+        // first component is.
+        if crate::go_syntax::has_embedded_parent_dir_segment(normalized) {
+            return Self::EmbeddedTraversal;
+        }
+        match Path::new(normalized).components().next() {
+            Some(Component::RootDir | Component::Prefix(_)) => Self::OutOfTreeAbsolute,
+            Some(Component::ParentDir) => Self::OutOfTreeReadable,
+            // Compare the first *segment* against `..`, not the raw string:
+            // `starts_with("..")` would also flag legal directories such as
+            // `..staging/api`. Splitting on `\\` too catches go.work entries
+            // authored on Windows, which `Path` on Unix reads as one
+            // component.
+            _ if normalized.split(['/', '\\']).next() == Some("..") => Self::OutOfTreeReadable,
+            _ => Self::InTree,
+        }
     }
-    // For an absolute or root-prefixed directive `cwd.join(&normalized)`
-    // returns the absolute target verbatim, and an embedded-`..` directive
-    // escapes the root the same way, so neither reads a `go.mod`: the unit is
-    // emitted with no module or version, the same shape as a missing go.mod.
-    let is_absolute_directive =
-        matches!(first_component, Some(Component::RootDir | Component::Prefix(_)));
-    let (module, go_version) = if is_absolute_directive || has_embedded_traversal {
-        (None, None)
-    } else {
-        let mod_path = cwd.join(&normalized);
-        read_mod_info(&mod_path)
-    };
-    let name = last_segment(module.as_deref()).unwrap_or_else(|| format_unit_name(&normalized));
-    let description = if out_of_tree {
+
+    const fn reads_go_mod(self) -> bool {
+        matches!(self, Self::InTree | Self::OutOfTreeReadable)
+    }
+
+    /// Emit the one diagnostic this placement carries, if any. The raw
+    /// directive is Debug-formatted so embedded newlines or ANSI escapes
+    /// cannot forge log lines, matching the project-wide path-log policy.
+    fn warn(self, directive: &str) {
+        match self {
+            Self::InTree => {}
+            Self::EmbeddedTraversal => tracing::warn!(
+                directive = ?directive,
+                "go.work `use` directive contains an embedded `..` traversal segment past the leading prefix; skipping the go.mod read",
+            ),
+            Self::OutOfTreeReadable | Self::OutOfTreeAbsolute => tracing::warn!(
+                directive = ?directive,
+                "go.work `use` directive points outside the project root; LOC stats will be empty",
+            ),
+        }
+    }
+
+    /// The unit description: the module path, suffixed with
+    /// `(outside project root)` for every out-of-tree placement.
+    fn describe(self, module: Option<String>) -> Option<String> {
+        if self == Self::InTree {
+            return module;
+        }
         Some(module.map_or_else(
             || "(outside project root)".to_string(),
             |m| format!("{m} (outside project root)"),
         ))
-    } else {
-        module
-    };
+    }
+}
+
+/// Build the [`ProjectUnit`] for a single `go.work` `use` directive.
+///
+/// Every directive produces a unit — an out-of-tree workspace member is real
+/// and belongs on the card — and its [`DirectivePlacement`] decides the
+/// warn, the `go.mod` read and the description marker.
+fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
+    let normalized = normalize_module_path(dir);
+    let placement = DirectivePlacement::classify(&normalized);
+    placement.warn(dir);
+    let (module, go_version) =
+        if placement.reads_go_mod() { read_mod_info(&cwd.join(&normalized)) } else { (None, None) };
+    let name = module
+        .as_deref()
+        .and_then(last_segment)
+        .map_or_else(|| format_unit_name(&normalized), str::to_owned);
     let mut unit = ProjectUnit::new(name, normalized);
     unit.version = go_version;
-    unit.description = description;
+    unit.description = placement.describe(module);
     unit
 }
 
@@ -169,21 +180,22 @@ fn normalize_module_path(dir: &str) -> String {
 /// like `github.com/foo/bar/v2` carry the `/vN` suffix as a versioning
 /// convention; the human-meaningful name is the *preceding* segment (`bar`).
 ///
+/// Empty segments are ignored, so a trailing `/` (`example.com/m/`) does not
+/// yield an empty name; `None` only when the path has no non-empty segment.
+///
 /// - `last_segment("github.com/foo/bar/v2")` → `"bar"`
 /// - `last_segment("github.com/openbao/openbao/api/v2")` → `"api"`
 /// - `last_segment("module v2")` → `"module v2"` (no `/`, returned unchanged)
 /// - `last_segment("github.com/foo/bar")` → `"bar"`
 /// - `last_segment("foo/v")` → `"v"` (no digits, not a version suffix)
-pub fn last_segment(module: Option<&str>) -> Option<String> {
-    let m = module?;
-    let mut segments: Vec<&str> = m.split('/').collect();
-    if segments.len() >= 2
-        && let Some(last) = segments.last()
-        && is_go_major_version_suffix(last)
-    {
-        segments.pop();
+/// - `last_segment("example.com/m/")` → `"m"`
+pub fn last_segment(module: &str) -> Option<&str> {
+    let mut segments = module.rsplit('/').filter(|s| !s.is_empty());
+    let last = segments.next()?;
+    match segments.next() {
+        Some(previous) if is_go_major_version_suffix(last) => Some(previous),
+        _ => Some(last),
     }
-    segments.last().map(|s| (*s).to_string())
 }
 
 /// True when `s` matches `^v\d+$` (Go major-version suffix shape).
@@ -204,15 +216,6 @@ fn read_mod_info(dir: &Path) -> (Option<String>, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn workspace_use_dirs_multi() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n")
-            .unwrap();
-        let dirs = crate::go_work::parse_use_dirs(dir.path()).unwrap();
-        assert_eq!(dirs, vec!["./api", "./cmd"]);
-    }
 
     #[test]
     fn read_mod_info_basic() {
@@ -352,31 +355,41 @@ mod tests {
     /// preceding segment rather than the literal `v2`.
     #[test]
     fn last_segment_strips_go_major_version_suffix() {
-        assert_eq!(last_segment(Some("github.com/foo/bar/v2")).as_deref(), Some("bar"));
-        assert_eq!(last_segment(Some("github.com/openbao/openbao/api/v2")).as_deref(), Some("api"));
+        assert_eq!(last_segment("github.com/foo/bar/v2"), Some("bar"));
+        assert_eq!(last_segment("github.com/openbao/openbao/api/v2"), Some("api"));
         // /v10 is also a valid Go major-version suffix.
-        assert_eq!(last_segment(Some("example.com/x/v10")).as_deref(), Some("x"));
+        assert_eq!(last_segment("example.com/x/v10"), Some("x"));
     }
 
     #[test]
     fn last_segment_no_suffix_returns_last_path_component() {
-        assert_eq!(last_segment(Some("github.com/foo/bar")).as_deref(), Some("bar"));
+        assert_eq!(last_segment("github.com/foo/bar"), Some("bar"));
     }
 
     #[test]
     fn last_segment_single_segment_unchanged() {
         // No `/` — a bare module string is returned whole, even when it
         // contains a `vN`-shaped token.
-        assert_eq!(last_segment(Some("module")).as_deref(), Some("module"));
+        assert_eq!(last_segment("module"), Some("module"));
         // A single segment that happens to be `v2` is not a suffix on
         // anything; return it verbatim.
-        assert_eq!(last_segment(Some("v2")).as_deref(), Some("v2"));
+        assert_eq!(last_segment("v2"), Some("v2"));
+    }
+
+    /// Empty segments are ignored: a trailing `/` does not produce an empty
+    /// name, and a path with no non-empty segment has none.
+    #[test]
+    fn last_segment_ignores_empty_trailing_segments() {
+        assert_eq!(last_segment("example.com/m/"), Some("m"));
+        assert_eq!(last_segment("example.com/m/v2/"), Some("m"));
+        assert_eq!(last_segment("/"), None);
+        assert_eq!(last_segment(""), None);
     }
 
     #[test]
     fn last_segment_trailing_v_without_digits_is_not_a_version() {
         // `v` alone is not a Go major-version suffix; keep it as the name.
-        assert_eq!(last_segment(Some("foo/v")).as_deref(), Some("v"));
+        assert_eq!(last_segment("foo/v"), Some("v"));
     }
 
     /// An absolute `use` directive marks the unit out-of-tree and does not
@@ -422,34 +435,20 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn collect_units_embedded_parent_dir_use_directive_is_marked_out_of_tree() {
-        let dir = tempfile::tempdir().unwrap();
-        // Place a real go.mod at the traversal target. `<cwd>/api/../../<leaf>`
-        // resolves to `<cwd>/../<leaf>`, i.e. a sibling of the project root.
-        let leaf = dir
-            .path()
-            .file_name()
-            .expect("tempdir has a final component")
-            .to_string_lossy()
-            .to_string();
-        let target = dir.path().parent().expect("tempdir has a parent").join(
-            // Keep the escape inside the tempdir's parent by targeting the
-            // tempdir itself via the traversal, then a nested marker dir.
-            format!("{leaf}-sec14"),
-        );
+        // One TempDir owns every path: cwd is `root/project`, and the
+        // traversal `<cwd>/api/../../escaped` resolves to `root/escaped`,
+        // where a real go.mod waits to prove it is never read.
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("project");
+        let target = root.path().join("escaped");
+        std::fs::create_dir_all(&cwd).unwrap();
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("go.mod"), "module example.com/should-not-be-read\n\ngo 1.21\n")
             .unwrap();
+        std::fs::write(cwd.join("go.work"), "go 1.21\n\nuse (\n\t./api/../../escaped\n)\n")
+            .unwrap();
 
-        std::fs::write(
-            dir.path().join("go.work"),
-            format!("go 1.21\n\nuse (\n\t./api/../../{leaf}-sec14\n)\n"),
-        )
-        .unwrap();
-
-        let (units, warn_count) =
-            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
-
-        std::fs::remove_dir_all(&target).ok();
+        let (units, warn_count) = ops_core::test_utils::count_warnings(|| collect_units(&cwd));
 
         assert_eq!(units.len(), 1);
         assert!(
@@ -487,20 +486,34 @@ mod tests {
         );
     }
 
+    /// A malformed go.mod belonging to one workspace member is reported
+    /// under that member's own path, so the operator can tell which of the
+    /// workspace's go.mod files to fix.
+    #[test]
+    fn nested_use_dir_go_mod_warn_names_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n)\n").unwrap();
+        let api = dir.path().join("api");
+        std::fs::create_dir(&api).unwrap();
+        std::fs::write(
+            api.join("go.mod"),
+            "module example.com/api\n\nreplace (\n\tex.com/a => ./a\n",
+        )
+        .unwrap();
+
+        let rendered = ops_core::test_utils::capture_warn(|| {
+            collect_units(dir.path());
+        });
+
+        let expected = format!("{:?}", api.join("go.mod"));
+        assert!(rendered.contains(&expected), "warn should name {expected}: {rendered}");
+    }
+
     #[test]
     fn collect_units_empty() {
         let dir = tempfile::tempdir().unwrap();
         let units = collect_units(dir.path());
         assert!(units.is_empty());
-    }
-
-    /// `PROVIDER_NAME` is the key the registry indexes this provider under
-    /// (`lib.rs`'s `register_data_providers`), and the literal on the right
-    /// is the cross-stack registry contract shared with the Node and Rust
-    /// stacks — a typo in either silently unregisters the Go units card.
-    #[test]
-    fn units_provider_name() {
-        assert_eq!(PROVIDER_NAME, "project_units");
     }
 
     /// `GoUnitsProvider::provide` driven through a real `Context` over a

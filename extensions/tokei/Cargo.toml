@@ -5,14 +5,8 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 
-[package.metadata.cargo-machete]
-# `ops_extension::impl_extension!` expands to `#[linkme::distributed_slice]`
-# in this crate, which machete cannot see through.
-ignored = ["linkme"]
-
 [dependencies]
 ops-extension = { workspace = true, features = ["sqlite"] }
-linkme = { workspace = true }
 ops-sqlite = { workspace = true }
 tokei = { workspace = true }
 ignore = { workspace = true }
@@ -23,7 +17,6 @@ anyhow = { workspace = true }
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }
 ops-sqlite = { workspace = true, features = ["test-helpers"] }
-linkme = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

@@ -1,10 +1,10 @@
 ---
 id: TASK-2698
 title: 'TIME-6: Provider deadline reads Instant::now() internally; tests rely on real sleeps'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:29'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:11'
 labels:
   - code-review-rust
   - TIME
@@ -34,8 +34,9 @@ dedup_key: 'TIME-6:crates/extension/src/deadline.rs:Deadline::is_expired'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Deadline expiry logic can be evaluated against a caller-supplied Instant (or an injected clock)
-- [ ] #2 Deadline tests cover the at-expiry and just-before-expiry boundaries without thread::sleep
+- [x] #1 Deadline expiry logic can be evaluated against a caller-supplied Instant (or an injected clock)
+- [x] #2 Deadline tests cover the at-expiry and just-before-expiry boundaries without thread::sleep
+
 <!-- AC:END -->
 
 ## Implementation Notes

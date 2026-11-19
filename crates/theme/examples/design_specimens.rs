@@ -37,10 +37,10 @@ use ops_core::config::theme_types::LayoutKind;
 use ops_core::config::{default_ops_toml, Config};
 use ops_core::output::{ErrorDetail, StepLine, StepStatus};
 use ops_core::report::{Report, ReportRow, ReportStatus};
-use ops_theme::style::precompute_sgr_prefix;
+use ops_theme::style::{precompute_sgr_prefix, strip_ansi};
 use ops_theme::{
-    format_duration, format_running_elapsed, strip_ansi, BoxSnapshot, ConfigurableTheme,
-    PlanHeaderStyle, ThemeConfig,
+    format_duration, format_running_elapsed, BoxSnapshot, ConfigurableTheme, PlanHeaderStyle,
+    RowState, RunOutcome, ThemeConfig,
 };
 use unicode_width::UnicodeWidthChar;
 
@@ -303,10 +303,13 @@ impl Specimens {
         line: &Line,
         icon: &str,
         trailing: &str,
-        running: bool,
+        state: RowState,
     ) -> (usize, usize, usize, usize) {
-        let parts = self.theme.icon_prefix_parts(icon, running);
-        let pad = if running { 0 } else { chars(self.theme.left_pad_str()) };
+        let parts = self.theme.icon_prefix_parts(icon, state);
+        let pad = match state {
+            RowState::Running => 0,
+            RowState::Finished => chars(self.theme.left_pad_str()),
+        };
         let label_start = pad
             .saturating_add(chars(parts.indent))
             .saturating_add(chars(parts.icon))
@@ -335,7 +338,7 @@ impl Specimens {
     /// label, separator run (with its spaces), trailing slot.
     fn paint_slot(&self, line: &mut Line, icon: &str, trailing: &str, trailing_classes: &str) {
         let (label_start, sep_start, sep_end, trailing_start) =
-            self.slot_layout(line, icon, trailing, false);
+            self.slot_layout(line, icon, trailing, RowState::Finished);
         line.paint(
             label_start,
             sep_start.saturating_sub(label_start),
@@ -452,7 +455,8 @@ impl Specimens {
     /// sets a colour again.
     fn paint_running_msg(&self, line: &mut Line, at: usize, msg: &str, msg_classes: &str) {
         let msg_line = Line::plain(msg);
-        let (label_start, sep_start, sep_end, _) = self.slot_layout(&msg_line, "", "", true);
+        let (label_start, sep_start, sep_end, _) =
+            self.slot_layout(&msg_line, "", "", RowState::Running);
         let mut current = msg_classes.to_string();
         let parts = [
             (0, label_start, String::new()),
@@ -916,10 +920,10 @@ enum Outcome {
 /// The live snapshot the boxed borders render, for `ids` in `outcome`.
 const fn snapshot(ids: &[String], outcome: Outcome) -> BoxSnapshot<'_> {
     let total = ids.len();
-    let (completed, failed, success, elapsed_secs) = match outcome {
-        Outcome::Started => (0, 0, true, 0.0),
-        Outcome::Passed => (total, 0, true, 0.54),
-        Outcome::Failed => (total, 1, false, 0.55),
+    let (completed, failed, outcome, elapsed_secs) = match outcome {
+        Outcome::Started => (0, 0, RunOutcome::Success, 0.0),
+        Outcome::Passed => (total, 0, RunOutcome::Success, 0.54),
+        Outcome::Failed => (total, 1, RunOutcome::Failure, 0.55),
     };
     BoxSnapshot {
         completed,
@@ -927,7 +931,7 @@ const fn snapshot(ids: &[String], outcome: Outcome) -> BoxSnapshot<'_> {
         skipped: 0,
         total,
         elapsed_secs,
-        success,
+        outcome,
         columns: COLUMNS,
         command_ids: ids,
     }

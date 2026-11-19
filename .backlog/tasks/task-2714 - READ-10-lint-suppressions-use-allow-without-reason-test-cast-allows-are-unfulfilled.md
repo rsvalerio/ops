@@ -1,10 +1,10 @@
 ---
 id: TASK-2714
 title: 'READ-10: lint suppressions use #[allow] without reason; test cast allows are unfulfilled'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:20'
 labels:
   - code-review-rust
   - READ
@@ -32,12 +32,16 @@ dedup_key: 'review-2667.07-5'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 modules.rs:43 uses #[expect(clippy::option_if_let_else, reason = "...")] with the existing justification moved into reason
-- [ ] #2 The unused cast_* allows are removed from the crate-root cfg_attr(test) block; ops verify/clippy stays clean
+- [x] #1 modules.rs:43 uses #[expect(clippy::option_if_let_else, reason = "...")] with the existing justification moved into reason
+- [x] #2 The unused cast_* allows are removed from the crate-root cfg_attr(test) block; ops verify/clippy stays clean
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.07 (code-review-rust run, 2026-11-18).
+
+AC1 substituted: collect_units was rewritten with let-else, so option_if_let_else no longer fires and the suppression was removed outright instead of converted to #[expect] (an #[expect] would be unfulfilled). Cast allows removed from lib.rs; clippy clean.
+
 <!-- SECTION:NOTES:END -->

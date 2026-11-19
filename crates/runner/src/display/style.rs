@@ -127,7 +127,7 @@ mod tests {
         drawn
             .iter()
             .rev()
-            .map(|s| theme::strip_ansi(s))
+            .map(|s| theme::style::strip_ansi(s))
             .find(|s| !s.trim().is_empty())
             .unwrap_or_else(|| panic!("theme '{name}' drew no running row"))
     }
@@ -159,7 +159,7 @@ mod tests {
             for label in ["cargo build", long_label.as_str()] {
                 for duration in elapsed {
                     let row = drawn_running_row(&theme, &name, label, duration);
-                    let width = theme::visible_width(&row);
+                    let width = theme::style::visible_width(&row);
                     assert_eq!(
                         width,
                         usize::from(COLUMNS),

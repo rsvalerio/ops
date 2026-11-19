@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use ops_core::text::CappedReadError;
+
 // Crate-private alias: `provider.rs` shares the import without the foreign
 // ops-hook-common item gaining a second public path.
 pub(crate) use ops_hook_common::find_git_dir;
@@ -104,49 +106,58 @@ pub const MAX_HEAD_BYTES: u64 = 4 * 1024;
 /// or read, or when it is larger than `cap`; every case but absence logs one
 /// `tracing::warn!`. The path is Debug-formatted so a hostile checkout path
 /// with newlines or ANSI escapes cannot forge log records.
+///
+/// The open goes through [`ops_core::text::read_capped_bytes`], which
+/// refuses a symlink at any path component and a FIFO, socket or device at
+/// the final one without blocking: a `.git/HEAD` planted as a named pipe
+/// would otherwise hang `open(2)` waiting for a writer, and a symlinked
+/// `.git/config` would point the parser outside the checkout. `git_dir` is
+/// expected to be canonical (as `find_git_dir` returns it), so a symlinked
+/// ancestor of a legitimate repository is not refused.
 fn read_capped(path: &Path, cap: u64, label: &str) -> Option<Vec<u8>> {
-    use std::io::Read;
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => {
+    match ops_core::text::read_capped_bytes(path, cap) {
+        Ok(bytes) => Some(bytes),
+        Err(CappedReadError::NotFound(_)) => None,
+        Err(CappedReadError::Open(e)) => {
             tracing::warn!(
                 file = label,
                 path = ?path.display(),
                 error = %e,
                 "failed to open git metadata file; treating it as absent"
             );
-            return None;
+            None
         }
-    };
-    let mut bytes = Vec::new();
-    // Read one byte past the cap so an over-cap file is distinguishable from
-    // one exactly at it.
-    let limit = cap.saturating_add(1);
-    if let Err(e) = file.take(limit).read_to_end(&mut bytes) {
-        tracing::warn!(
-            file = label,
-            path = ?path.display(),
-            error = %e,
-            "failed to read git metadata file (within byte cap); treating it as absent"
-        );
-        return None;
+        Err(CappedReadError::Read(e)) => {
+            tracing::warn!(
+                file = label,
+                path = ?path.display(),
+                error = %e,
+                "failed to read git metadata file (within byte cap); treating it as absent"
+            );
+            None
+        }
+        // The cap is enforced on the raw bytes, before any decoding: lossy
+        // UTF-8 decoding expands each invalid byte to U+FFFD (3 bytes), so a
+        // decoded length can exceed the cap for a file that is within it.
+        Err(CappedReadError::TooLarge { cap }) => {
+            tracing::warn!(
+                file = label,
+                path = ?path.display(),
+                cap,
+                "git metadata file exceeds byte cap; refusing to parse and treating it as absent"
+            );
+            None
+        }
+        Err(e) => {
+            tracing::warn!(
+                file = label,
+                path = ?path.display(),
+                error = %e,
+                "failed to read git metadata file; treating it as absent"
+            );
+            None
+        }
     }
-    // The cap is enforced on the raw bytes, before any decoding: lossy UTF-8
-    // decoding expands each invalid byte to U+FFFD (3 bytes), so a decoded
-    // length can exceed the cap for a file that is within it. A length that
-    // does not fit in a `u64` is necessarily far above the cap, so saturating
-    // keeps the comparison exact for every value it can distinguish.
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        tracing::warn!(
-            file = label,
-            path = ?path.display(),
-            cap,
-            "git metadata file exceeds byte cap; refusing to parse and treating it as absent"
-        );
-        return None;
-    }
-    Some(bytes)
 }
 
 /// Read the URL of the `origin` remote from `<git_dir>/config`.
@@ -821,7 +832,7 @@ mod tests {
     #[test]
     fn read_origin_url_reads_file() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(
             git_dir.join("config"),
@@ -841,7 +852,7 @@ mod tests {
     #[test]
     fn read_origin_url_survives_non_utf8_byte_in_unrelated_section() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         // Construct a config whose `[user]` section contains a non-UTF-8
         // byte in the email field (a hostile / latin-1-encoded value), but
@@ -866,7 +877,7 @@ mod tests {
     #[test]
     fn read_origin_url_survives_in_cap_non_utf8_near_boundary() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         // Build a payload that is *within* the cap on the raw-byte axis but
         // would exceed it once every invalid byte expands to U+FFFD (3
@@ -903,7 +914,7 @@ mod tests {
     #[test]
     fn read_origin_url_bails_on_oversized_config() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         // Build a payload ≥ MAX_GIT_CONFIG_BYTES + 1. The extra trailing
         // bytes are arbitrary `; comment` padding; the cap check fires
@@ -1067,7 +1078,7 @@ mod tests {
     #[test]
     fn head_branch_from_ref() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         assert_eq!(read_head_branch(&git_dir), Some("main".to_string()));
@@ -1076,7 +1087,7 @@ mod tests {
     #[test]
     fn head_branch_with_slashes() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/feature/foo\n").unwrap();
         assert_eq!(read_head_branch(&git_dir), Some("feature/foo".to_string()));
@@ -1085,7 +1096,7 @@ mod tests {
     #[test]
     fn head_detached_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "0123456789abcdef0123456789abcdef01234567\n").unwrap();
         assert!(read_head_branch(&git_dir).is_none());
@@ -1098,7 +1109,7 @@ mod tests {
     fn read_origin_url_unreadable_config_returns_none() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         let config = git_dir.join("config");
         std::fs::write(&config, "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n")
@@ -1126,7 +1137,7 @@ mod tests {
     fn read_head_branch_returns_none_on_unreadable_head() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         let head = git_dir.join("HEAD");
         std::fs::write(&head, "ref: refs/heads/main\n").unwrap();
@@ -1209,7 +1220,7 @@ mod tests {
 
     fn write_head(contents: &str) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let git_dir = dir.path().join(".git");
+        let git_dir = dir.path().canonicalize().unwrap().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), contents).unwrap();
         (dir, git_dir)
@@ -1337,5 +1348,113 @@ mod tests {
     fn header_line_key_form_remains_unsupported() {
         let cfg = "[remote \"origin\"] url = https://github.com/o/r.git\n";
         assert_eq!(read_origin_url_from(cfg), None);
+    }
+
+    /// What a hostile checkout can plant at a git metadata path.
+    #[cfg(unix)]
+    #[derive(Clone, Copy, Debug)]
+    enum Planted {
+        Fifo,
+        Symlink,
+    }
+
+    /// Build a repository whose `.git/<name>` is a planted FIFO or a symlink
+    /// to a well-formed file outside `.git`, with the *other* metadata file
+    /// well formed. Returns the guard and the working-copy root.
+    #[cfg(unix)]
+    fn plant_git_metadata(name: &str, planted: Planted) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let git_dir = root.join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        let good_head = "ref: refs/heads/main\n";
+        let good_config = "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n";
+        for (file, body) in [("HEAD", good_head), ("config", good_config)] {
+            let path = git_dir.join(file);
+            if file != name {
+                std::fs::write(&path, body).unwrap();
+                continue;
+            }
+            match planted {
+                Planted::Fifo => {
+                    let status = std::process::Command::new("mkfifo")
+                        .arg(&path)
+                        .status()
+                        .expect("run mkfifo");
+                    assert!(status.success(), "mkfifo failed");
+                }
+                Planted::Symlink => {
+                    let target = root.join(format!("outside-{file}"));
+                    std::fs::write(&target, body).unwrap();
+                    std::os::unix::fs::symlink(&target, &path).unwrap();
+                }
+            }
+        }
+        (dir, root)
+    }
+
+    /// Run `GitInfo::collect` on its own thread with the warn capture
+    /// installed there, failing instead of hanging if the open blocks.
+    #[cfg(unix)]
+    fn collect_with_timeout(root: std::path::PathBuf) -> (String, crate::provider::GitInfo) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let captured = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
+                crate::provider::GitInfo::collect(&root)
+            });
+            let _ = tx.send(captured);
+        });
+        let captured = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("GitInfo::collect blocked on planted git metadata instead of refusing it");
+        handle.join().unwrap();
+        captured
+    }
+
+    /// A FIFO or symlink planted at `.git/HEAD` is refused without blocking:
+    /// the branch is `None`, the well-formed config still yields the remote,
+    /// and one warn names the refused file.
+    #[cfg(unix)]
+    #[test]
+    fn planted_head_is_refused_promptly() {
+        for planted in [Planted::Fifo, Planted::Symlink] {
+            let (_guard, root) = plant_git_metadata("HEAD", planted);
+            let (logged, info) = collect_with_timeout(root);
+            assert_eq!(info.branch, None, "{planted:?} HEAD must not yield a branch");
+            assert_eq!(info.repo.as_deref(), Some("r"), "{planted:?} HEAD must not affect config");
+            assert_eq!(
+                logged.matches("failed to open git metadata file").count(),
+                1,
+                "{planted:?} HEAD must log exactly one open warn; got: {logged}"
+            );
+            assert!(logged.contains(".git/HEAD"), "warn must name the file; got: {logged}");
+        }
+    }
+
+    /// A FIFO or symlink planted at `.git/config` is refused without
+    /// blocking: every remote field is `None`, the branch still resolves,
+    /// and one warn names the refused file.
+    #[cfg(unix)]
+    #[test]
+    fn planted_config_is_refused_promptly() {
+        for planted in [Planted::Fifo, Planted::Symlink] {
+            let (_guard, root) = plant_git_metadata("config", planted);
+            let (logged, info) = collect_with_timeout(root);
+            assert_eq!(info.remote_url, None, "{planted:?} config must not yield a remote");
+            assert_eq!(info.host, None);
+            assert_eq!(info.owner, None);
+            assert_eq!(info.repo, None);
+            assert_eq!(
+                info.branch.as_deref(),
+                Some("main"),
+                "{planted:?} config must not affect HEAD"
+            );
+            assert_eq!(
+                logged.matches("failed to open git metadata file").count(),
+                1,
+                "{planted:?} config must log exactly one open warn; got: {logged}"
+            );
+            assert!(logged.contains(".git/config"), "warn must name the file; got: {logged}");
+        }
     }
 }

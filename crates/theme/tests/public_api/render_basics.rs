@@ -15,8 +15,8 @@ fn render_prefix_width_matches_helper_components_for_multi_char_icon() {
     let theme = ConfigurableTheme::new(cfg);
     let step = StepLine::new(StepStatus::Succeeded, "cargo build".to_string(), None);
 
-    let plain_prefix = theme.render_prefix(&step, false);
-    let parts = theme.step_prefix_parts(StepStatus::Succeeded, false);
+    let plain_prefix = theme.render_prefix(&step, RowState::Finished);
+    let parts = theme.step_prefix_parts(StepStatus::Succeeded, RowState::Finished);
     let expected_width = display_width(parts.indent)
         + display_width(parts.icon)
         + display_width(&parts.pad)
@@ -232,7 +232,7 @@ fn summary_color_does_not_affect_non_tty_output() {
     let mut cfg = ThemeConfig::compact();
     cfg.summary_color = "bold green".into();
     let theme = ConfigurableTheme::new(cfg);
-    let s = theme.render_summary(true, 1.0);
+    let s = theme.render_summary(RunOutcome::Success, 1.0);
     assert!(!s.contains('\x1b'));
     assert!(s.contains("Done"));
 }
@@ -299,7 +299,7 @@ fn over_long_summary_separator_is_clamped_to_columns() {
     cfg.summary_separator = "─".repeat(120);
     let theme = ConfigurableTheme::new(cfg);
     let sep = theme.render_summary_separator(40);
-    let width = visible_width(&sep);
+    let width = ops_theme::style::visible_width(&sep);
     assert!(width <= 40, "separator width {width} exceeds budget 40");
 }
 
