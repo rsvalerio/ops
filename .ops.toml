@@ -29,15 +29,44 @@ args = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
 help = "Lint the default-feature build (the --all-features gate's blind spot)"
 category = "Code Quality"
 
-# The rust stack's default `verify` with `doc-ids` appended: the scan is
-# read-only and finishes in milliseconds, so it overlaps the parallel checks
-# without slowing the gate, and the repo that ships the check is held to it.
+# `missing_docs` opt-in for doc-complete crates. The lint is not in
+# `[workspace.lints]` because most crates were never held to it, and Cargo
+# rejects a member `[lints]` table that both inherits the workspace and adds
+# a lint, so a crate cannot opt in from its manifest. Each crate listed here
+# is instead documented by `cargo rustdoc` with `-D missing_docs` applied to
+# that crate alone (dependencies are untouched), reusing the `doc` gate's
+# build. To opt a crate in, add a `missing-docs-<crate>` leaf and list it in
+# `missing-docs`. See docs/clippy.md, "missing_docs is opt-in per crate".
+[commands.missing-docs-text-fixers]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-text-fixers", "--lib", "--all-features", "--", "-D", "missing_docs"]
+help = "Fail on undocumented public items in ops-text-fixers"
+category = "Code Quality"
+
+[commands.missing-docs-config-checkers]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-config-checkers", "--lib", "--all-features", "--", "-D", "missing_docs"]
+help = "Fail on undocumented public items in ops-config-checkers"
+category = "Code Quality"
+
+[commands.missing-docs]
+commands = ["missing-docs-text-fixers", "missing-docs-config-checkers"]
+parallel = true
+fail_fast = true
+help = "Fail on undocumented public items in the crates that opted in to missing_docs"
+category = "Code Quality"
+
+# The rust stack's default `verify` with `doc-ids` and `missing-docs`
+# appended. The `doc-ids` scan is read-only and finishes in milliseconds, so it
+# overlaps the parallel checks without slowing the gate, and the repo that
+# ships the check is held to it. `missing-docs` re-documents only the opted-in
+# crates on top of the `doc` gate's build.
 [commands.verify]
-commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc", "doc-ids"]
+commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc", "doc-ids", "missing-docs"]
 aliases = ["verify-check"]
 parallel = true
 fail_fast = true
-help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc, doc-ids in parallel; fixes nothing in place"
+help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc, doc-ids, missing-docs in parallel; fixes nothing in place"
 category = "Code Quality"
 
 # TASK-2343: `lint-actions` (the workflow SHA-pin / `secrets: inherit` policy,
