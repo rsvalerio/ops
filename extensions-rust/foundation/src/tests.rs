@@ -253,6 +253,19 @@ fn a_root_that_is_also_a_package_opts_itself_in() {
 }
 
 #[test]
+fn a_root_package_that_lists_itself_is_one_member() {
+    let dir = workspace();
+    let root = "[package]\nname = \"root\"\nversion = \"0.1.0\"\n\n\
+                [workspace]\nmembers = [\"./\", \"crates/*\"]\n";
+    std::fs::write(dir.path().join("Cargo.toml"), root).expect("manifest");
+    let text = read(&dir, "Cargo.toml");
+    let members = workspace_members(dir.path(), &text, true).expect("members");
+    let roots = members.iter().filter(|m| *m == ops_about_rust::ROOT_MEMBER).count();
+    assert_eq!(roots, 1, "{members:?}");
+    assert_eq!(members.len(), 3, "{members:?}");
+}
+
+#[test]
 fn missing_manifest_is_an_error() {
     let dir = tempfile::tempdir().expect("tempdir");
     let err = scaffold(dir.path(), false).expect_err("no Cargo.toml");
