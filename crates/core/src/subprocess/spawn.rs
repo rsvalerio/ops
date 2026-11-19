@@ -84,6 +84,56 @@ mod tests {
         assert_eq!(joined.expect("second spawn must not panic"), 1);
     }
 
+    /// Two closures never overlap: while one thread is held inside the lock,
+    /// another thread's closure does not start, and it runs once the first
+    /// returns.
+    #[test]
+    fn spawn_locked_closures_on_two_threads_never_overlap() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let first_inside = Arc::new(AtomicBool::new(false));
+        let second_ran = Arc::new(AtomicBool::new(false));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+
+        let first = {
+            let first_inside = Arc::clone(&first_inside);
+            std::thread::spawn(move || {
+                spawn_locked(|| {
+                    first_inside.store(true, Ordering::SeqCst);
+                    entered_tx.send(()).expect("signal entry");
+                    release_rx.recv().expect("wait for release");
+                    first_inside.store(false, Ordering::SeqCst);
+                });
+            })
+        };
+        entered_rx.recv().expect("first closure entered");
+
+        let second = {
+            let first_inside = Arc::clone(&first_inside);
+            let second_ran = Arc::clone(&second_ran);
+            std::thread::spawn(move || {
+                spawn_locked(|| {
+                    assert!(!first_inside.load(Ordering::SeqCst), "closures overlapped");
+                    second_ran.store(true, Ordering::SeqCst);
+                });
+            })
+        };
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            !second_ran.load(Ordering::SeqCst),
+            "the second closure must wait while the first holds the lock"
+        );
+
+        release_tx.send(()).expect("release the first closure");
+        first.join().expect("first thread");
+        second.join().expect("second thread must not see an overlap");
+        assert!(second_ran.load(Ordering::SeqCst), "the second closure runs after the first");
+    }
+
     #[cfg(unix)]
     #[test]
     fn output_locked_captures_both_streams_and_the_status() {
