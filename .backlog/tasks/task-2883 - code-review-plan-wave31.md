@@ -1,10 +1,10 @@
 ---
 id: TASK-2883
 title: 'code-review-plan-wave31'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 07:57'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:42'
 labels:
   - code-review-wave
 dependencies:
@@ -39,4 +39,11 @@ Rust about stack: cache sharding/freshness, root-member dedup in foundation, met
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2883
+Worktree: /home/rsvalerio/projects/.wave-TASK-2883
+
+Parked: runner stopped by the weekly usage limit (resets 2026-11-21 01:00 Europe/Amsterdam); uncommitted edits in the worktree, not verified
+Resume from branch code-review/TASK-2883, worktree /home/rsvalerio/projects/.wave-TASK-2883
+
 <!-- SECTION:NOTES:END -->

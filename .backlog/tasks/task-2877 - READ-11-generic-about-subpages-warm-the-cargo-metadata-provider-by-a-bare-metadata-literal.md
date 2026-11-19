@@ -1,10 +1,10 @@
 ---
 id: TASK-2877
 title: 'READ-11: generic about subpages warm the cargo metadata provider by a bare "metadata" literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 22:30'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:27'
 labels:
   - code-review-rust
   - readability
@@ -31,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The warmed metadata provider name is a single named constant shared with the producer (e.g. owned by a crate both ops-about and ops-metadata already depend on) and every warm call site uses it
+- [x] #1 The warmed metadata provider name is a single named constant shared with the producer (e.g. owned by a crate both ops-about and ops-metadata already depend on) and every warm call site uses it
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+New ops_extension::provider_names::CARGO_METADATA; ops_metadata::DATA_PROVIDER_NAME aliases it and every metadata warm call in ops-about (units.rs, deps.rs x3) uses it. Remaining sqlite/tokei/rust-loc literals filed as TASK-2890.
+<!-- SECTION:NOTES:END -->

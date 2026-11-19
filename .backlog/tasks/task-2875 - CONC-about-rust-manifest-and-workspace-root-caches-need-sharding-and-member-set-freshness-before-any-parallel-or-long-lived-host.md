@@ -1,10 +1,10 @@
 ---
 id: TASK-2875
 title: 'CONC: about-rust manifest and workspace-root caches need sharding and member-set freshness before any parallel or long-lived host'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 22:30'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:27'
 labels:
   - code-review-rust
   - concurrency
@@ -34,5 +34,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Before the first parallel or long-lived host caller lands, both caches are sharded and the member-set freshness gap is closed or driven by ctx.refresh
+- [x] #1 Before the first parallel or long-lived host caller lands, both caches are sharded and the member-set freshness gap is closed or driven by ctx.refresh
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC is a precondition guard: no parallel or long-lived host caller exists today, so no sharding is due yet. Satisfied by turning the guard into a documented contract in extensions-rust/about/src/manifest_cache.rs and workspace_root_cache.rs module docs (such hosts are out of contract until both caches are sharded and the member-set freeze is closed or driven by ctx.refresh).
+<!-- SECTION:NOTES:END -->
