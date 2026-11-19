@@ -145,12 +145,15 @@ pub fn manifest_max_bytes() -> u64 {
 ///    (`..` and `/` are resolved by the kernel and are never symlinks).
 ///
 /// The walk needs only search (`+x`) permission on the ancestors, as plain
-/// path resolution does. Linux and Android open them `O_PATH`. Elsewhere a
-/// directory that can be searched but not read is checked with
-/// `fstatat(AT_SYMLINK_NOFOLLOW)` instead of opened, and the next step is
-/// resolved through it by relative path from the last descriptor held; (1)
-/// and (2) still hold, but (3) weakens to a check-then-use window across
-/// such a stretch of search-only directories.
+/// path resolution does, on targets that can open a directory for search
+/// alone: Linux and Android open each ancestor `O_PATH`, and Apple targets,
+/// FreeBSD and NetBSD open it `O_SEARCH`. Every ancestor is held as an open
+/// descriptor and the next component is resolved relative to it, so a
+/// checked directory is never resolved by path a second time. Unix targets
+/// with neither flag open each ancestor for reading, which also needs read
+/// permission: a directory that can be searched but not read fails the walk
+/// with the platform `EACCES` (fail closed) rather than being stepped over
+/// by path.
 ///
 /// `ops` is invoked on third-party repos; an
 /// adversarial repo can plant
@@ -298,18 +301,29 @@ mod unix_open {
     /// from the `fstat` explicitly, which keeps the refusal surface identical
     /// to the `O_RDONLY` path.
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    const DIR_FLAGS: libc::c_int = libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    pub(super) const DIR_FLAGS: libc::c_int = libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC;
 
-    /// Without `O_PATH` intermediate components use the same flags as the
-    /// final one, which need read permission on the directory. A directory
-    /// that is searchable but not readable answers `EACCES`, and the walk
-    /// falls back to [`require_search_only_dir`] for it.
-    ///
-    /// `O_SEARCH` is not used: on Apple targets it carries `O_DIRECTORY`,
-    /// which reports a symlink as `ENOTDIR` rather than `ELOOP` and so would
-    /// lose the stable symlink refusal surface.
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    const DIR_FLAGS: libc::c_int = FILE_FLAGS;
+    /// Without `O_PATH`, `O_SEARCH` opens a directory for search only, so the
+    /// walk still needs nothing beyond `+x` on each ancestor. `O_DIRECTORY`
+    /// (implied by `O_SEARCH` on Apple targets) makes the kernel report a
+    /// symlink as `ENOTDIR` rather than `ELOOP`; [`open_dir_component`]
+    /// relabels that case with the stable symlink refusal.
+    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "netbsd"))]
+    pub(super) const DIR_FLAGS: libc::c_int =
+        libc::O_SEARCH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+
+    /// With neither `O_PATH` nor `O_SEARCH`, intermediate components use the
+    /// same flags as the final one, which need read permission on the
+    /// directory. A directory that is searchable but not readable answers
+    /// `EACCES` and the walk fails closed with it.
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    )))]
+    pub(super) const DIR_FLAGS: libc::c_int = FILE_FLAGS;
 
     /// `openat(2)` relative to `dir` (or the process cwd when `dir` is
     /// `None`), returning an owned descriptor.
@@ -436,36 +450,28 @@ mod unix_open {
         path: &Path,
         dir_flags: libc::c_int,
     ) -> io::Result<OwnedFd> {
-        let fd = openat(cur, name, dir_flags).map_err(|e| {
-            if is_symlink_refusal(&e) {
-                refused_symlink_component(path, name, "openat")
-            } else {
-                e
+        let fd = match openat(cur, name, dir_flags) {
+            Ok(fd) => fd,
+            Err(e) if is_symlink_refusal(&e) => {
+                return Err(refused_symlink_component(path, name, "openat"));
             }
-        })?;
+            // With `O_DIRECTORY` the open already refused a symlink, but as
+            // `ENOTDIR`. Inspecting the entry through the same parent
+            // descriptor only picks the error label; nothing is opened
+            // through it.
+            Err(e) if e.raw_os_error() == Some(libc::ENOTDIR) => {
+                return Err(match lstat_type_bits(cur, name) {
+                    Ok(libc::S_IFLNK) => refused_symlink_component(path, name, "openat"),
+                    _ => e,
+                });
+            }
+            Err(e) => return Err(e),
+        };
         // A symlink is reachable here only on the `O_PATH` path, where
         // `O_NOFOLLOW` hands back the symlink itself instead of failing with
         // `ELOOP`. Spell the refusal the same way either way.
         require_dir(file_type_bits(&fd)?, name, path, "fstat")?;
         Ok(fd)
-    }
-
-    /// Prove an intermediate component that could not be opened for reading
-    /// is a real directory, not a symlink. Used when the directory grants
-    /// search permission but not read permission and no `O_PATH` exists.
-    fn require_search_only_dir(cur: Option<&OwnedFd>, name: &CStr, path: &Path) -> io::Result<()> {
-        require_dir(lstat_type_bits(cur, name)?, name, path, "fstatat")
-    }
-
-    /// `name` resolved below the `pending` components, as one relative path.
-    fn below(pending: &[u8], name: &[u8]) -> Vec<u8> {
-        if pending.is_empty() {
-            return name.to_vec();
-        }
-        let mut rel = pending.to_vec();
-        rel.push(b'/');
-        rel.extend_from_slice(name);
-        rel
     }
 
     /// Walk `path` component by component, refusing a symlink at any step,
@@ -487,9 +493,6 @@ mod unix_open {
             return Err(io::Error::from_raw_os_error(libc::ENOENT));
         };
         let mut cur: Option<OwnedFd> = None;
-        // Components below `cur` that are searchable but could not be opened,
-        // joined with `/`; empty while `cur` is the deepest directory reached.
-        let mut pending: Vec<u8> = Vec::new();
         for component in prefix {
             let name: &[u8] = match component {
                 Component::RootDir => b"/",
@@ -507,26 +510,15 @@ mod unix_open {
                     ))
                 }
             };
-            let rel = below(&pending, name);
-            let c_rel = to_cstring(&rel, path)?;
-            match open_dir_component(cur.as_ref(), &c_rel, path, dir_flags) {
-                Ok(fd) => {
-                    cur = Some(fd);
-                    pending.clear();
-                }
-                Err(e) if e.raw_os_error() == Some(libc::EACCES) => {
-                    require_search_only_dir(cur.as_ref(), &c_rel, path)?;
-                    pending = rel;
-                }
-                Err(e) => return Err(e),
-            }
+            let c_name = to_cstring(name, path)?;
+            cur = Some(open_dir_component(cur.as_ref(), &c_name, path, dir_flags)?);
         }
         let Component::Normal(final_name) = last else {
             // `/`, `.`, or `..` as the whole path: a directory, never a
             // manifest. Keep the platform surface callers already classify.
             return Err(io::Error::from_raw_os_error(libc::EISDIR));
         };
-        let c_name = to_cstring(&below(&pending, final_name.as_bytes()), path)?;
+        let c_name = to_cstring(final_name.as_bytes(), path)?;
         let fd = openat(cur.as_ref(), &c_name, FILE_FLAGS).map_err(|e| {
             if is_symlink_refusal(&e) {
                 super::refused_symlink(path)
@@ -1294,12 +1286,27 @@ mod tests {
         );
     }
 
-    /// Without `O_PATH` the walk opens ancestors for reading, so a directory
-    /// with search but no read permission must be stepped through by
-    /// `fstatat` instead. Forcing the read flags on Linux drives that walk.
+    /// Read `p` through the walk with explicit intermediate-component flags.
     #[cfg(unix)]
+    fn read_with_dir_flags(p: &Path, dir_flags: libc::c_int) -> std::io::Result<String> {
+        unix_open::open_regular_no_symlink_with(p, dir_flags).and_then(|mut f| {
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).map(|_| s)
+        })
+    }
+
+    /// On targets that open ancestors for search alone (`O_PATH` or
+    /// `O_SEARCH`), the default walk steps through a directory that is
+    /// searchable but not readable, at any depth below it.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     #[test]
-    fn walk_without_o_path_traverses_a_search_only_directory() {
+    fn walk_traverses_a_search_only_directory_with_search_flags() {
         use std::os::unix::fs::PermissionsExt as _;
 
         if crate::test_utils::is_root_euid() {
@@ -1314,14 +1321,7 @@ mod tests {
         // --x--x--x: traversable, not listable, not readable.
         std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o111)).unwrap();
 
-        let read = |p: &Path| {
-            unix_open::open_regular_no_symlink_with(p, unix_open::FILE_FLAGS)
-                .and_then(|mut f| {
-                    let mut s = String::new();
-                    std::io::Read::read_to_string(&mut f, &mut s).map(|_| s)
-                })
-                .map_err(|e| e.kind())
-        };
+        let read = |p: &Path| read_with_dir_flags(p, unix_open::DIR_FLAGS).map_err(|e| e.kind());
         let direct = read(&mid.join("Cargo.toml"));
         let nested = read(&inner.join("Cargo.toml"));
 
@@ -1331,11 +1331,70 @@ mod tests {
         assert_eq!(nested, Ok("[inner]".to_string()));
     }
 
-    /// The search-only fallback must still refuse a symlink: one planted
-    /// inside an unreadable directory is refused, not followed.
+    /// With neither `O_PATH` nor `O_SEARCH` the walk opens ancestors for
+    /// reading. A directory that is searchable but not readable must fail
+    /// the walk closed, not be stepped over by path, which a concurrent
+    /// writer could swap for a symlink between the check and the use.
     #[cfg(unix)]
     #[test]
-    fn walk_without_o_path_refuses_a_symlink_inside_a_search_only_directory() {
+    fn walk_with_read_flags_fails_closed_on_a_search_only_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if crate::test_utils::is_root_euid() {
+            return; // TEST-19: root bypasses DAC, so the fixture proves nothing.
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mid = crate::test_utils::canonical_root(&root).join("search-only");
+        let inner = mid.join("inner");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("Cargo.toml"), b"[inner]").unwrap();
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let got = read_with_dir_flags(&inner.join("Cargo.toml"), unix_open::FILE_FLAGS);
+
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let err = got.expect_err("a search-only ancestor must fail the read-flag walk closed");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
+    /// A symlinked intermediate component is refused with the stable
+    /// `InvalidInput` surface under every flag set the walk uses: the
+    /// platform default, the plain read flags, and read flags carrying
+    /// `O_DIRECTORY`, which report the symlink as `ENOTDIR` the way
+    /// `O_SEARCH` does on Apple targets.
+    #[cfg(unix)]
+    #[test]
+    fn walk_refuses_a_symlinked_component_under_every_dir_flag_set() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), b"secret").unwrap();
+        let link = crate::test_utils::canonical_root(&root).join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        let target = link.join("Cargo.toml");
+
+        for (label, flags) in [
+            ("default", unix_open::DIR_FLAGS),
+            ("read", unix_open::FILE_FLAGS),
+            ("read+directory", unix_open::FILE_FLAGS | libc::O_DIRECTORY),
+        ] {
+            let err = read_with_dir_flags(&target, flags)
+                .expect_err("a symlinked component must be refused");
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput, "{label} flags: {err}");
+            assert!(err.to_string().contains("symlink"), "{label} flags: {err}");
+        }
+    }
+
+    /// A symlink planted inside a search-only directory is refused too when
+    /// the walk holds that directory as a search-only descriptor.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
+    #[test]
+    fn walk_refuses_a_symlink_inside_a_search_only_directory() {
         use std::os::unix::fs::PermissionsExt as _;
 
         if crate::test_utils::is_root_euid() {
@@ -1346,21 +1405,12 @@ mod tests {
         std::fs::write(outside.path().join("Cargo.toml"), b"secret").unwrap();
         let mid = crate::test_utils::canonical_root(&root).join("search-only");
         std::fs::create_dir(&mid).unwrap();
-        let blocked = mid.join("blocked");
-        std::fs::create_dir(&blocked).unwrap();
-        std::os::unix::fs::symlink(outside.path(), blocked.join("link")).unwrap();
-        // `blocked` is search-only too, so `link` is reached through the
-        // fallback's relative path rather than through an open descriptor.
-        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o111)).unwrap();
+        std::os::unix::fs::symlink(outside.path(), mid.join("link")).unwrap();
         std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o111)).unwrap();
 
-        let got = unix_open::open_regular_no_symlink_with(
-            &blocked.join("link").join("Cargo.toml"),
-            unix_open::FILE_FLAGS,
-        );
+        let got = read_with_dir_flags(&mid.join("link").join("Cargo.toml"), unix_open::DIR_FLAGS);
 
         std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o700)).unwrap();
         let err = got.expect_err("a symlink below a search-only directory must be refused");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
         assert!(err.to_string().contains("symlink"), "error should mention symlink, got {err}");
