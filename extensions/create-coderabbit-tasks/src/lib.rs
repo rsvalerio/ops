@@ -184,23 +184,20 @@ pub fn run_coderabbit_reviews(
 /// missing from `PATH`, not logged in, or out of quota.
 fn preflight(program: &OsStr, cwd: &Path) -> anyhow::Result<()> {
     let check = |args: &[&str], what: &str, hint: &str| -> anyhow::Result<()> {
-        let output = Command::new(program)
-            .args(args)
-            .current_dir(cwd)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|err| {
-                if err.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::anyhow!(
-                        "{} not found on PATH — install the CodeRabbit CLI and run \
+        let output =
+            ops_core::subprocess::output_locked(Command::new(program).args(args).current_dir(cwd))
+                .map_err(|err| {
+                    if err.kind() == std::io::ErrorKind::NotFound {
+                        anyhow::anyhow!(
+                            "{} not found on PATH — install the CodeRabbit CLI and run \
                          `coderabbit auth login`",
-                        program.to_string_lossy()
-                    )
-                } else {
-                    anyhow::Error::new(err)
-                        .context(format!("running coderabbit {}", args.join(" ")))
-                }
-            })?;
+                            program.to_string_lossy()
+                        )
+                    } else {
+                        anyhow::Error::new(err)
+                            .context(format!("running coderabbit {}", args.join(" ")))
+                    }
+                })?;
         if !output.status.success() {
             anyhow::bail!("{what} ({}): {} — {hint}", output.status, display_output(&output));
         }
@@ -483,15 +480,17 @@ impl TargetRun<'_> {
         if self.opts.use_credits {
             command.arg("--use-credits");
         }
-        let output = command
+        command
             // The worktree, not an inherited hook environment, decides the
             // repository coderabbit reads.
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
             .stdin(Stdio::null())
-            .stderr(Stdio::inherit())
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit());
+        let output = ops_core::subprocess::spawn_locked(|| command.spawn())
+            .and_then(std::process::Child::wait_with_output)
             .with_context(|| format!("running coderabbit review for {}", target.name))?;
         self.check_interrupted()?;
         if !output.status.success() {

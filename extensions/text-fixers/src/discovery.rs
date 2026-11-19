@@ -317,18 +317,18 @@ fn walk(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
 }
 
 fn tracked_files(root: &Path) -> io::Result<Tracked> {
-    let output = match Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["ls-files", "-z"])
-        // The `not a git repository` match below reads git's *stderr*, which
-        // git localises. Pin the locale to C so a developer running under a
-        // translated locale still lands on `Fallback::NotARepository` instead
-        // of the hard-error path.
-        .env("LC_ALL", "C")
-        .env("LANGUAGE", "C")
-        .output()
-    {
+    let output = match ops_core::subprocess::output_locked(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["ls-files", "-z"])
+            // The `not a git repository` match below reads git's *stderr*, which
+            // git localises. Pin the locale to C so a developer running under a
+            // translated locale still lands on `Fallback::NotARepository` instead
+            // of the hard-error path.
+            .env("LC_ALL", "C")
+            .env("LANGUAGE", "C"),
+    ) {
         Ok(output) => output,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Tracked::GitUnavailable),
         Err(e) => return Err(e),
