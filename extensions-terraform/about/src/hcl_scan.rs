@@ -1813,8 +1813,7 @@ terraform {
     fn three_consecutive_markers_before_a_brace_open_nothing() {
         for marker in ['$', '%'] {
             let content = format!(
-                "terraform {{\n  x = \"{m}{m}{m}{{\"\n  required_version = \"1.7\"\n}}\n",
-                m = marker
+                "terraform {{\n  x = \"{marker}{marker}{marker}{{\"\n  required_version = \"1.7\"\n}}\n"
             );
             assert_eq!(
                 extract_required_version(&content, "test.tf"),
