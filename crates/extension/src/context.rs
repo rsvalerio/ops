@@ -9,7 +9,7 @@
 use crate::data::DataRegistry;
 #[cfg(feature = "sqlite")]
 use crate::db_handle::SqliteHandle;
-use crate::deadline::{configured_provider_budget, Deadline};
+use crate::deadline::{configured_provider_budget, Clock, Deadline};
 use crate::error::DataProviderError;
 use ops_core::config::Config;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -64,6 +64,9 @@ pub struct Context {
     /// cleared by the same call. `None` outside a dispatch, or when the
     /// budget is `None`.
     deadline: Option<Deadline>,
+    /// Where deadline installation reads "now". Always the system clock
+    /// outside `test-support`.
+    clock: Clock,
     /// Request arguments for this invocation (e.g. a subcommand flag a
     /// provider must honour), set by [`Context::with_arg`], read by
     /// [`Context::arg`].
@@ -98,6 +101,7 @@ impl Context {
             refresh: false,
             provider_budget,
             deadline: None,
+            clock: Clock::System,
             args: BTreeMap::new(),
             #[cfg(feature = "sqlite")]
             db: None,
@@ -252,6 +256,20 @@ impl Context {
         self
     }
 
+    /// Measure every dispatch budget on this context against `clock`
+    /// instead of the wall clock.
+    ///
+    /// Test support only: the deadline installed for a dispatch, and every
+    /// detached handle taken from it, read this clock, so a test advances
+    /// time with [`crate::ManualClock::advance`] instead of sleeping past a
+    /// budget. Builder-only, like the budget itself.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn with_clock(mut self, clock: crate::ManualClock) -> Self {
+        self.clock = Clock::Manual(clock);
+        self
+    }
+
     /// The deadline of the dispatch currently in flight, if any.
     ///
     /// Providers that hand work to something with its own timeout knob (an
@@ -328,10 +346,15 @@ impl Context {
         // A budget large enough to overflow the monotonic clock is a request
         // for no bound at all; install nothing rather than panicking on the
         // addition or wrapping into an instantly-expired deadline.
-        let Some(expires_at) = Instant::now().checked_add(budget) else {
+        let Some(expires_at) = self.clock.now().checked_add(budget) else {
             return false;
         };
-        self.deadline = Some(Deadline::from_parts(provider.to_string(), budget, expires_at));
+        self.deadline = Some(Deadline::from_parts(
+            provider.to_string(),
+            budget,
+            expires_at,
+            self.clock.clone(),
+        ));
         true
     }
 

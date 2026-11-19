@@ -25,6 +25,8 @@ pub mod provider_names;
 
 pub use context::Context;
 pub use data::{DataField, DataProvider, DataProviderSchema, DataRegistry};
+#[cfg(feature = "test-support")]
+pub use deadline::ManualClock;
 pub use deadline::{Deadline, DEFAULT_PROVIDER_BUDGET};
 pub use error::{DataProviderError, SharedError};
 pub use extension::{
