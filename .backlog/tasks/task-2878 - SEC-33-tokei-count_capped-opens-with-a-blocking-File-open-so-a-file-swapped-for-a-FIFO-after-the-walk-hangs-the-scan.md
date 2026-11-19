@@ -1,13 +1,15 @@
 ---
 id: TASK-2878
 title: 'SEC-33: tokei count_capped opens with a blocking File::open, so a file swapped for a FIFO after the walk hangs the scan'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:54'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2881'
 modified_files:
   - extensions/tokei/src/lib.rs
 priority: low

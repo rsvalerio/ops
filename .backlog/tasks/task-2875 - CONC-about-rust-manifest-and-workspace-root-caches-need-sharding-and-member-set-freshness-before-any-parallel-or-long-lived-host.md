@@ -1,13 +1,15 @@
 ---
 id: TASK-2875
 title: 'CONC: about-rust manifest and workspace-root caches need sharding and member-set freshness before any parallel or long-lived host'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:30'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - concurrency
 dependencies: []
+parent_task_id: 'TASK-2883'
 modified_files:
   - extensions-rust/about/src/manifest_cache.rs
   - extensions-rust/about/src/workspace_root_cache.rs

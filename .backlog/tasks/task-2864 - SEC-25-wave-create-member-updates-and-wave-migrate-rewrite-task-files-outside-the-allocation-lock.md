@@ -1,14 +1,15 @@
 ---
 id: TASK-2864
 title: 'SEC-25: wave create member updates and wave migrate rewrite task files outside the allocation lock'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:21'
-updated_date: '2026-11-18 21:41'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2879'
 modified_files:
   - crates/backlog/src/cmd/wave_create.rs
   - crates/backlog/src/cmd/wave.rs

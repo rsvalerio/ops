@@ -1,13 +1,15 @@
 ---
 id: TASK-2876
 title: 'foundation workspace_members can list the root member twice when the manifest names it'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:30'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - correctness
 dependencies: []
+parent_task_id: 'TASK-2883'
 modified_files:
   - extensions-rust/foundation/src/lib.rs
 priority: low

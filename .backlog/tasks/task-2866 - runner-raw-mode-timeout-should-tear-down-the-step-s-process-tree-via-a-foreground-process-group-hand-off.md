@@ -1,13 +1,15 @@
 ---
 id: TASK-2866
 title: 'runner: raw-mode timeout should tear down the step''s process tree via a foreground process-group hand-off'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:22'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - PATTERN
 dependencies: []
+parent_task_id: 'TASK-2880'
 modified_files:
   - crates/runner/src/command/exec.rs
   - crates/runner/src/command/process_group.rs

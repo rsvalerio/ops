@@ -1,13 +1,15 @@
 ---
 id: TASK-2873
 title: 'TIME-6: public_api deadline dispatch tests still drive the budget with thread::sleep'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:11'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - TIME
 dependencies: []
+parent_task_id: 'TASK-2884'
 modified_files:
   - crates/extension/tests/public_api.rs
   - crates/extension/src/context.rs

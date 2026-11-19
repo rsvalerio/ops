@@ -1,13 +1,15 @@
 ---
 id: TASK-2865
 title: 'SEC-25: cleanup moves task files to completed/ outside the allocation lock, racing task edit'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:21'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2879'
 modified_files:
   - crates/backlog/src/cmd/cleanup.rs
 priority: low

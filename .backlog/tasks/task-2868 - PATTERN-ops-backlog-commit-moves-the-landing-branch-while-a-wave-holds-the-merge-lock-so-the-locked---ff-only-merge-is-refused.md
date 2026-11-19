@@ -1,13 +1,15 @@
 ---
 id: TASK-2868
 title: 'PATTERN: ops backlog commit moves the landing branch while a wave holds the merge lock, so the locked --ff-only merge is refused'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:33'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - PATTERN
 dependencies: []
+parent_task_id: 'TASK-2879'
 modified_files:
   - crates/backlog/src/cmd/commit.rs
 priority: low

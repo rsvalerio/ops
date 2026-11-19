@@ -1,13 +1,15 @@
 ---
 id: TASK-2863
 title: 'API-15: 20 workspace crates still do not inherit the workspace rust-version'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:12'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2882'
 modified_files:
   - extensions/about/Cargo.toml
   - crates/backlog/Cargo.toml

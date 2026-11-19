@@ -1,13 +1,15 @@
 ---
 id: TASK-2869
 title: 'API-14: missing_docs is enforced nowhere, so public-item doc gaps regress silently'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:42'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2882'
 modified_files:
   - Cargo.toml
   - extensions/text-fixers/src/lib.rs

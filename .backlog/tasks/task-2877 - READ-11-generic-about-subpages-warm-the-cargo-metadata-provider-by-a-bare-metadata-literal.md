@@ -1,13 +1,15 @@
 ---
 id: TASK-2877
 title: 'READ-11: generic about subpages warm the cargo metadata provider by a bare "metadata" literal'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:30'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2883'
 modified_files:
   - extensions/about/src/units.rs
   - extensions/about/src/deps.rs

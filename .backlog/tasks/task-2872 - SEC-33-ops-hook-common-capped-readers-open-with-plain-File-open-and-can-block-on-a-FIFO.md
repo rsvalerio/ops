@@ -1,13 +1,15 @@
 ---
 id: TASK-2872
 title: 'SEC-33: ops-hook-common capped readers open with plain File::open and can block on a FIFO'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:10'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2881'
 modified_files:
   - extensions/hook-common/src/git.rs
   - extensions/hook-common/src/install.rs

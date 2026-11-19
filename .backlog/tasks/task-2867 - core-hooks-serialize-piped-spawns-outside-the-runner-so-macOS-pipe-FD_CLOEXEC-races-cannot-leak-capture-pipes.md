@@ -1,13 +1,15 @@
 ---
 id: TASK-2867
 title: 'core/hooks: serialize piped spawns outside the runner so macOS pipe()+FD_CLOEXEC races cannot leak capture pipes'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:22'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - CONC
 dependencies: []
+parent_task_id: 'TASK-2880'
 modified_files:
   - crates/runner/src/command/exec.rs
   - crates/core/src/subprocess/mod.rs

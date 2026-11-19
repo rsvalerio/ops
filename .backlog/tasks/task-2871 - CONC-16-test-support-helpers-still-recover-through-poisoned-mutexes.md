@@ -1,13 +1,15 @@
 ---
 id: TASK-2871
 title: 'CONC-16: test-support helpers still recover through poisoned mutexes'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:53'
+updated_date: '2026-11-19 07:57'
 labels:
   - code-review-rust
   - CONC
 dependencies: []
+parent_task_id: 'TASK-2884'
 modified_files:
   - crates/core/src/test_utils.rs
   - crates/cli/src/test_utils.rs
