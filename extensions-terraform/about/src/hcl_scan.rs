@@ -334,6 +334,12 @@ enum StringFrame {
     /// the `}` matching the opener (once `open_braces` inner `{` have closed)
     /// ends it.
     Interpolation { open_braces: usize },
+    /// A `/* … */` comment inside an interpolation: nothing in it counts
+    /// until the `*/` that pops it.
+    BlockComment,
+    /// A `#` or `//` comment inside an interpolation: nothing in it counts
+    /// for the rest of the line, and the line-local reset discards it.
+    LineComment,
 }
 
 /// The quoted-string state machine, shared by [`scan_code_chars`] and
@@ -348,6 +354,12 @@ enum StringFrame {
 /// stack is one string as far as the stages are concerned, and none of its
 /// braces, quotes or comment introducers are structural. The doubled `$${` /
 /// `%%{` spelling is HCL's literal escape and opens nothing.
+///
+/// An interpolation is an expression, so it may hold comments: a `{`, `}` or
+/// `"` inside `/* … */`, `#` or `//` there neither opens nor closes anything.
+/// Like the rest of the string state, a comment frame is line-local: a line
+/// comment ends with its line, and the string still open at that newline is
+/// reported as unterminated, as is any interpolation that spans lines.
 #[derive(Debug, Default)]
 struct QuotedString {
     frames: Vec<StringFrame>,
@@ -375,12 +387,14 @@ impl QuotedString {
     /// that follows it on the line.
     ///
     /// Returns `true` when the character after `ch` belongs to the same token
-    /// (the `{` of `${`, or the second marker of `$$`) and the caller must
+    /// (the `{` of `${`, the second marker of `$$`, or the second character
+    /// of `/*` / `*/`) and the caller must
     /// consume it without further interpretation. That character is always
     /// ASCII.
     fn step(&mut self, ch: char, rest: &str) -> bool {
         match self.frames.last().copied() {
-            None => false,
+            // A line comment swallows the rest of its line.
+            None | Some(StringFrame::LineComment) => false,
             Some(StringFrame::Literal) => {
                 if self.escaped {
                     self.escaped = false;
@@ -408,12 +422,25 @@ impl QuotedString {
             Some(StringFrame::Interpolation { open_braces }) => {
                 match ch {
                     '"' => self.frames.push(StringFrame::Literal),
+                    '/' if rest.starts_with('*') => {
+                        self.frames.push(StringFrame::BlockComment);
+                        return true;
+                    }
+                    '#' => self.frames.push(StringFrame::LineComment),
+                    '/' if rest.starts_with('/') => self.frames.push(StringFrame::LineComment),
                     '{' => self.set_open_braces(open_braces.saturating_add(1)),
                     '}' if open_braces == 0 => {
                         self.frames.pop();
                     }
                     '}' => self.set_open_braces(open_braces.saturating_sub(1)),
                     _ => {}
+                }
+                false
+            }
+            Some(StringFrame::BlockComment) => {
+                if ch == '*' && rest.starts_with('/') {
+                    self.frames.pop();
+                    return true;
                 }
                 false
             }
@@ -1792,5 +1819,90 @@ terraform {
         }
         assert!(state.stack.is_empty(), "block stack must balance: {:?}", state.stack);
         assert_eq!(state.end_of_file_refusal(), None);
+
+        // A comment inside `${ … }` holding a brace and a quote is part of
+        // the string to both stages: the stripper keeps it verbatim, blanks
+        // only the comment after the outer close, and the scan sees a
+        // closed string and a balanced block.
+        let content = "locals {\n  x = \"${1 /* { \" */}\" # trailing\n}\n";
+
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert!(
+            stripped.contains("\"${1 /* { \" */}\""),
+            "interpolation comment must stay verbatim; got: {stripped}"
+        );
+        assert!(!stripped.contains("trailing"), "real comment must be blanked; got: {stripped}");
+
+        let mut state = ScanState::new();
+        for line in stripped.lines() {
+            assert!(matches!(scan_line(line, &mut state), LineScan::Continue));
+        }
+        assert!(state.stack.is_empty(), "block stack must balance: {:?}", state.stack);
+        assert_eq!(state.end_of_file_refusal(), None);
+    }
+
+    /// A `{` inside a block comment inside an interpolation is not an open
+    /// brace, so the interpolation still closes at its `}` and the file's
+    /// `required_version` is found.
+    #[test]
+    fn extract_required_version_next_to_interpolation_with_brace_in_block_comment() {
+        let content = "terraform {\n  x = \"${1 /* { */}\"\n  required_version = \">= 1.5\"\n}\n";
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
+    }
+
+    /// A `}` inside a block comment inside an interpolation does not close
+    /// the interpolation early, so the `"` after it is not read as the end of
+    /// the outer string and the real close still balances the line.
+    #[test]
+    fn extract_required_version_next_to_interpolation_with_closing_brace_in_block_comment() {
+        let content = concat!(
+            "terraform {\n",
+            "  x = \"${1 /* } \" */ + 2}\"\n",
+            "  required_version = \"~> 1.6\"\n",
+            "}\n",
+        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.6".to_string()));
+    }
+
+    /// A line comment inside an interpolation runs to the end of its line, so
+    /// an interpolation that continues past it leaves the string open at the
+    /// newline. Both stages report that as an unterminated string and reset,
+    /// so the comment's brace never reaches the next line's structure.
+    #[test]
+    fn line_comment_inside_multi_line_interpolation_is_line_local_in_both_stages() {
+        for marker in ["#", "//"] {
+            let content = format!("x = \"${{foo( {marker} {{ \"\n  1)}}\"\nterraform {{\n");
+
+            let (stripped, eof) = strip_comments(&content);
+            assert_eq!(eof, StripEof::UnterminatedString, "marker {marker}");
+
+            let mut state = ScanState::new();
+            let mut lines = content.lines();
+            assert!(matches!(
+                scan_line(lines.next().unwrap_or_default(), &mut state),
+                LineScan::UnterminatedString
+            ));
+            let _ = lines.next();
+            let _ = scan_line(lines.next().unwrap_or_default(), &mut state);
+            assert!(
+                matches!(state.stack.as_slice(), [Some(name)] if name == "terraform"),
+                "comment frame must not cross lines (marker {marker}): {:?}",
+                state.stack
+            );
+            assert!(stripped.contains("terraform {"), "next line kept; got: {stripped}");
+        }
+    }
+
+    /// Outside an interpolation, `/*` in a quoted string is literal text: it
+    /// opens no comment, so the `{` after it stays string content and the
+    /// closing `"` still ends the string.
+    #[test]
+    fn block_comment_marker_in_plain_string_is_literal() {
+        let content = "terraform {\n  x = \"a /* { b\"\n  required_version = \">= 1.5\"\n}\n";
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert!(stripped.contains("\"a /* { b\""), "marker must stay literal; got: {stripped}");
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 }
