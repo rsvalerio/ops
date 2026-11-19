@@ -831,8 +831,7 @@ fn spent_deadline() -> ops_extension::Deadline {
             &self,
             ctx: &mut Context,
         ) -> Result<serde_json::Value, ops_extension::DataProviderError> {
-            *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-                ctx.deadline_handle();
+            *ops_core::sync::lock(&self.0, "deadline capture slot") = ctx.deadline_handle();
             Ok(serde_json::Value::Array(Vec::new()))
         }
     }
@@ -844,9 +843,7 @@ fn spent_deadline() -> ops_extension::Deadline {
         .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
     // The dispatch itself times out on the post-check; only the handle matters.
     let _ = registry.provide("deadline-capture", &mut ctx);
-    let deadline = slot
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    let deadline = ops_core::sync::lock(&slot, "deadline capture slot")
         .clone()
         .expect("a bounded dispatch installs a deadline");
     assert!(deadline.is_expired(), "a 1ns budget is spent on arrival");

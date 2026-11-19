@@ -117,8 +117,22 @@ mod cwd_guard_tests {
         assert_eq!(current_canonical, dir_canonical, "should change to target directory");
     }
 
+    /// Pins the deliberate exemption documented on `CWD_MUTEX`: a test that
+    /// panics while holding a `CwdGuard` poisons the mutex, and the next
+    /// guard must still be acquirable rather than cascading the failure into
+    /// every later cwd test.
     #[test]
     fn cwd_guard_mutex_is_recoverable() {
-        let _lock = CWD_MUTEX.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().to_path_buf();
+        let panicked = std::thread::spawn(move || {
+            let _guard = CwdGuard::new(&target).expect("CwdGuard");
+            panic!("simulated cwd test failure while holding the guard");
+        })
+        .join();
+        assert!(panicked.is_err(), "the holder must have panicked");
+        assert!(CWD_MUTEX.is_poisoned(), "a panicking holder poisons the mutex");
+        let _guard =
+            CwdGuard::new(dir.path()).expect("a poisoned CWD_MUTEX must still be acquirable");
     }
 }
