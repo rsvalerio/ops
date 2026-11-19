@@ -387,7 +387,7 @@ impl QuotedString {
     /// that follows it on the line.
     ///
     /// Returns `true` when the character after `ch` belongs to the same token
-    /// (the `{` of `${`, the second marker of `$$`, or the second character
+    /// (the `{` of `${`, the second marker of `$${`, or the second character
     /// of `/*` / `*/`) and the caller must
     /// consume it without further interpretation. That character is always
     /// ASCII.
@@ -415,7 +415,13 @@ impl QuotedString {
                     }
                     // `$${` / `%%{` is a literal `${` / `%{`: the doubled
                     // marker is consumed so the `{` after it opens nothing.
-                    '$' | '%' => rest.starts_with(ch),
+                    // Only a pair directly followed by `{` is the escape; a
+                    // marker run such as `$$${` leaves its leading `$` literal
+                    // and escapes the trailing `$${`.
+                    '$' | '%' => {
+                        let mut after = rest.chars();
+                        after.next() == Some(ch) && after.next() == Some('{')
+                    }
                     _ => false,
                 }
             }
@@ -470,7 +476,7 @@ fn scan_code_chars(line: &str, state: &mut ScanState, walk: &mut LineWalk) -> Op
             let rest = line.get(idx.saturating_add(ch.len_utf8())..).unwrap_or_default();
             if walk.string.step(ch, rest) {
                 // The paired ASCII character (`{` of `${`, second `$` of
-                // `$$`) is part of the same token.
+                // `$${`) is part of the same token.
                 chars.next();
             }
             continue;
@@ -1798,6 +1804,24 @@ terraform {
         let content =
             "terraform {\n  x = \"$${not_an_interpolation\"\n  required_version = \"1.7\"\n}\n";
         assert_eq!(extract_required_version(content, "test.tf"), Some("1.7".to_string()));
+    }
+
+    /// A run of three markers is a literal marker followed by the `$${` /
+    /// `%%{` escape: nothing opens, so the string closes and the version after
+    /// it is still read.
+    #[test]
+    fn three_consecutive_markers_before_a_brace_open_nothing() {
+        for marker in ['$', '%'] {
+            let content = format!(
+                "terraform {{\n  x = \"{m}{m}{m}{{\"\n  required_version = \"1.7\"\n}}\n",
+                m = marker
+            );
+            assert_eq!(
+                extract_required_version(&content, "test.tf"),
+                Some("1.7".to_string()),
+                "marker {marker}"
+            );
+        }
     }
 
     /// Both stages agree on interpolation boundaries: a `#` inside a nested
