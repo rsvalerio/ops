@@ -48,31 +48,41 @@ use anyhow::Context as _;
 const POLL: Duration = Duration::from_millis(100);
 
 /// The environment variable `ops lock <name> -- <cmd…>` sets for its
-/// command: every lock name held by it and its `ops lock` ancestors,
-/// comma-separated. A nested `ops` that would take one of them itself
-/// (see [`hold_unless_inherited`]) reads it to skip the lock instead of
-/// waiting forever on its own parent.
+/// command: every lock held by it and its `ops lock` ancestors, one per
+/// line, each identified by its lock file's canonical path (see
+/// [`held_key`]). A nested `ops` that would take one of them itself (see
+/// [`hold_unless_inherited`]) reads it to skip the lock instead of waiting
+/// forever on its own parent.
+///
+/// A path rather than a bare name, because a lock belongs to one
+/// repository's common git dir: a command that holds `code-review-merge` in
+/// one repository and changes into another must still take that other
+/// repository's `code-review-merge`.
 pub const HELD_ENV: &str = "OPS_LOCKS_HELD";
 
-/// `inherited` (the current [`HELD_ENV`] value, if any) with `name`
+/// The [`HELD_ENV`] entry for lock `name` under the lock directory `dir`
+/// (already canonical, see [`locks_under`]).
+fn held_key(dir: &Path, name: &str) -> String {
+    dir.join(format!("{name}.lock")).to_string_lossy().into_owned()
+}
+
+/// `inherited` (the current [`HELD_ENV`] value, if any) with `key`
 /// appended.
-fn held_with(inherited: Option<&std::ffi::OsStr>, name: &str) -> OsString {
+fn held_with(inherited: Option<&std::ffi::OsStr>, key: &str) -> OsString {
     inherited.filter(|value| !value.is_empty()).map_or_else(
-        || OsString::from(name),
+        || OsString::from(key),
         |value| {
             let mut held = value.to_os_string();
-            held.push(",");
-            held.push(name);
+            held.push("\n");
+            held.push(key);
             held
         },
     )
 }
 
-/// Whether `inherited` (a [`HELD_ENV`] value) names `name`.
-fn names_lock(inherited: Option<&std::ffi::OsStr>, name: &str) -> bool {
-    inherited
-        .and_then(std::ffi::OsStr::to_str)
-        .is_some_and(|value| value.split(',').any(|held| held == name))
+/// Whether `inherited` (a [`HELD_ENV`] value) holds the lock `key`.
+fn names_lock(inherited: Option<&std::ffi::OsStr>, key: &str) -> bool {
+    inherited.is_some_and(|value| value.to_string_lossy().split('\n').any(|held| held == key))
 }
 
 /// Take the lock `name` for the rest of the caller's work, waiting for it
@@ -92,11 +102,11 @@ pub fn hold_unless_inherited(
     name: &str,
     command: &[OsString],
 ) -> anyhow::Result<Option<Guard>> {
-    if names_lock(std::env::var_os(HELD_ENV).as_deref(), name) {
-        return Ok(None);
-    }
     let (common, toplevel) = git_anchors(cwd)?;
     let dir = locks_under(&common)?;
+    if names_lock(std::env::var_os(HELD_ENV).as_deref(), &held_key(&dir, name)) {
+        return Ok(None);
+    }
     let worktree = if toplevel.as_os_str().is_empty() { cwd.to_path_buf() } else { toplevel };
     let holder = Holder::current(&worktree, command);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -136,11 +146,12 @@ fn git_anchors(cwd: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     Ok((common, toplevel))
 }
 
-/// `<git-common-dir>/ops/locks`, created on demand.
+/// `<git-common-dir>/ops/locks`, created on demand and canonicalized, so
+/// every worktree of one repository names it by the same path.
 fn locks_under(common: &Path) -> anyhow::Result<PathBuf> {
     let dir = common.join("ops").join("locks");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    Ok(dir)
+    std::fs::canonicalize(&dir).with_context(|| format!("resolving {}", dir.display()))
 }
 
 /// The lock directory for the repository containing `cwd`:
@@ -641,7 +652,7 @@ pub fn run_locked(
             drop(guard);
             return Ok(crate::shell_exit_code_for_signal(signo));
         }
-        let held = held_with(std::env::var_os(HELD_ENV).as_deref(), name);
+        let held = held_with(std::env::var_os(HELD_ENV).as_deref(), &held_key(&dir, name));
         let code = run_child(program, args, &held, &mut signals).await?;
         drop(guard);
         anyhow::Ok(code)
@@ -768,17 +779,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn held_locks_accumulate_and_match_whole_names() {
-        let outer = held_with(None, "code-review-backlog");
-        assert_eq!(outer, "code-review-backlog");
-        let inner = held_with(Some(&outer), "code-review-merge");
-        assert_eq!(inner, "code-review-backlog,code-review-merge");
+    fn held_locks_accumulate_and_match_whole_keys() {
+        let dir = Path::new("/repo/.git/ops/locks");
+        let backlog = held_key(dir, "code-review-backlog");
+        let merge = held_key(dir, "code-review-merge");
+        let outer = held_with(None, &backlog);
+        assert_eq!(outer, backlog.as_str());
+        let inner = held_with(Some(&outer), &merge);
+        assert_eq!(inner, format!("{backlog}\n{merge}").as_str());
         assert_eq!(held_with(Some(std::ffi::OsStr::new("")), "x"), "x");
 
-        assert!(names_lock(Some(&inner), "code-review-merge"));
-        assert!(names_lock(Some(&inner), "code-review-backlog"));
-        assert!(!names_lock(Some(&inner), "code-review"), "whole names only");
-        assert!(!names_lock(None, "code-review-merge"));
+        assert!(names_lock(Some(&inner), &merge));
+        assert!(names_lock(Some(&inner), &backlog));
+        assert!(!names_lock(Some(&inner), &held_key(dir, "code-review")), "whole keys only");
+        assert!(!names_lock(None, &merge));
+    }
+
+    #[test]
+    fn a_held_lock_does_not_cover_the_same_name_in_another_repository() {
+        let held = held_with(None, &held_key(Path::new("/a/.git/ops/locks"), "code-review-merge"));
+        let other = held_key(Path::new("/b/.git/ops/locks"), "code-review-merge");
+        assert!(!names_lock(Some(&held), &other));
     }
 
     fn holder(pid: u32) -> Holder {

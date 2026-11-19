@@ -376,3 +376,68 @@ fn backlog_commit_inside_the_merge_lock_does_not_deadlock() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("waiting for"), "got: {stderr}");
 }
+
+/// The held lock is matched by its lock file, not by how the path to it is
+/// spelled: a lock taken from the main checkout (where git reports the
+/// common dir as a relative `.git`) still covers a nested commit run from a
+/// linked worktree (where it is absolute).
+#[test]
+fn backlog_commit_in_a_linked_worktree_inside_the_merge_lock_does_not_deadlock() {
+    let (_dir, repo, wt) = repo_with_worktree();
+    let script = format!(
+        "cd \"$1\" && exec {} backlog commit TASK-1 -m 'chore(backlog): x'",
+        ops_bin().to_str().expect("utf8")
+    );
+    let mut nested = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
+        .arg(&wt)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nested");
+    wait_until("the nested commit to finish", || nested.try_wait().expect("poll").is_some());
+    let out = nested.wait_with_output().expect("nested exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("waiting for"), "got: {stderr}");
+}
+
+/// Holding `code-review-merge` in one repository does not exempt a commit
+/// in another: that repository's own merge lock is still taken, so the
+/// commit waits for its holder.
+#[test]
+fn a_merge_lock_held_in_one_repository_does_not_cover_another() {
+    let (_dir_a, repo_a, _wt_a) = repo_with_worktree();
+    let (_dir_b, repo_b, wt_b) = repo_with_worktree();
+    let mut holder_b = ops(&repo_b)
+        .args(["lock", "code-review-merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn holder");
+    wait_until("the holder to take repository B's lock", || {
+        status(&wt_b, "code-review-merge").contains("held (alive)")
+    });
+
+    let script = format!(
+        "cd \"$1\" && exec {} backlog commit TASK-1 -m 'chore(backlog): x'",
+        ops_bin().to_str().expect("utf8")
+    );
+    let mut nested = ops(&repo_a)
+        .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
+        .arg(&repo_b)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nested");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        nested.try_wait().expect("poll").is_none(),
+        "the commit in repository B must wait for B's merge lock"
+    );
+
+    signal(&holder_b, libc::SIGTERM);
+    holder_b.wait().expect("holder exit");
+    let out = nested.wait_with_output().expect("nested exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
+}
