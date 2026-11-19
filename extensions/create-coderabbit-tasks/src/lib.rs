@@ -343,6 +343,38 @@ fn file_findings(
     Ok(())
 }
 
+/// Commit the task files `filed` created; a commit failure names them and the
+/// command that commits them by hand.
+///
+/// The commit summary is buffered so a failure to print it (a closed stdout)
+/// is not mistaken for a failed commit: only a commit failure carries the
+/// commit-by-hand instruction, which would fail on files already committed.
+fn commit_filed(
+    store: &Store,
+    workspace_root: &Path,
+    name: &str,
+    filed: &[String],
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    if filed.is_empty() {
+        return Ok(());
+    }
+    let commit = CommitOptions {
+        task_ids: filed.to_vec(),
+        message: format!("chore(backlog): file CodeRabbit findings for {name}"),
+    };
+    let mut summary = Vec::new();
+    run_commit(store, workspace_root, &commit, &mut summary).with_context(|| {
+        format!(
+            "committing the new task files {ids} — commit them with `ops backlog commit {ids} -m \
+             \"{msg}\"`",
+            ids = filed.join(" "),
+            msg = commit.message
+        )
+    })?;
+    out.write_all(&summary).context("reporting the committed task files")
+}
+
 /// What every target's review shares.
 struct TargetRun<'a> {
     backlog: Backlog<'a>,
@@ -417,31 +449,14 @@ impl TargetRun<'_> {
         Ok(())
     }
 
-    /// Commit the task files `filed` created; a failure names them and the
-    /// command that commits them by hand.
+    /// Commit the task files `filed` created; see [`commit_filed`].
     fn commit_filed(
         &self,
         name: &str,
         filed: &[String],
         out: &mut dyn Write,
     ) -> anyhow::Result<()> {
-        if filed.is_empty() {
-            return Ok(());
-        }
-        let commit = CommitOptions {
-            task_ids: filed.to_vec(),
-            message: format!("chore(backlog): file CodeRabbit findings for {name}"),
-        };
-        run_commit(self.backlog.store, self.workspace_root, &commit, &mut &mut *out).with_context(
-            || {
-                format!(
-                    "committing the new task files {ids} — commit them with `ops backlog commit \
-                     {ids} -m \"{msg}\"`",
-                    ids = filed.join(" "),
-                    msg = commit.message
-                )
-            },
-        )
+        commit_filed(self.backlog.store, self.workspace_root, name, filed, out)
     }
 
     /// Run `coderabbit review --agent` over the target's directory in the
@@ -571,6 +586,66 @@ mod tests {
             .expect_err("the report write fails");
         assert!(err.to_string().contains("pipe"), "{err}");
         assert_eq!(filing.filed.len(), 1, "the task on disk must be recorded");
+    }
+
+    /// A commit that lands while stdout is closed reports the output failure,
+    /// never the commit-by-hand instruction: those files are already
+    /// committed, so the suggested command would fail.
+    #[test]
+    fn a_closed_stdout_after_a_landed_commit_is_not_reported_as_a_failed_commit() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "t"],
+            &["config", "commit.gpgsign", "false"],
+            &["commit", "-q", "--allow-empty", "-m", "init"],
+        ] {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_INDEX_FILE")
+                .args(args)
+                .status()
+                .expect("spawn git");
+            assert!(status.success(), "git {args:?}");
+        }
+        std::fs::create_dir_all(root.join(".backlog/tasks")).expect("tasks");
+        let store = Store::open(&root.join(".backlog")).expect("open");
+        let cfg = BacklogConfig::default();
+        let stream = concat!(
+            "{\"type\":\"finding\",\"severity\":\"minor\",\"fileName\":\"a.rs\",\"comment\":\"First.\"}\n",
+            "{\"type\":\"complete\"}\n",
+        );
+        let findings = finding::parse_agent_output(stream).expect("parses");
+        let mut filing = Filing::default();
+        let stamp = UtcStamp::now().expect("clock");
+        let filer = Filer {
+            backlog: Backlog { store: &store, cfg: &cfg },
+            target_name: "ops-core",
+            worktree_root: root,
+            stamp: &stamp,
+        };
+        file_findings(&filer, &findings, &mut filing, &mut Vec::new()).expect("files");
+
+        let err = commit_filed(&store, root, "ops-core", &filing.filed, &mut ClosedPipe)
+            .expect_err("the summary write fails");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("reporting the committed task files"), "{msg}");
+        assert!(!msg.contains("ops backlog commit"), "no commit-by-hand advice: {msg}");
+        let log = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["log", "-1", "--format=%s"])
+            .output()
+            .expect("git log");
+        assert_eq!(
+            String::from_utf8_lossy(&log.stdout).trim(),
+            "chore(backlog): file CodeRabbit findings for ops-core"
+        );
     }
 
     #[test]
