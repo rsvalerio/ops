@@ -1,10 +1,10 @@
 ---
 id: TASK-2872
 title: 'SEC-33: ops-hook-common capped readers open with plain File::open and can block on a FIFO'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 22:10'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:22'
 labels:
   - code-review-rust
   - security
@@ -31,6 +31,17 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both helpers read through ops_core::text::read_capped_bytes (or document why a hook path must follow symlinks and use an O_NONBLOCK + fstat open instead)
-- [ ] #2 Unix tests plant a FIFO at the gitdir back-reference and at an existing hook path and assert the call returns promptly
+- [x] #1 Both helpers read through ops_core::text::read_capped_bytes (or document why a hook path must follow symlinks and use an O_NONBLOCK + fstat open instead)
+- [x] #2 Unix tests plant a FIFO at the gitdir back-reference and at an existing hook path and assert the call returns promptly
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Per call site:
+- `<gitdir>/gitdir` back-reference (git.rs has_gitdir_backreference): reads through ops_core::text::read_capped_bytes (strict). The gitdir is canonical, so the prefix holds no symlink, and git writes the back-reference as a plain file.
+- `.git` pointer file (git.rs read_gitdir_pointer): reads through the new ops_core::text::read_capped_bytes_following (O_NONBLOCK + fstat S_IFREG on the handle, follows symlinks). The pointer is reached by walking up from an un-canonicalized start dir; a symlinked ancestor (/tmp on macOS, symlinked home) is ordinary and the strict walk would refuse legitimate checkouts. The probe already lstat-checks the final component as a regular file.
+- Existing hook (install.rs read_existing_hook_capped): reads through read_capped_bytes (strict). hook_path is under the canonicalized hooks dir and install_hook refuses a symlinked hook first.
+The hand-rolled take(cap+1) logic is gone from both helpers. Core gained pub open_regular_following / read_capped_bytes_following; SymlinkPolicy::Follow (global config) now uses the same non-blocking open. Tests: find_git_dir_refuses_fifo_backreference_without_blocking, read_gitdir_pointer_refuses_fifo_without_blocking, install_hook_refuses_fifo_hook_without_blocking, plus core read_capped_bytes_following_refuses_fifo_and_follows_symlinks.
+<!-- SECTION:NOTES:END -->

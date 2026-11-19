@@ -1,10 +1,10 @@
 ---
 id: TASK-2878
 title: 'SEC-33: tokei count_capped opens with a blocking File::open, so a file swapped for a FIFO after the walk hangs the scan'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 22:54'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 17:22'
 labels:
   - code-review-rust
   - security
@@ -30,6 +30,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 count_capped opens without blocking on a FIFO (O_NONBLOCK or the shared ops_core capped-open helper) and skips non-regular files
-- [ ] #2 a unix test swaps a candidate for a FIFO and the scan returns promptly
+- [x] #1 count_capped opens without blocking on a FIFO (O_NONBLOCK or the shared ops_core capped-open helper) and skips non-regular files
+- [x] #2 a unix test swaps a candidate for a FIFO and the scan returns promptly
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+count_capped now opens through ops_core::text::open_regular_following (O_NONBLOCK, fstat S_IFREG on the handle, O_NONBLOCK cleared before reading), keeping the encoding_rs_io decoder over take(cap+1) on the returned handle. It follows symlinks rather than using the strict no-symlink walk: tokei's own parse follows them, the scan root is the caller's unresolved working dir (may sit under a symlinked ancestor), and only line counts leave the function. A non-regular file is an Err and lands in skipped_unreadable. ScanLimits::file_bytes residual note removed. A directory now surfaces as IsADirectory (test updated). Test count_capped_refuses_a_candidate_swapped_for_a_fifo walks a tree, swaps the candidate for a FIFO, and asserts a prompt InvalidInput.
+<!-- SECTION:NOTES:END -->
