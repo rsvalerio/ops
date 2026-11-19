@@ -1,10 +1,10 @@
 ---
 id: TASK-2867
 title: 'core/hooks: serialize piped spawns outside the runner so macOS pipe()+FD_CLOEXEC races cannot leak capture pipes'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-11-18 21:22'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 08:08'
 labels:
   - code-review-rust
   - CONC
@@ -31,6 +31,14 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One process-wide spawn lock in ops-core is taken by every spawn that creates pipes
+- [x] #1 One process-wide spawn lock in ops-core is taken by every spawn that creates pipes
 - [ ] #2 A macOS run of ops verify with parallel steps is confirmed free of the held-pipe warning
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+wave28 (TASK-2880): AC#1 done. ops_core::subprocess::spawn_locked holds the one process-wide spawn lock, and output_locked is output() with the spawn taken under it. Callers that take it: run_with_timeout, the runner's spawn_serialized (still inside spawn_blocking, ChildGroup still armed on that thread), cargo clippy findings, the hook-common staged-files probe, the coderabbit preflight and review, text-fixers git ls-files, and terraform show -json. One spawn is left out: ops-backlog's git helper does not depend on ops-core. It is single-threaded and never runs alongside another spawn in its process, so it cannot open the window. Linux nextest is green for core, runner, cli, hook-common, coderabbit, text-fixers and tfplan.
+AC#2 is still open. It needs a macOS run of ops verify with parallel steps that shows no "captured output still open after killing the step's process group" warning. No macOS host or CI job was available (CI has no macOS test job).
+<!-- SECTION:NOTES:END -->

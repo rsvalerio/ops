@@ -4,7 +4,7 @@ title: 'runner: raw-mode timeout should tear down the step''s process tree via a
 status: To Do
 assignee: []
 created_date: '2026-11-18 21:22'
-updated_date: '2026-11-19 07:57'
+updated_date: '2026-11-19 08:07'
 labels:
   - code-review-rust
   - PATTERN
@@ -36,3 +36,14 @@ ordinal: 1000
 - [ ] #2 A Ctrl-C at the terminal during a raw step still cancels the run as it does today
 - [ ] #3 The documented limitation in exec_command_raw and docs/configuration.md is removed
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Not implemented in wave28 (TASK-2880): no part of it could be landed safely and tested in this wave. A foreground hand-off (child as its own group leader, tcsetpgrp to the child with SIGTTOU blocked, tcsetpgrp back on every exit path through a Drop guard) also needs these, which today's shared-group design gets free from the user's shell:
+- Job control: Ctrl-Z sends SIGTSTP only to the child's group, so the child stops and the runner keeps waiting in child.wait(). tokio's wait cannot report stops (no WUNTRACED), so the terminal hangs on a stopped foreground group. Fixing that means the runner implements job control itself: waitpid(WUNTRACED), take the tty back, stop itself, then hand the tty back and SIGCONT the group on resume.
+- Background runs: ops started with & is not the tty's foreground group, and a tcsetpgrp with SIGTTOU blocked would take the terminal from the shell. The hand-off has to be gated on tcgetpgrp(tty) == getpgrp(), with the no-controlling-tty case handled separately.
+- Ctrl-C relay: SIGINT reaches only the child. The runner must re-raise SIGINT on itself after a child killed by SIGINT, so run_until_signal still cancels the run. A child that catches SIGINT and keeps running (a REPL) would no longer cancel the run, which changes today's behaviour.
+- Tests: AC#2 needs a pty-driven test (a controlling terminal, the foreground group, Ctrl-C injection), and the crate has no pty harness yet.
+The documented trade-off in exec_command_raw and docs/configuration.md stays accurate. This needs its own wave with a pty test harness.
+<!-- SECTION:NOTES:END -->
