@@ -32,7 +32,7 @@ use std::path::Path;
 /// of emitting it is to show the operator the text their manifest holds.
 ///
 /// `exclude` entries carry globs too, and are matched with
-/// the same single-`*` semantics — see [`ExcludeSet`].
+/// the same single-`*` semantics as `members` globs.
 ///
 /// Supports the simple `prefix/*` shape Cargo workspaces use in practice.
 /// More elaborate patterns (`prefix/*/suffix`, `**`, `?`, character classes)
