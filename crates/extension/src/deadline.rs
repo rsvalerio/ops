@@ -67,7 +67,7 @@ pub struct Deadline {
 /// The source of "now" for deadline arithmetic.
 ///
 /// Production always reads the monotonic system clock. Under the
-/// `test-support` feature a [`ManualClock`] can stand in, so dispatch-level
+/// `test-support` feature a `ManualClock` can stand in, so dispatch-level
 /// budget tests advance time explicitly instead of sleeping past it.
 #[derive(Debug, Clone, Default)]
 pub enum Clock {
