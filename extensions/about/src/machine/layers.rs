@@ -21,7 +21,7 @@ pub struct ConfigLayer {
 /// `cwd` and each ancestor's `.cargo/config` or `.cargo/config.toml` (the
 /// legacy `config` when both exist, as cargo picks), then `$CARGO_HOME`'s
 /// when no ancestor already covered it. Each file's `include`s follow it as
-/// layers of their own (see [`push_with_includes`]). Unreadable or malformed
+/// layers of their own (see `push_with_includes`). Unreadable or malformed
 /// files are skipped with a warning.
 #[must_use]
 pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> {
@@ -210,41 +210,35 @@ fn read_layer(path: PathBuf, base: PathBuf) -> Option<ConfigLayer> {
 ///
 /// The paths are repo-controlled (ancestor `.cargo/config[.toml]` files and
 /// whatever their `include` arrays name, absolute paths included), so a FIFO
-/// must not block the page and a huge file must not be read whole. The open
-/// carries `O_NONBLOCK` on Unix, so a FIFO cannot block `open(2)` waiting for
-/// a writer; the type check then runs on the opened handle, not a separate
-/// stat, so nothing can be swapped in between. `O_NONBLOCK` has no effect on
-/// reads from a regular file.
+/// must not block the page and a huge file must not be read whole. The read
+/// goes through [`ops_core::text::read_capped_bytes_following`], which opens
+/// without blocking on a FIFO and type-checks the opened handle.
 ///
 /// Unlike [`ops_core::text::read_capped_to_string`] this follows symlinks:
 /// cargo does, and a symlinked `~/.cargo/config.toml` (a dotfiles checkout)
 /// is ordinary. The report must describe the config cargo actually loads,
 /// and reading through a link only ever reports on the file, never writes it.
+///
+/// Errors keep the `io::Error` shape the caller matches on: an absent file is
+/// [`std::io::ErrorKind::NotFound`], an oversized or non-UTF-8 file is
+/// [`std::io::ErrorKind::InvalidData`], and open or read failures pass
+/// through verbatim.
 fn read_capped_regular_file(path: &Path) -> std::io::Result<String> {
-    use std::io::{Error, ErrorKind, Read as _};
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, "not a regular file"));
-    }
+    use ops_core::text::CappedReadError;
+    use std::io::{Error, ErrorKind};
     let cap = ops_core::text::manifest_max_bytes();
-    let mut bytes = Vec::new();
-    file.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        return Err(Error::new(
+    let bytes = ops_core::text::read_capped_bytes_following(path, cap).map_err(|e| match e {
+        CappedReadError::NotFound(e) | CappedReadError::Open(e) | CappedReadError::Read(e) => e,
+        CappedReadError::TooLarge { cap } => Error::new(
             ErrorKind::InvalidData,
             format!(
                 "file exceeds {cap}-byte cap (override via {})",
                 ops_core::text::MANIFEST_MAX_BYTES_ENV
             ),
-        ));
-    }
+        ),
+        CappedReadError::InvalidUtf8(e) => Error::new(ErrorKind::InvalidData, e),
+        other => Error::new(ErrorKind::InvalidData, other.to_string()),
+    })?;
     String::from_utf8(bytes).map_err(|e| Error::new(ErrorKind::InvalidData, e.utf8_error()))
 }
 
@@ -439,6 +433,7 @@ mod tests {
     fn non_regular_config_file_is_refused() {
         let dir = tempfile::tempdir().expect("tempdir");
         let err = read_capped_regular_file(dir.path()).expect_err("a directory is not a config");
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        // Not `NotFound`: `read_layer` must warn about it, not skip it silently.
+        assert_eq!(err.kind(), std::io::ErrorKind::IsADirectory);
     }
 }

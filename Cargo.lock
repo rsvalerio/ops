@@ -1391,7 +1391,6 @@ name = "ops-about"
 version = "0.94.2"
 dependencies = [
  "anyhow",
- "libc",
  "ops-core",
  "ops-extension",
  "ops-git",
