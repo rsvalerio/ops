@@ -14,7 +14,7 @@ use std::path::Path;
 /// Read a manifest's text content if it exists and stays inside `root`.
 ///
 /// The manifest path is canonicalized (which follows symlinks) and must sit
-/// under the canonicalized `root` — the same [`read_contained`] boundary the
+/// under the canonicalized `root` — the same `read_contained` boundary the
 /// workspace-member read in `ops_about::workspace` uses: a root manifest that is a symlink out of the
 /// workspace is skipped with a `tracing::warn!` rather than having its
 /// fields surfaced, while a symlink that stays inside the root is followed.

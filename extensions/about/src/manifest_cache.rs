@@ -29,7 +29,7 @@
 //! (monotonic tick + min-heap victim queue with lazy invalidation) has a
 //! single definition. The one policy specific to this cache, in-flight-entry
 //! pinning, is expressed as the shared type's eviction-candidate filter
-//! (see [`is_evictable`]).
+//! (see `is_evictable`).
 //!
 //! # Freshness policy
 //!
@@ -79,7 +79,7 @@ type CacheSlot = Arc<OnceLock<Option<Arc<str>>>>;
 /// `last_accessed` before removing.
 ///
 /// The value type is the per-key slot; eviction candidacy is
-/// [`is_evictable`] below.
+/// `is_evictable` below.
 type CacheMap = BoundedLruCache<PathBuf, CacheSlot>;
 
 /// Whether `slot` may be evicted: only once its read has completed.
@@ -218,7 +218,7 @@ impl ArcTextCache {
 ///
 /// The insert cap-evicts the entry with the smallest `last_accessed` tick
 /// (LRU, O(log n) via the min-heap with lazy invalidation). Entries whose
-/// read is still in flight are pinned by the [`is_evictable`] filter, never
+/// read is still in flight are pinned by the `is_evictable` filter, never
 /// evicted. The slot's `OnceLock` is initialised by the caller after the
 /// outer mutex has been released, so the file read runs outside the lock.
 fn insert_slot(map: &mut CacheMap, path: &Path, filename: &'static str) -> CacheSlot {

@@ -377,7 +377,7 @@ fn remove_path(doc: &mut toml_edit::DocumentMut, path: &[&str]) {
 /// is deliberate.
 ///
 /// `workspaces` is `.ops.toml`'s `[cargo] workspaces` list, compared with
-/// the cargo workspaces nested in the tree (see [`check_workspaces`]).
+/// the cargo workspaces nested in the tree (see `check_workspaces`).
 ///
 /// # Errors
 ///

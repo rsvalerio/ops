@@ -23,7 +23,7 @@ const MAX_CFG_DEPTH: usize = 32;
 ///
 /// Supports cargo's grammar: bare names, `name = "value"`, `all(..)`,
 /// `any(..)` and `not(..)`. A key that is not a `cfg(..)` expression, that
-/// does not parse, or that nests deeper than [`MAX_CFG_DEPTH`], does not match.
+/// does not parse, or that nests deeper than `MAX_CFG_DEPTH`, does not match.
 #[must_use]
 pub fn cfg_matches(key: &str, host_cfg: &[String]) -> bool {
     let Some(inner) = key.trim().strip_prefix("cfg(").and_then(|rest| rest.strip_suffix(')'))
@@ -41,7 +41,7 @@ pub fn cfg_matches(key: &str, host_cfg: &[String]) -> bool {
 /// Recursive-descent evaluator over a `cfg(..)` body.
 struct CfgParser<'a> {
     rest: &'a str,
-    /// Current `(..)` list nesting, bounded by [`MAX_CFG_DEPTH`].
+    /// Current `(..)` list nesting, bounded by `MAX_CFG_DEPTH`.
     depth: usize,
 }
 
@@ -146,7 +146,7 @@ pub(super) mod tests {
         assert!(!cfg_matches("cfg(not(unix, windows))", &cfg));
     }
 
-    /// A key nested far past [`MAX_CFG_DEPTH`] is unparseable and does not
+    /// A key nested far past `MAX_CFG_DEPTH` is unparseable and does not
     /// match, instead of overflowing the stack; nesting at the limit still
     /// evaluates.
     #[test]
