@@ -1,10 +1,10 @@
 ---
 id: TASK-2887
 title: 'DUP-1: ops-about read_capped_regular_file hand-rolls the following non-blocking open that ops_core::text now provides'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 08:08'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:26'
 labels:
   - code-review-rust
   - duplication
@@ -31,6 +31,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_capped_regular_file reads through ops_core::text::read_capped_bytes_following (keeping its InvalidData/ cap error surface)
-- [ ] #2 Existing FIFO and symlink-follow tests for the machine config layers still pass
+- [x] #1 read_capped_regular_file reads through ops_core::text::read_capped_bytes_following (keeping its InvalidData/ cap error surface)
+- [x] #2 Existing FIFO and symlink-follow tests for the machine config layers still pass
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+read_capped_regular_file now delegates to ops_core::text::read_capped_bytes_following; NotFound/InvalidData surface kept; direct libc dependency removed. A directory now surfaces as IsADirectory (ops_core's documented kind) instead of InvalidInput; the test was updated accordingly. FIFO and symlink-follow tests pass.
+<!-- SECTION:NOTES:END -->

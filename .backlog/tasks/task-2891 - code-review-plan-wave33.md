@@ -1,10 +1,10 @@
 ---
 id: TASK-2891
 title: 'code-review-plan-wave33'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-20 13:26'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:26'
 labels:
   - code-review-wave
 dependencies:
@@ -48,4 +48,8 @@ ops-about hygiene: reuse the ops_core hardened capped read, stop public docs lin
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2891
+Worktree: /home/rsvalerio/projects/.wave-TASK-2891
+
 <!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2890
 title: 'READ-11: about main page and deps subpage still warm sqlite, tokei and rust-loc providers by bare literals'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 17:20'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:26'
 labels:
   - code-review-rust
   - readability
@@ -32,5 +32,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every warm_providers call in ops-about names its providers via constants shared with the producers
+- [x] #1 Every warm_providers call in ops-about names its providers via constants shared with the producers
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added SQLITE, TOKEI, RUST_LOC, COVERAGE, CARGO_TOML to ops_extension::provider_names; producers' DATA_PROVIDER_NAME now alias them and every ops-about warm_providers call (plus the coverage get_or_provide) uses them.
+<!-- SECTION:NOTES:END -->

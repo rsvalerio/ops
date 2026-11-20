@@ -1,10 +1,10 @@
 ---
 id: TASK-2889
 title: 'API-14: public docs link private items, so rustdoc without --document-private-items fails in ops-about, ops-extension and ops-rust-foundation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 17:20'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:26'
 labels:
   - code-review-rust
   - api
@@ -36,5 +36,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RUSTDOCFLAGS='-D warnings' cargo rustdoc passes for ops-about, ops-extension and ops-rust-foundation without --document-private-items
+- [x] #1 RUSTDOCFLAGS='-D warnings' cargo rustdoc passes for ops-about, ops-extension and ops-rust-foundation without --document-private-items
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Private intra-doc links in public docs turned into plain code spans; RUSTDOCFLAGS='-D warnings' cargo rustdoc passes for ops-about, ops-extension and ops-rust-foundation. Regression gate filed as TASK-2896.
+<!-- SECTION:NOTES:END -->
