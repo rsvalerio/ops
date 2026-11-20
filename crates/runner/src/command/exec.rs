@@ -356,13 +356,28 @@ async fn spawn_serialized(
     .await
 }
 
-/// Spawn a raw step's `cmd` under the spawn lock and wait for it. Dropping
-/// the future drops the child, and `kill_on_drop` kills it.
+/// Spawn a raw step's `cmd` under the spawn lock and wait for it.
+///
+/// On unix the child leads its own process group and — when the runner
+/// holds the terminal's foreground — is handed the foreground for the
+/// duration of the step, so Ctrl-C / Ctrl-Z keep working and a timeout
+/// tears the whole tree down (see
+/// [`super::process_group::spawn_raw_group_and_wait`]). Dropping the future
+/// is the cancellation path: the group gets `SIGTERM`, then `SIGKILL` after
+/// a grace period. Non-unix keeps the legacy `kill_on_drop` behaviour,
+/// which reaches only the direct child.
 async fn spawn_raw_and_wait(
     cmd: &mut tokio::process::Command,
 ) -> std::io::Result<std::process::ExitStatus> {
-    let mut child = spawn_locked_on_pool(cmd, std::convert::identity).await?;
-    child.wait().await
+    #[cfg(unix)]
+    {
+        super::process_group::spawn_raw_group_and_wait(cmd).await
+    }
+    #[cfg(not(unix))]
+    {
+        let mut child = spawn_locked_on_pool(cmd, std::convert::identity).await?;
+        child.wait().await
+    }
 }
 
 /// Spawn `cmd` with piped stdio, stream both pipes through
@@ -827,19 +842,23 @@ pub async fn exec_command(
 ///
 /// Exit code and timeout behavior are preserved. Used by `--raw` mode.
 ///
-/// # Timeouts reach only the direct child
+/// # Process-tree ownership and the terminal
 ///
-/// When `timeout_secs` elapses, the wait is dropped and
-/// `kill_on_drop` sends `SIGKILL` to the **direct child only**. Its
-/// descendants (`cargo` under `sh -c`, `node` under `npm run`) keep running
-/// on the terminal after the step is reported failed. This is a deliberate
-/// trade-off, not an oversight: captured steps avoid the leak by becoming
-/// their own process group ([`super::process_group`]), but a raw child must
-/// stay in the runner's foreground process group so the tty's Ctrl-C
-/// reaches both it and the runner. Moving it into its own group would need
-/// a `tcsetpgrp` foreground hand-off and a Ctrl-C relay back to the runner.
-/// Until then the leak on timeout is documented in
-/// `docs/configuration.md` ("Raw commands").
+/// The child is spawned as its own process-group leader, so a timeout tears
+/// the whole tree down (`SIGTERM`, then `SIGKILL` after a grace period)
+/// exactly like a captured step. Because a group of its own would no longer
+/// receive the terminal's Ctrl-C / Ctrl-Z, the runner hands the terminal's
+/// foreground to the child for the duration of the step, takes it back on
+/// every exit path, re-raises `SIGINT` on itself after a child that died of
+/// one (so a Ctrl-C still cancels the run), and stops with a Ctrl-Z'd child
+/// until the shell resumes the run — see
+/// [`super::process_group::spawn_raw_group_and_wait`] for the full
+/// choreography. Two situations keep the legacy shared-group behaviour:
+/// when the runner itself is a background job (`ops … &`), where the
+/// terminal's foreground is not the runner's to give and a timeout again
+/// stops only the direct child (documented in `docs/configuration.md`,
+/// "Raw commands"), and non-unix targets, where `kill_on_drop` remains the
+/// only mechanism.
 pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecEnv) -> StepResult {
     // CONC-5 / TASK-0330: see exec_command above.
     // PERF-3 / TASK-1125: Arc::clone — no spec deep clone per spawn.
