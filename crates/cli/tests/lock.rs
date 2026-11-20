@@ -441,3 +441,48 @@ fn a_merge_lock_held_in_one_repository_does_not_cover_another() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
 }
+
+/// A job started under `ops lock` that outlives it (a background job) keeps
+/// the holder's `OPS_LOCKS_HELD`. Once that holder has exited and another
+/// process holds the lock, the inherited entry no longer covers the job:
+/// its `ops backlog commit` waits like any other.
+#[test]
+fn an_inherited_lock_does_not_cover_a_job_that_outlives_its_holder() {
+    let (_dir, repo, wt) = repo_with_worktree();
+    let out = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "printenv", "OPS_LOCKS_HELD"])
+        .output()
+        .expect("run first holder");
+    assert!(out.status.success(), "first holder: {out:?}");
+    let leaked = String::from_utf8(out.stdout).expect("utf8").trim_end().to_string();
+    assert!(!leaked.is_empty(), "the locked command sees OPS_LOCKS_HELD");
+
+    let mut holder = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn second holder");
+    wait_until("the second holder to take the lock", || {
+        status(&wt, "code-review-merge").contains("held (alive)")
+    });
+
+    let mut commit = ops(&wt)
+        .env("OPS_LOCKS_HELD", &leaked)
+        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn commit");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        commit.try_wait().expect("poll").is_none(),
+        "a stale inherited entry must not skip the merge lock"
+    );
+
+    signal(&holder, libc::SIGTERM);
+    holder.wait().expect("holder exit");
+    let out = commit.wait_with_output().expect("commit exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
+}
