@@ -1,10 +1,10 @@
 ---
 id: TASK-2888
 title: 'CONC: spawns that create no pipes can still inherit a concurrent spawn''s capture pipe on non-pipe2 targets'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 08:12'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:35'
 labels:
   - code-review-rust
   - CONC
@@ -30,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every spawn that can run while a captured spawn is in flight takes spawn_locked, or a test or lint keeps unlocked spawns from appearing on those paths
+- [x] #1 Every spawn that can run while a captured spawn is in flight takes spawn_locked, or a test or lint keeps unlocked spawns from appearing on those paths
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Every spawn in the workspace (std and tokio, production and test code) now goes through ops_core::subprocess::spawn_locked via the new spawn_child_locked / status_locked helpers or output_locked; raw steps use spawn_locked_on_pool in the runner. clippy.toml disallowed-methods bans bare std/tokio Command::spawn/output/status, so a new unlocked spawn fails the clippy gate; the two remaining direct tokio spawns sit inside spawn_locked with a reasoned expect. nextest 4085/4085.
+<!-- SECTION:NOTES:END -->
