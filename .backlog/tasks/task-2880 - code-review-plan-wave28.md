@@ -4,11 +4,10 @@ title: 'code-review-plan-wave28'
 status: In Progress
 assignee: []
 created_date: '2026-11-19 07:57'
-updated_date: '2026-11-19 17:31'
+updated_date: '2026-11-20 21:25'
 labels:
   - code-review-wave
 dependencies:
-  - TASK-2866
   - TASK-2867
 modified_files:
   - crates/core/src/subprocess/mod.rs
@@ -50,5 +49,7 @@ Resume from branch code-review/TASK-2880, worktree /home/rsvalerio/projects/.wav
 
 Parked: Code landed on code-review/run-20261119 at 7ffba272 (integration ops verify 11/11; nextest 1746/1746 on the landed tip). The wave stays parked because two members are not Done. TASK-2866 is in To Do for re-triage: the foreground tcsetpgrp hand-off is not done and needs job control, background-run detection, a SIGINT relay and a pty harness (see its notes). TASK-2867 is In Progress: AC#1 has landed, AC#2 needs a macOS run.
 Resume from branch code-review/TASK-2880, worktree /home/rsvalerio/projects/.wave-TASK-2880
+
+Re-triaged 2026-11-20: TASK-2866 moved out to wave 39 (TASK-2898) per its park note. This wave now blocks only on TASK-2867 (AC#2, macOS run); its code already landed in PR #160.
 
 <!-- SECTION:NOTES:END -->
