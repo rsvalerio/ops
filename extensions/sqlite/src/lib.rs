@@ -97,7 +97,7 @@ pub const DESCRIPTION: &str = "Per-project SQLite database for data collection";
 pub const SHORTNAME: &str = "db";
 /// Registry key of the `sqlite` data provider this crate registers —
 /// the key the about code/loc subpages look the database handle up by.
-pub const DATA_PROVIDER_NAME: &str = "sqlite";
+pub const DATA_PROVIDER_NAME: &str = ops_extension::provider_names::SQLITE;
 
 // `Sqlite` gets `SqliteHandle` from the blanket impl over
 // `'static + Send + Sync` in `ops_extension::data`.

@@ -6,7 +6,7 @@ use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectDependencies;
 use ops_core::style::{cyan, dim};
-use ops_extension::provider_names::CARGO_METADATA;
+use ops_extension::provider_names::{CARGO_METADATA, SQLITE};
 use ops_extension::DataRegistry;
 
 use crate::providers::{load_or_default, warm_providers};
@@ -46,7 +46,7 @@ pub fn run_about_deps_with(
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("deps")?;
 
-    warm_providers(&mut ctx, data_registry, &["sqlite", CARGO_METADATA], "deps");
+    warm_providers(&mut ctx, data_registry, &[SQLITE, CARGO_METADATA], "deps");
 
     let deps: ProjectDependencies =
         load_or_default(&mut ctx, data_registry, PROJECT_DEPENDENCIES_PROVIDER)?;
@@ -139,7 +139,7 @@ pub fn run_about_deps_json_with(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("deps")?;
-    warm_providers(&mut ctx, data_registry, &["sqlite", CARGO_METADATA], "deps");
+    warm_providers(&mut ctx, data_registry, &[SQLITE, CARGO_METADATA], "deps");
     let deps: ProjectDependencies =
         load_or_default(&mut ctx, data_registry, PROJECT_DEPENDENCIES_PROVIDER)?;
     crate::write_json_document(writer, &deps_json(&deps))

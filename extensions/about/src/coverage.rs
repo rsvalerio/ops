@@ -8,6 +8,7 @@ use ops_core::project_identity::ProjectCoverage;
 use ops_core::style::green;
 use ops_core::table::{Color, OpsTable};
 use ops_core::text::format_number;
+use ops_extension::provider_names::{CARGO_TOML, COVERAGE, SQLITE};
 use ops_extension::DataRegistry;
 
 use crate::providers::{load_or_default, warm_providers};
@@ -80,7 +81,7 @@ pub fn run_about_coverage_with(
     let mut ctx = crate::providers::subpage_context("coverage")?;
 
     // Warm the providers stacks may rely on for coverage + unit metadata.
-    warm_providers(&mut ctx, data_registry, &["sqlite", "coverage", "cargo_toml"], "coverage");
+    warm_providers(&mut ctx, data_registry, &[SQLITE, COVERAGE, CARGO_TOML], "coverage");
 
     let coverage: ProjectCoverage =
         load_or_default(&mut ctx, data_registry, PROJECT_COVERAGE_PROVIDER)?;

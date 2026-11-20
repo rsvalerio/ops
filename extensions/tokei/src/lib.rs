@@ -32,7 +32,7 @@ pub const DESCRIPTION: &str = "Code statistics provider (lines of code, comments
 pub const SHORTNAME: &str = "tokei";
 /// Registry key of the `tokei` data provider this crate registers —
 /// the key the about code/loc subpages look the statistics up by.
-pub const DATA_PROVIDER_NAME: &str = "tokei";
+pub const DATA_PROVIDER_NAME: &str = ops_extension::provider_names::TOKEI;
 
 /// Datasource extension exposing tokei-derived per-file code statistics
 /// under the [`DATA_PROVIDER_NAME`] key.

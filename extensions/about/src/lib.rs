@@ -40,6 +40,7 @@ use std::path::Path;
 
 use ops_core::project_identity::{AboutCard, ProjectIdentity};
 use ops_core::text::{capitalize, dir_name};
+use ops_extension::provider_names::{COVERAGE, RUST_LOC, SQLITE, TOKEI};
 use ops_extension::{DataProviderError, ExtensionType};
 
 /// Write one machine-readable `--json` document: pretty-printed, newline
@@ -183,9 +184,9 @@ fn warm_generic_providers(
     // Sqlite/tokei warm-up failures are warn-logged, like the coverage
     // branch below, so a real provider error (permissions, disk full) is
     // not silently rendered as zeros.
-    crate::providers::warm_providers(ctx, data_registry, &["sqlite", "tokei", "rust-loc"], "main");
+    crate::providers::warm_providers(ctx, data_registry, &[SQLITE, TOKEI, RUST_LOC], "main");
     if refresh {
-        match ctx.get_or_provide("coverage", data_registry) {
+        match ctx.get_or_provide(COVERAGE, data_registry) {
             Ok(_) | Err(DataProviderError::NotFound(_)) => {}
             Err(e) => tracing::warn!(error = ?e, "coverage collection failed"),
         }

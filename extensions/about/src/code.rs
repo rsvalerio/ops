@@ -8,6 +8,7 @@ use std::io::Write;
 use ops_core::project_identity::LanguageStat;
 use ops_core::table::{Cell, OpsTable};
 use ops_core::text::format_number;
+use ops_extension::provider_names::{SQLITE, TOKEI};
 use ops_extension::{Context, DataRegistry};
 
 use crate::providers::warm_providers;
@@ -19,7 +20,7 @@ pub fn query_language_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,
 ) -> Option<Vec<LanguageStat>> {
-    warm_providers(ctx, data_registry, &["sqlite", "tokei"], "code");
+    warm_providers(ctx, data_registry, &[SQLITE, TOKEI], "code");
 
     let db = ops_sqlite::get_db(ctx)?;
     match ops_sqlite::sql::query_project_languages(db) {
