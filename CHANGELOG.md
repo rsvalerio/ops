@@ -2,6 +2,29 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.3](https://github.com/rsvalerio/ops/compare/f00cdd0f0537b98dcd65d944e4701c0825f5e9bc..v0.94.3) - 2026-11-20
+#### 🐛 Bug Fixes
+- (**about-java**) split elements glued to the pom project opener so containers never fill project scalars - ([727f7ae](https://github.com/rsvalerio/ops/commit/727f7ae9f23153acdf136bb9b3d6ef4eeaff231a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) link every wave member before printing progress - ([e2f11ec](https://github.com/rsvalerio/ops/commit/e2f11ec83165fbbdabc79e9f8e72b8d7d05b4176)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) take the spawn lock for every spawn and ban unlocked spawns - ([c55fddd](https://github.com/rsvalerio/ops/commit/c55fddd79a4f06993195c72b1e654aa33852d245)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**sqlite**) refuse an unrepresentable workspace path before sidecar ingestors run their tool - ([abb3125](https://github.com/rsvalerio/ops/commit/abb312526502b1037f08e1e63989559f8e7c4265)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- stop public item docs linking private items - ([41bfb35](https://github.com/rsvalerio/ops/commit/41bfb358526bf90aa0b61af74a2fa45e4aea8563)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cli**) fail when a workspace member drops the workspace rust-version - ([b59422d](https://github.com/rsvalerio/ops/commit/b59422d53b0a829758078c5aed6939930483af4c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) read cargo config layers through ops_core capped following read - ([6fb85cf](https://github.com/rsvalerio/ops/commit/6fb85cfa73fd83721ca6f3710238b62839c9a09d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) warm about providers via shared provider name constants - ([e4ab809](https://github.com/rsvalerio/ops/commit/e4ab809555b424c7f3529c1821c611051d5e0218)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 37 - ([3ded629](https://github.com/rsvalerio/ops/commit/3ded62912081f6e8490c2a9042475bd13e73efdc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 33 - ([749a14e](https://github.com/rsvalerio/ops/commit/749a14ebbc33d23e01818e9fa6ae8e481296ab12)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 35 - ([9fb6695](https://github.com/rsvalerio/ops/commit/9fb6695d2f8c12e0bf028505e5332b0d71331efc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 36 - ([1260bb4](https://github.com/rsvalerio/ops/commit/1260bb43098128c921697f292c0f68fa7dcda624)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 34 - ([f62736c](https://github.com/rsvalerio/ops/commit/f62736cd972f32c86d3174c339201fc0e0595f46)) - [@rsvalerio](https://github.com/rsvalerio)
+- update backlog tasks - ([61c6f12](https://github.com/rsvalerio/ops/commit/61c6f126c97e4dd26b4fbce6fee09d0a62f13528)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.2](https://github.com/rsvalerio/ops/compare/84dd848ee6d78cf845229654f94ff4b92a502dcd..v0.94.2) - 2026-11-20
 #### 🐛 Bug Fixes
 - (**about-java**) parse elements glued to the project opener and contain module pom reads - ([7a5e5d9](https://github.com/rsvalerio/ops/commit/7a5e5d9ae9331c9feccdbce87b9ea3ee8e8b99fe)) - [@rsvalerio](https://github.com/rsvalerio)
