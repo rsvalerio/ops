@@ -50,7 +50,11 @@ pub fn write_workspace_sidecar(
 /// Refuses a workspace path that a sidecar could not carry: one whose bytes
 /// hold an ASCII control byte, or (off Unix) are not valid UTF-8 — the same
 /// rules [`read_workspace_sidecar`] enforces.
-fn check_workspace_path(working_directory: &std::path::Path) -> DbResult<()> {
+///
+/// Sidecar ingestors call this from their pre-collect check (through
+/// `SidecarIngestorConfig::check_workspace`) so an unrepresentable path is
+/// refused before the external tool runs, not after.
+pub fn check_workspace_path(working_directory: &std::path::Path) -> DbResult<()> {
     sidecar_bytes_problem(working_directory.as_os_str().as_encoded_bytes()).map_or(
         Ok(()),
         |problem| {

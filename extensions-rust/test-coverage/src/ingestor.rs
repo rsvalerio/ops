@@ -16,6 +16,10 @@ impl DataIngestor for CoverageIngestor {
         PIPELINE.name
     }
 
+    fn precheck(&self, ctx: &Context) -> DbResult<()> {
+        PIPELINE.check_workspace(ctx.working_directory())
+    }
+
     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
         let records =
             collect_coverage(ctx.working_directory(), ctx.deadline()).map_err(external_err)?;
@@ -127,5 +131,20 @@ mod tests {
 
         // Verify JSON file was cleaned up
         assert!(!dir.entry_path(PIPELINE.json_filename).exists());
+    }
+
+    /// A workspace path the sidecar cannot carry is refused by
+    /// `precheck`, before `collect` would run the external tool.
+    #[test]
+    fn precheck_refuses_unrepresentable_workspace_path() {
+        let ctx = ops_extension::Context::test_context(std::path::PathBuf::from("/tmp/bad\npath"));
+        let err = CoverageIngestor.precheck(&ctx).expect_err("control byte refused");
+        match err {
+            ops_sqlite::DbError::Io(e) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+                assert!(e.to_string().contains("cannot be recorded in a sidecar"), "{e}");
+            }
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
     }
 }
