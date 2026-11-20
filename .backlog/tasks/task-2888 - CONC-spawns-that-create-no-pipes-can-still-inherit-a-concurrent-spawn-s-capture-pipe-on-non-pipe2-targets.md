@@ -1,13 +1,15 @@
 ---
 id: TASK-2888
 title: 'CONC: spawns that create no pipes can still inherit a concurrent spawn''s capture pipe on non-pipe2 targets'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-19 08:12'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - CONC
 dependencies: []
+parent_task_id: 'TASK-2895'
 modified_files:
   - crates/core/src/subprocess/spawn.rs
 priority: low

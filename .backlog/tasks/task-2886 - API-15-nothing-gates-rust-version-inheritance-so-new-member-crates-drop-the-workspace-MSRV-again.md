@@ -1,13 +1,15 @@
 ---
 id: TASK-2886
 title: 'API-15: nothing gates rust-version inheritance, so new member crates drop the workspace MSRV again'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-19 08:08'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2892'
 modified_files:
   - crates/cli/src/workspace_check_cmd.rs
   - .ops.toml

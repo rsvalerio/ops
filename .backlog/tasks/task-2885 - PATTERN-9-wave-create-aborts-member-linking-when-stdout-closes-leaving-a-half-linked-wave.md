@@ -1,13 +1,15 @@
 ---
 id: TASK-2885
 title: 'PATTERN-9: wave create aborts member linking when stdout closes, leaving a half-linked wave'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-19 07:57'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2892'
 modified_files:
   - crates/backlog/src/cmd/wave_create.rs
 priority: low

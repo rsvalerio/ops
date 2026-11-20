@@ -1,13 +1,15 @@
 ---
 id: TASK-2887
 title: 'DUP-1: ops-about read_capped_regular_file hand-rolls the following non-blocking open that ops_core::text now provides'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-19 08:08'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2891'
 modified_files:
   - extensions/about/src/machine/layers.rs
   - extensions/about/Cargo.toml

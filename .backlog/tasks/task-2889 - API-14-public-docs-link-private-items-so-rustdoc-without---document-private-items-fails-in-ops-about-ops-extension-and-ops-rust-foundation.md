@@ -1,13 +1,15 @@
 ---
 id: TASK-2889
 title: 'API-14: public docs link private items, so rustdoc without --document-private-items fails in ops-about, ops-extension and ops-rust-foundation'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-19 17:20'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2891'
 modified_files:
   - extensions/about/src/cards.rs
   - extensions/about/src/machine/cfg_expr.rs

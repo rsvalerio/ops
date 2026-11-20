@@ -1,13 +1,15 @@
 ---
 id: TASK-2890
 title: 'READ-11: about main page and deps subpage still warm sqlite, tokei and rust-loc providers by bare literals'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-19 17:20'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2891'
 modified_files:
   - extensions/about/src/lib.rs
   - extensions/about/src/deps.rs

@@ -1,13 +1,15 @@
 ---
 id: TASK-2874
 title: 'TEST-6: Compact one-line POM reads container children as project scalars'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 22:24'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - TEST
 dependencies: []
+parent_task_id: 'TASK-2894'
 modified_files:
   - extensions-java/about/src/maven/pom.rs
 priority: low

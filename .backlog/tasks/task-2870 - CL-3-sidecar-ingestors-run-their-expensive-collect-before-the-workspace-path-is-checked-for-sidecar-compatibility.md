@@ -1,13 +1,15 @@
 ---
 id: TASK-2870
 title: 'CL-3: sidecar ingestors run their expensive collect before the workspace path is checked for sidecar compatibility'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-11-18 21:47'
+updated_date: '2026-11-20 13:26'
 labels:
   - code-review-rust
   - CL
 dependencies: []
+parent_task_id: 'TASK-2893'
 modified_files:
   - extensions/sqlite/src/sql/ingest/sidecar.rs
   - extensions/sqlite/src/ingestor.rs
