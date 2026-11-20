@@ -1,10 +1,10 @@
 ---
 id: TASK-2894
 title: 'code-review-plan-wave36'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-20 13:26'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:19'
 labels:
   - code-review-wave
 dependencies:
@@ -36,4 +36,8 @@ Maven POM parsing: containers glued to a compact one-line project opener must no
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2894
+Worktree: /home/rsvalerio/projects/.wave-TASK-2894
+
 <!-- SECTION:NOTES:END -->

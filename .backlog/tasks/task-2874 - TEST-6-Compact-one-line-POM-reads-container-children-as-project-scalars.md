@@ -1,10 +1,10 @@
 ---
 id: TASK-2874
 title: 'TEST-6: Compact one-line POM reads container children as project scalars'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 22:24'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:18'
 labels:
   - code-review-rust
   - TEST
@@ -30,6 +30,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A compact one-line POM with a container (parent, scm, developers, a skip section) glued to the opener does not fill project scalars from the container's children
-- [ ] #2 Unit tests pin the parent-version and scm-url compact shapes
+- [x] #1 A compact one-line POM with a container (parent, scm, developers, a skip section) glued to the opener does not fill project scalars from the container's children
+- [x] #2 Unit tests pin the parent-version and scm-url compact shapes
+
 <!-- AC:END -->
