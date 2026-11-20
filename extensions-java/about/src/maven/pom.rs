@@ -16,8 +16,9 @@
 //!   values are not supported). Single-line `<scm>...</scm>` and
 //!   `<licenses>...</licenses>` blocks are special-cased. Elements glued to
 //!   the `<project>` opener's `>` (including a whole compact one-line POM)
-//!   are read as top-level scalars; section containers on that line are
-//!   not tracked.
+//!   are split into one element per piece and parsed like the
+//!   pretty-printed form, so a container on that line is tracked as a
+//!   section and its children never fill project scalars.
 //! - **No nested duplicate elements.** Inside a section like `<scm>` the
 //!   first matching child wins; deeper nesting (e.g. nested `<url>` inside
 //!   another tag) is not tracked.
@@ -238,19 +239,64 @@ fn accept_project_opener<'a>(
 /// Dispatch the text left on the opener's line after its closing `>`.
 ///
 /// A compact POM puts the whole document on one line
-/// (`<project><artifactId>x</artifactId></project>`), so a trailing
-/// `</project>` is peeled off first and the elements before it are parsed
-/// like any started line. Returns `true` when the document ended on this
-/// line and the outer loop should break.
+/// (`<project><parent><version>9</version></parent><artifactId>x</artifactId></project>`).
+/// The remainder is split by [`split_glued_elements`] into the pieces a
+/// pretty-printed POM would put on separate lines, and each piece is fed to
+/// the same dispatcher as a started line. Container openers and closers
+/// therefore drive the section state machine exactly as they do in the
+/// multi-line form, so a container's children never fill project scalars.
+/// Returns `true` when the document ended on this line and the outer loop
+/// should break.
 fn dispatch_opener_remainder(
     remainder: &str,
     section: &mut PomSection,
     data: &mut PomData,
 ) -> bool {
-    let (body, closed) =
-        remainder.strip_suffix("</project>").map_or((remainder, false), |body| (body.trim(), true));
-    let ended = !body.is_empty() && dispatch_started_line(body, section, data);
-    closed || ended
+    split_glued_elements(remainder).any(|piece| dispatch_started_line(piece, section, data))
+}
+
+/// Split a run of glued XML elements into the pieces a pretty-printer would
+/// put one per line: a leaf element with its text (`<version>9</version>`),
+/// a bare opening tag of a container (`<parent>`), or a closing tag
+/// (`</parent>`). Whitespace between pieces is dropped, and text outside any
+/// tag is kept as its own piece so it can never be mistaken for a tag.
+fn split_glued_elements(line: &str) -> impl Iterator<Item = &str> {
+    let mut rest = line.trim_start();
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let end = glued_piece_end(rest);
+        let (piece, tail) = rest.split_at(end);
+        rest = tail.trim_start();
+        Some(piece.trim_end())
+    })
+}
+
+/// Byte length of the first piece of `rest` (non-empty, no leading
+/// whitespace); see [`split_glued_elements`] for the piece shapes.
+fn glued_piece_end(rest: &str) -> usize {
+    if !rest.starts_with('<') {
+        return rest.find('<').unwrap_or(rest.len());
+    }
+    let Some(gt) = rest.find('>') else {
+        return rest.len();
+    };
+    let tag_end = gt.saturating_add(1);
+    let tag = rest.get(..tag_end).unwrap_or(rest);
+    if tag.starts_with("</") || tag.ends_with("/>") {
+        return tag_end;
+    }
+    let after = rest.get(tag_end..).unwrap_or("");
+    // A leaf: text (possibly empty) followed directly by a closing tag.
+    match after.find('<') {
+        Some(lt) if after.get(lt..).is_some_and(|t| t.starts_with("</")) => {
+            after.get(lt..).and_then(|t| t.find('>')).map_or(rest.len(), |close_gt| {
+                tag_end.saturating_add(lt).saturating_add(close_gt).saturating_add(1)
+            })
+        }
+        _ => tag_end,
+    }
 }
 
 /// Report every construct still open at end of input.
@@ -1110,6 +1156,72 @@ mod tests {
             parse_pom_str("<project><artifactId>x</artifactId></project>\n<version>9</version>");
         assert_eq!(pom.artifact_id.as_deref(), Some("x"));
         assert_eq!(pom.version, None);
+    }
+
+    /// A `<parent>` glued to a compact opener keeps its `<version>` out of
+    /// the project version.
+    #[test]
+    fn parse_pom_compact_one_line_parent_version_not_captured() {
+        let pom = parse_pom_str(
+            "<project><parent><groupId>g</groupId><artifactId>p</artifactId><version>9</version></parent><artifactId>x</artifactId></project>",
+        );
+        assert_eq!(pom.artifact_id.as_deref(), Some("x"));
+        assert_eq!(pom.version, None);
+    }
+
+    /// An `<scm><url>` glued to a compact opener is the repository, never
+    /// the homepage.
+    #[test]
+    fn parse_pom_compact_one_line_scm_url_is_not_the_homepage() {
+        let pom = parse_pom_str(
+            "<project><scm><url>https://scm.example</url></scm><artifactId>x</artifactId></project>",
+        );
+        assert_eq!(pom.scm_url.as_deref(), Some("https://scm.example"));
+        assert_eq!(pom.project_url, None);
+        assert_eq!(pom.artifact_id.as_deref(), Some("x"));
+    }
+
+    /// A developer `<name>` glued to a compact opener is a developer, not
+    /// the project name.
+    #[test]
+    fn parse_pom_compact_one_line_developer_name_not_the_project_name() {
+        let pom = parse_pom_str(
+            "<project><developers><developer><name>Ada</name></developer></developers><artifactId>x</artifactId></project>",
+        );
+        assert_eq!(pom.developers, vec!["Ada".to_string()]);
+        assert_eq!(pom.name, None);
+    }
+
+    /// A skip-section container left open on the opener line keeps
+    /// swallowing children on later lines until its closing tag.
+    #[test]
+    fn parse_pom_container_opened_on_opener_line_spans_lines() {
+        let pom = parse_pom_str(
+            "<project><dependencies><dependency><version>2</version>\n</dependency>\n</dependencies>\n<version>1</version>\n</project>",
+        );
+        assert_eq!(pom.version.as_deref(), Some("1"));
+    }
+
+    /// The glued-element splitter yields the pretty-printed pieces.
+    #[test]
+    fn split_glued_elements_yields_pretty_printed_pieces() {
+        let pieces: Vec<&str> =
+            split_glued_elements("<parent> <version>9</version></parent><x/>txt<a></a></project>")
+                .collect();
+        assert_eq!(
+            pieces,
+            [
+                "<parent>",
+                "<version>9</version>",
+                "</parent>",
+                "<x/>",
+                "txt",
+                "<a></a>",
+                "</project>"
+            ]
+        );
+        assert_eq!(split_glued_elements("").count(), 0);
+        assert_eq!(split_glued_elements("<unterminated").collect::<Vec<_>>(), ["<unterminated"]);
     }
 
     /// `<project/>` and `<projectInfo>` are not the opener.
