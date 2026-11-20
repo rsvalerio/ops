@@ -712,10 +712,12 @@ async fn run_child(
     held: &std::ffi::OsStr,
     signals: &mut Signals,
 ) -> anyhow::Result<u8> {
-    let mut child = tokio::process::Command::new(program)
-        .args(args)
-        .env(HELD_ENV, held)
-        .spawn()
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args).env(HELD_ENV, held);
+    // Nothing else in this process spawns while the locked command runs, so
+    // the lock is uncontended and taking it on the runtime thread is safe.
+    #[expect(clippy::disallowed_methods, reason = "the spawn runs under spawn_locked")]
+    let mut child = ops_core::subprocess::spawn_locked(|| cmd.spawn())
         .with_context(|| format!("spawning {}", program.to_string_lossy()))?;
     let mut received: Option<i32> = None;
     loop {

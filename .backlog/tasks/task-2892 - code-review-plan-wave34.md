@@ -1,10 +1,10 @@
 ---
 id: TASK-2892
 title: 'code-review-plan-wave34'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-20 13:26'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:18'
 labels:
   - code-review-wave
 dependencies:
@@ -39,4 +39,8 @@ Workspace tooling guards: wave create finishes linking every member even when it
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2892
+Worktree: /home/rsvalerio/projects/.wave-TASK-2892
+
 <!-- SECTION:NOTES:END -->

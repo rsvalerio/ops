@@ -545,7 +545,7 @@ pub fn run_clippy_findings(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
-    let mut child = ops_core::subprocess::spawn_locked(|| cmd.spawn())
+    let mut child = ops_core::subprocess::spawn_child_locked(&mut cmd)
         .with_context(|| format!("failed to spawn {}", cargo.to_string_lossy()))?;
     let stdout = child.stdout.take().context("cargo clippy stdout was not captured")?;
 

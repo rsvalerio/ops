@@ -288,7 +288,9 @@ fn count_capped_refuses_a_candidate_swapped_for_a_fifo() {
     assert_eq!(candidates, vec![path.clone()]);
 
     std::fs::remove_file(&path).expect("remove");
-    let status = std::process::Command::new("mkfifo").arg(&path).status().expect("run mkfifo");
+    let status =
+        ops_core::subprocess::status_locked(std::process::Command::new("mkfifo").arg(&path))
+            .expect("run mkfifo");
     assert!(status.success(), "mkfifo failed");
 
     let (tx, rx) = std::sync::mpsc::channel();

@@ -408,7 +408,7 @@ mod tests {
         for (key, value) in envs {
             command.env(key, value);
         }
-        let mut child = command.spawn().unwrap();
+        let mut child = ops_core::subprocess::spawn_child_locked(&mut command).unwrap();
         // The bounded capture stops reading once its
         // byte budget is met, so an oversized stream legitimately closes
         // the pipe under the writer — only BrokenPipe is tolerated.
@@ -487,7 +487,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-push");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
-        let status = std::process::Command::new("/bin/sh").arg("-n").arg(&script).status().unwrap();
+        let status = ops_core::subprocess::status_locked(
+            std::process::Command::new("/bin/sh").arg("-n").arg(&script),
+        )
+        .unwrap();
         assert!(status.success(), "HOOK_SCRIPT must parse under `sh -n`");
     }
 

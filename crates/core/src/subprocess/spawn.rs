@@ -9,15 +9,20 @@
 //! holder sat outside the step's process group, where killing the group
 //! could not reach it.
 //!
-//! Every spawn in the workspace that creates pipes takes [`spawn_locked`]
-//! around the spawn call itself, so no two of them can overlap that window.
+//! A spawn that creates no pipes is exposed too: whichever thread forks
+//! inside another thread's window inherits the write end, piped or not. So
+//! every spawn in the workspace takes [`spawn_locked`] around the spawn call
+//! itself, and no two of them can overlap that window. The workspace
+//! `clippy.toml` bans the bare `Command::spawn`, `output` and `status`
+//! methods, so an unlocked spawn fails the lint gate; [`spawn_child_locked`],
+//! [`status_locked`] and [`output_locked`] are the locked replacements.
 //! The lock covers the spawn only, never the wait: holding it across a
 //! child's lifetime would serialize the children themselves. On `pipe2`
 //! targets (Linux) pipe creation is already atomic and the lock costs one
 //! uncontended acquire per spawn.
 
 use std::io;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::Mutex;
 
 /// The lock [`spawn_locked`] holds. One per process: every copy of this
@@ -45,12 +50,46 @@ pub fn spawn_locked<T>(spawn: impl FnOnce() -> T) -> T {
     spawn()
 }
 
+/// [`Command::spawn`] under [`spawn_locked`].
+///
+/// The child's stdio is whatever `cmd` configured; like `spawn()`, unset
+/// streams are inherited.
+///
+/// # Blocking
+///
+/// Waits for the lock; see [`spawn_locked`] for async callers.
+///
+/// # Errors
+///
+/// The child cannot be spawned.
+pub fn spawn_child_locked(cmd: &mut Command) -> io::Result<Child> {
+    #[expect(clippy::disallowed_methods, reason = "this is the locked spawn the ban points to")]
+    spawn_locked(|| cmd.spawn())
+}
+
+/// [`Command::status`] with the spawn taken under [`spawn_locked`].
+///
+/// Unset streams are inherited, as with `status()`. The wait runs after the
+/// lock is released.
+///
+/// # Blocking
+///
+/// Blocks until the child exits, like `status()`; see [`spawn_locked`] for
+/// async callers.
+///
+/// # Errors
+///
+/// The child cannot be spawned, or waiting for it fails.
+pub fn status_locked(cmd: &mut Command) -> io::Result<ExitStatus> {
+    spawn_child_locked(cmd)?.wait()
+}
+
 /// [`Command::output`] with the spawn taken under [`spawn_locked`].
 ///
 /// Pins stdin to `/dev/null` and pipes stdout and stderr, which is what
 /// `output()` does for a command that set none of them. A caller that needs
 /// a different wiring (stderr inherited, say) sets it and calls
-/// `spawn_locked(|| cmd.spawn())` followed by `wait_with_output` itself.
+/// [`spawn_child_locked`] followed by `wait_with_output` itself.
 ///
 /// # Blocking
 ///
@@ -63,7 +102,7 @@ pub fn spawn_locked<T>(spawn: impl FnOnce() -> T) -> T {
 /// fails.
 pub fn output_locked(cmd: &mut Command) -> io::Result<Output> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    spawn_locked(|| cmd.spawn())?.wait_with_output()
+    spawn_child_locked(cmd)?.wait_with_output()
 }
 
 #[cfg(test)]
@@ -142,6 +181,25 @@ mod tests {
         assert_eq!(out.stdout, b"out\n");
         assert_eq!(out.stderr, b"err\n");
         assert_eq!(out.status.code(), Some(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_locked_reports_the_exit_code() {
+        let status =
+            status_locked(Command::new("sh").args(["-c", "exit 4"])).expect("sh must spawn");
+        assert_eq!(status.code(), Some(4));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_child_locked_keeps_the_configured_stdio() {
+        let child = spawn_child_locked(
+            Command::new("sh").args(["-c", "echo piped"]).stdout(Stdio::piped()),
+        )
+        .expect("sh must spawn");
+        let out = child.wait_with_output().expect("wait");
+        assert_eq!(out.stdout, b"piped\n");
     }
 
     /// stdin is `/dev/null`, so a child that reads it sees EOF at once

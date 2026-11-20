@@ -1,10 +1,10 @@
 ---
 id: TASK-2886
 title: 'API-15: nothing gates rust-version inheritance, so new member crates drop the workspace MSRV again'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 08:08'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:11'
 labels:
   - code-review-rust
   - api
@@ -31,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A gate run by ops verify or CI fails when a workspace member's cargo metadata rust_version differs from the root rust-version
+- [x] #1 A gate run by ops verify or CI fails when a workspace member's cargo metadata rust_version differs from the root rust-version
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Gate: crates/cli/tests/workspace_msrv.rs runs cargo metadata --no-deps and fails when any member's resolved rust_version differs from [workspace.package] rust-version; it runs in ops qa (nextest), i.e. CI and pre-push. Chosen over extending check-workspaces, which covers only nested workspaces.
+<!-- SECTION:NOTES:END -->

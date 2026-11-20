@@ -231,7 +231,7 @@ fn spawn_diff_cached(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    ops_core::subprocess::spawn_locked(|| cmd.spawn())
+    ops_core::subprocess::spawn_child_locked(&mut cmd)
         .map_err(|e| HasStagedFilesError::Spawn { program: program.to_string(), source: e })
 }
 

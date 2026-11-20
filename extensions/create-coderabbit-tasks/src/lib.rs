@@ -489,7 +489,7 @@ impl TargetRun<'_> {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
-        let output = ops_core::subprocess::spawn_locked(|| command.spawn())
+        let output = ops_core::subprocess::spawn_child_locked(&mut command)
             .and_then(std::process::Child::wait_with_output)
             .with_context(|| format!("running coderabbit review for {}", target.name))?;
         self.check_interrupted()?;
@@ -601,15 +601,16 @@ mod tests {
             &["config", "commit.gpgsign", "false"],
             &["commit", "-q", "--allow-empty", "-m", "init"],
         ] {
-            let status = std::process::Command::new("git")
-                .arg("-C")
-                .arg(root)
-                .env_remove("GIT_DIR")
-                .env_remove("GIT_WORK_TREE")
-                .env_remove("GIT_INDEX_FILE")
-                .args(args)
-                .status()
-                .expect("spawn git");
+            let status = ops_core::subprocess::status_locked(
+                std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(root)
+                    .env_remove("GIT_DIR")
+                    .env_remove("GIT_WORK_TREE")
+                    .env_remove("GIT_INDEX_FILE")
+                    .args(args),
+            )
+            .expect("spawn git");
             assert!(status.success(), "git {args:?}");
         }
         std::fs::create_dir_all(root.join(".backlog/tasks")).expect("tasks");
@@ -635,12 +636,14 @@ mod tests {
         let msg = format!("{err:#}");
         assert!(msg.contains("reporting the committed task files"), "{msg}");
         assert!(!msg.contains("ops backlog commit"), "no commit-by-hand advice: {msg}");
-        let log = std::process::Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(["log", "-1", "--format=%s"])
-            .output()
-            .expect("git log");
+        let log = ops_core::subprocess::output_locked(
+            std::process::Command::new("git").arg("-C").arg(root).args([
+                "log",
+                "-1",
+                "--format=%s",
+            ]),
+        )
+        .expect("git log");
         assert_eq!(
             String::from_utf8_lossy(&log.stdout).trim(),
             "chore(backlog): file CodeRabbit findings for ops-core"

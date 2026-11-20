@@ -208,7 +208,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-commit");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
-        let status = std::process::Command::new("/bin/sh").arg("-n").arg(&script).status().unwrap();
+        let status = ops_core::subprocess::status_locked(
+            std::process::Command::new("/bin/sh").arg("-n").arg(&script),
+        )
+        .unwrap();
         assert!(status.success(), "HOOK_SCRIPT must parse under `sh -n`");
     }
 
@@ -228,16 +231,17 @@ mod tests {
         // /usr/bin:/bin, which a distro package or CI image may well occupy.
         // The script's prologue is shell builtins only, so nothing else on
         // PATH is consulted before the probe.
-        let out = std::process::Command::new("/bin/sh")
-            .arg(&script)
-            .env("PATH", dir.path())
-            // `Command` inherits the parent environment, so a bypass left
-            // in the test runner's env (`SKIP_OPS_RUN_BEFORE_COMMIT=1
-            // cargo test`) would exit the hook before the missing-ops
-            // probe this test exists to exercise.
-            .env_remove(SKIP_ENV_VAR)
-            .output()
-            .unwrap();
+        let out = ops_core::subprocess::output_locked(
+            std::process::Command::new("/bin/sh")
+                .arg(&script)
+                .env("PATH", dir.path())
+                // `Command` inherits the parent environment, so a bypass left
+                // in the test runner's env (`SKIP_OPS_RUN_BEFORE_COMMIT=1
+                // cargo test`) would exit the hook before the missing-ops
+                // probe this test exists to exercise.
+                .env_remove(SKIP_ENV_VAR),
+        )
+        .unwrap();
 
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(1), "stderr was: {stderr}");
@@ -266,12 +270,13 @@ mod tests {
         // the script, so `ops` is unfindable on every machine and the
         // fall-through can never exec a real ops binary.
         for value in ["1", "true", "TRUE", "Yes", "on"] {
-            let out = std::process::Command::new("/bin/sh")
-                .arg(&script)
-                .env("PATH", dir.path())
-                .env(SKIP_ENV_VAR, value)
-                .output()
-                .unwrap();
+            let out = ops_core::subprocess::output_locked(
+                std::process::Command::new("/bin/sh")
+                    .arg(&script)
+                    .env("PATH", dir.path())
+                    .env(SKIP_ENV_VAR, value),
+            )
+            .unwrap();
             assert_eq!(
                 out.status.code(),
                 Some(0),
@@ -281,12 +286,13 @@ mod tests {
         }
 
         // A value `should_skip` rejects must still reach the probe and fail.
-        let out = std::process::Command::new("/bin/sh")
-            .arg(&script)
-            .env("PATH", dir.path())
-            .env(SKIP_ENV_VAR, "maybe")
-            .output()
-            .unwrap();
+        let out = ops_core::subprocess::output_locked(
+            std::process::Command::new("/bin/sh")
+                .arg(&script)
+                .env("PATH", dir.path())
+                .env(SKIP_ENV_VAR, "maybe"),
+        )
+        .unwrap();
         assert_eq!(out.status.code(), Some(1));
     }
 

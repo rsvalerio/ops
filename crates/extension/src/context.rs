@@ -421,7 +421,7 @@ impl Context {
     /// registered under the same name).
     ///
     /// In-flight markers are deliberately **not** cleared: they are owned by
-    /// the [`Context::enter_provider`] / [`Context::exit_provider`] guard
+    /// the `Context::enter_provider` / `Context::exit_provider` guard
     /// pairs inside [`DataRegistry::provide`], and a quiescent context has
     /// none — the Drop guard removes each one on every exit path. Blanket
     /// clearing them here would strip an *active* cycle guard if a

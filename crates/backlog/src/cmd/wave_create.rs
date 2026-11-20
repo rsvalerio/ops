@@ -41,8 +41,12 @@ pub struct WaveCreateOptions {
     pub modified_files: Vec<String>,
 }
 
-/// Create the wave parent and link every member, printing
+/// Create the wave parent and link every member, then print
 /// `Created TASK-NNNN` and one `Linked TASK-MMMM` line per member.
+///
+/// The output is written only after every write has landed, so an output
+/// failure (a closed pipe) is still returned but never cuts the linking
+/// short.
 ///
 /// Every check runs before the first write: each member must be a task in
 /// `tasks/` (resolved with [`same_task_id`], so bare and padded forms work),
@@ -118,8 +122,10 @@ fn wave_create_with<W: Write>(
         // `unless_exists` is never set above, so no existing task can match.
         Created::Exists(id) => anyhow::bail!("wave create unexpectedly matched {id}"),
     };
-    writeln!(out, "Created {wave_id}").context("printing the created wave id")?;
 
+    // Every rewrite lands before the first progress line: a closed stdout
+    // (`wave create … | head -1`) must not leave the parent listing members
+    // that were never linked back to it.
     let updated = format!("{} {}", stamp.date, stamp.minutes);
     for (done, member) in members.into_iter().enumerate() {
         let mut doc = member.doc;
@@ -135,6 +141,9 @@ fn wave_create_with<W: Write>(
                 unlinked.join(", ")
             )
         })?;
+    }
+    writeln!(out, "Created {wave_id}").context("printing the created wave id")?;
+    for id in &member_ids {
         writeln!(out, "Linked {id}").context("printing the linked member id")?;
     }
     Ok(())
@@ -368,6 +377,51 @@ mod tests {
         run_wave_create(&store, &BacklogConfig::default(), &opts(&["1"]), &mut out)
             .expect("bare id resolves");
         assert_eq!(String::from_utf8(out).expect("utf8"), "Created TASK-0005\nLinked TASK-0001\n");
+    }
+
+    /// Accepts the first line, then fails every write like a closed pipe.
+    struct ClosesAfterFirstLine {
+        written: Vec<u8>,
+    }
+
+    impl Write for ClosesAfterFirstLine {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.written.contains(&b'\n') {
+                return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+            }
+            self.written.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A progress line that cannot be written is reported, but every member
+    /// is still linked: the output is cosmetic, the links are not.
+    #[test]
+    fn a_failing_writer_still_links_every_member() {
+        let (dir, store) = scratch(&[
+            ("task-0001 - a.md", member("TASK-0001", "")),
+            ("task-0002 - b.md", member("TASK-0002", "")),
+            ("task-0003 - c.md", member("TASK-0003", "")),
+        ]);
+        let mut out = ClosesAfterFirstLine { written: Vec::new() };
+        let err = run_wave_create(
+            &store,
+            &BacklogConfig::default(),
+            &opts(&["TASK-0001", "TASK-0002", "TASK-0003"]),
+            &mut out,
+        )
+        .expect_err("the output failure is returned");
+        assert!(format!("{err:#}").contains("printing the linked member id"), "{err:#}");
+        assert_eq!(String::from_utf8(out.written).expect("utf8"), "Created TASK-0004\n");
+        for name in ["task-0001 - a.md", "task-0002 - b.md", "task-0003 - c.md"] {
+            let doc = doc_of(&dir, name);
+            assert_eq!(doc.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0004"), "{name}");
+            assert_eq!(doc.frontmatter.status, "To Do", "{name}");
+        }
     }
 
     /// Every write is stamped from the clock read once at the edge.

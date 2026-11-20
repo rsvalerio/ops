@@ -208,7 +208,11 @@ mod exec_unit_tests {
     #[tokio::test]
     async fn a_pipe_held_outside_the_group_keeps_the_exit_status_and_output() {
         use tokio::time::{timeout, Duration};
-        if std::process::Command::new("perl").arg("-e").arg("1").status().is_err() {
+        if ops_core::subprocess::status_locked(
+            std::process::Command::new("perl").arg("-e").arg("1"),
+        )
+        .is_err()
+        {
             eprintln!("perl not available; skipping");
             return;
         }

@@ -18,4 +18,5 @@ pub use sql::{
     JsonTableLoad,
 };
 
+pub(crate) use sidecar::check_workspace_path;
 pub(super) use sql::table_exists;

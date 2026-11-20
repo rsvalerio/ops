@@ -127,6 +127,13 @@ where
     let loaded = source_is_loaded(db, table_name, ingestor.name())
         .with_context(|| format!("provide_via_ingestor({table_name}): load probe"))?;
     if !loaded {
+        // Refuse a context the ingestor is certain to fail on before the
+        // staging dir is created and before `collect` runs its external
+        // tool, so a deterministic failure does not pay that cost first.
+        if let Err(err) = ingestor.precheck(ctx) {
+            let label = format!("provide_via_ingestor({table_name}): ingestor precheck");
+            return Err(normalise_pipeline_errors(err, label));
+        }
         // An in-memory handle has no staging area; deriving the relative
         // `:memory:.ingest` from the sentinel would litter the process
         // working directory.
@@ -682,6 +689,54 @@ mod tests {
             !cwd.join(":memory:.ingest").exists(),
             "the pipeline created {}/:memory:.ingest",
             cwd.display()
+        );
+    }
+
+    /// A failing `precheck` stops the pipeline before `collect`: the
+    /// external tool never runs and the error names the phase and table.
+    #[test]
+    fn failing_precheck_skips_collect() {
+        use crate::DataIngestor;
+
+        struct RefusesUpFront;
+        impl DataIngestor for RefusesUpFront {
+            fn name(&self) -> &'static str {
+                "refuses"
+            }
+            fn precheck(&self, ctx: &ops_extension::Context) -> DbResult<()> {
+                crate::SidecarIngestorConfig::new("refuses", "refuses.json", "data_sources")
+                    .check_workspace(ctx.working_directory())
+            }
+            #[allow(clippy::panic_in_result_fn)]
+            fn collect(&self, _ctx: &ops_extension::Context, _dir: &IngestDir) -> DbResult<()> {
+                panic!("collect must not run once precheck refused")
+            }
+            #[allow(clippy::panic_in_result_fn)]
+            fn load(&self, _dir: &IngestDir, _db: &Sqlite) -> DbResult<crate::LoadResult> {
+                panic!("load must not run once precheck refused")
+            }
+        }
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let db_path = tmp.path().join("precheck.db");
+        let db = Sqlite::open(&db_path).expect("open db");
+        init_schema(&db).expect("init_schema");
+        let ctx = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::empty()),
+            PathBuf::from("/tmp/bad\npath"),
+        );
+
+        let err = provide_via_ingestor(&db, &ctx, "precheck_table", &RefusesUpFront, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect_err("precheck refusal must propagate");
+        let rendered = format!("{err:#}");
+        assert!(rendered.contains("ingestor precheck"), "phase label: {rendered}");
+        assert!(rendered.contains("precheck_table"), "table name: {rendered}");
+        assert!(rendered.contains("cannot be recorded in a sidecar"), "cause: {rendered}");
+        assert!(
+            !tmp.path().join("precheck.db.ingest").exists(),
+            "no staging dir may be created before precheck passes"
         );
     }
 

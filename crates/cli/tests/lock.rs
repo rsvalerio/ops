@@ -28,15 +28,16 @@ fn ops(dir: &Path) -> Command {
 }
 
 fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .args(args)
-        .status()
-        .expect("spawn git");
+    let status = ops_core::subprocess::status_locked(
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .args(args),
+    )
+    .expect("spawn git");
     assert!(status.success(), "git {args:?}");
 }
 
@@ -68,7 +69,8 @@ fn repo_with_worktree() -> (tempfile::TempDir, PathBuf, PathBuf) {
 }
 
 fn status(dir: &Path, name: &str) -> String {
-    let out = ops(dir).args(["lock", "status", name]).output().expect("status");
+    let out = ops_core::subprocess::output_locked(ops(dir).args(["lock", "status", name]))
+        .expect("status");
     assert!(out.status.success(), "status failed: {out:?}");
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
@@ -87,21 +89,27 @@ fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
 #[test]
 fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
     let (_dir, repo, wt) = repo_with_worktree();
-    let mut holder = ops(&repo)
-        .args(["lock", "merge", "--", "sleep", "30"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn holder");
+    let mut holder = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .expect("spawn holder");
     wait_until("the holder to take the lock", || status(&wt, "merge").contains("held (alive)"));
     let seen = status(&wt, "merge");
     assert!(seen.contains("sleep 30"), "command recorded: {seen}");
     assert!(seen.contains(repo.file_name().and_then(|n| n.to_str()).expect("name")));
 
-    let contended = ops(&wt)
-        .args(["lock", "merge", "--timeout", "0", "--", "true"])
-        .output()
-        .expect("contender");
+    let contended = ops_core::subprocess::output_locked(ops(&wt).args([
+        "lock",
+        "merge",
+        "--timeout",
+        "0",
+        "--",
+        "true",
+    ]))
+    .expect("contender");
     assert!(!contended.status.success(), "must not acquire a held lock");
 
     signal(&holder, libc::SIGTERM);
@@ -115,7 +123,10 @@ fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
 #[test]
 fn a_failing_command_releases_the_lock_and_propagates_its_code() {
     let (_dir, repo, _wt) = repo_with_worktree();
-    let out = ops(&repo).args(["lock", "merge", "--", "sh", "-c", "exit 7"]).output().expect("run");
+    let out = ops_core::subprocess::output_locked(
+        ops(&repo).args(["lock", "merge", "--", "sh", "-c", "exit 7"]),
+    )
+    .expect("run");
     assert_eq!(out.status.code(), Some(7));
     assert!(status(&repo, "merge").contains("merge: free"));
 }
@@ -126,22 +137,28 @@ fn a_failing_command_releases_the_lock_and_propagates_its_code() {
 #[test]
 fn a_killed_holder_is_reported_stale_and_does_not_block() {
     let (_dir, repo, _wt) = repo_with_worktree();
-    let mut holder = ops(&repo)
-        .args(["lock", "merge", "--", "sleep", "30"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn holder");
+    let mut holder = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .expect("spawn holder");
     wait_until("the holder to take the lock", || status(&repo, "merge").contains("held (alive)"));
     holder.kill().expect("SIGKILL");
     holder.wait().expect("reap");
     // The orphaned `sleep` does not inherit the lock (the fd is CLOEXEC).
     let seen = status(&repo, "merge");
     assert!(seen.contains("merge: stale"), "got: {seen}");
-    let out = ops(&repo)
-        .args(["lock", "merge", "--timeout", "0", "--", "true"])
-        .output()
-        .expect("reacquire");
+    let out = ops_core::subprocess::output_locked(ops(&repo).args([
+        "lock",
+        "merge",
+        "--timeout",
+        "0",
+        "--",
+        "true",
+    ]))
+    .expect("reacquire");
     assert!(out.status.success(), "stale record must not block: {out:?}");
 }
 
@@ -166,12 +183,13 @@ fn sigterm_right_after_the_lock_is_taken_still_releases_it() {
     let (_dir, repo, _wt) = repo_with_worktree();
     let record = repo.join(".git/ops/locks/merge.lock");
     for _ in 0..20 {
-        let mut holder = ops(&repo)
-            .args(["lock", "merge", "--", "sleep", "30"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn holder");
+        let mut holder = ops_core::subprocess::spawn_child_locked(
+            ops(&repo)
+                .args(["lock", "merge", "--", "sleep", "30"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        )
+        .expect("spawn holder");
         let deadline = Instant::now().checked_add(Duration::from_secs(20)).expect("deadline");
         while !std::fs::metadata(&record).is_ok_and(|m| m.len() > 0) {
             assert!(Instant::now() < deadline, "the holder never took the lock");
@@ -191,22 +209,24 @@ fn a_signal_while_waiting_ends_the_wait_without_running_the_command() {
     use std::io::BufRead as _;
 
     let (dir, repo, wt) = repo_with_worktree();
-    let mut holder = ops(&repo)
-        .args(["lock", "merge", "--", "sleep", "30"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn holder");
+    let mut holder = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .expect("spawn holder");
     wait_until("the holder to take the lock", || status(&wt, "merge").contains("held (alive)"));
 
     let marker = dir.path().join("ran");
-    let mut waiter = ops(&wt)
-        .args(["lock", "merge", "--", "touch"])
-        .arg(&marker)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn waiter");
+    let mut waiter = ops_core::subprocess::spawn_child_locked(
+        ops(&wt)
+            .args(["lock", "merge", "--", "touch"])
+            .arg(&marker)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn waiter");
     let mut notice = String::new();
     std::io::BufReader::new(waiter.stderr.take().expect("stderr"))
         .read_line(&mut notice)
@@ -308,7 +328,7 @@ while [ ! -e "$4" ]; do :; done"#;
         .stdout(Stdio::from(slave.try_clone().expect("dup slave")))
         .stderr(Stdio::from(slave));
     as_terminal_session(&mut cmd);
-    let mut holder = cmd.spawn().expect("spawn holder");
+    let mut holder = ops_core::subprocess::spawn_child_locked(&mut cmd).expect("spawn holder");
     drop(cmd);
     wait_until("the locked command to start", || ready.exists());
 
@@ -333,22 +353,24 @@ while [ ! -e "$4" ]; do :; done"#;
 #[test]
 fn backlog_commit_waits_for_the_merge_lock() {
     let (_dir, repo, wt) = repo_with_worktree();
-    let mut holder = ops(&repo)
-        .args(["lock", "code-review-merge", "--", "sleep", "30"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn holder");
+    let mut holder = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "code-review-merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .expect("spawn holder");
     wait_until("the holder to take the lock", || {
         status(&wt, "code-review-merge").contains("held (alive)")
     });
 
-    let mut commit = ops(&wt)
-        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn commit");
+    let mut commit = ops_core::subprocess::spawn_child_locked(
+        ops(&wt)
+            .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn commit");
     std::thread::sleep(Duration::from_millis(500));
     assert!(commit.try_wait().expect("poll").is_none(), "commit must wait for the merge lock");
 
@@ -364,13 +386,14 @@ fn backlog_commit_waits_for_the_merge_lock() {
 #[test]
 fn backlog_commit_inside_the_merge_lock_does_not_deadlock() {
     let (_dir, repo, _wt) = repo_with_worktree();
-    let mut nested = ops(&repo)
-        .args(["lock", "code-review-merge", "--", ops_bin().to_str().expect("utf8")])
-        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn nested");
+    let mut nested = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "code-review-merge", "--", ops_bin().to_str().expect("utf8")])
+            .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn nested");
     wait_until("the nested commit to finish", || nested.try_wait().expect("poll").is_some());
     let out = nested.wait_with_output().expect("nested exit");
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -388,13 +411,14 @@ fn backlog_commit_in_a_linked_worktree_inside_the_merge_lock_does_not_deadlock()
         "cd \"$1\" && exec {} backlog commit TASK-1 -m 'chore(backlog): x'",
         ops_bin().to_str().expect("utf8")
     );
-    let mut nested = ops(&repo)
-        .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
-        .arg(&wt)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn nested");
+    let mut nested = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
+            .arg(&wt)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn nested");
     wait_until("the nested commit to finish", || nested.try_wait().expect("poll").is_some());
     let out = nested.wait_with_output().expect("nested exit");
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -408,12 +432,13 @@ fn backlog_commit_in_a_linked_worktree_inside_the_merge_lock_does_not_deadlock()
 fn a_merge_lock_held_in_one_repository_does_not_cover_another() {
     let (_dir_a, repo_a, _wt_a) = repo_with_worktree();
     let (_dir_b, repo_b, wt_b) = repo_with_worktree();
-    let mut holder_b = ops(&repo_b)
-        .args(["lock", "code-review-merge", "--", "sleep", "30"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn holder");
+    let mut holder_b = ops_core::subprocess::spawn_child_locked(
+        ops(&repo_b)
+            .args(["lock", "code-review-merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .expect("spawn holder");
     wait_until("the holder to take repository B's lock", || {
         status(&wt_b, "code-review-merge").contains("held (alive)")
     });
@@ -422,13 +447,14 @@ fn a_merge_lock_held_in_one_repository_does_not_cover_another() {
         "cd \"$1\" && exec {} backlog commit TASK-1 -m 'chore(backlog): x'",
         ops_bin().to_str().expect("utf8")
     );
-    let mut nested = ops(&repo_a)
-        .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
-        .arg(&repo_b)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn nested");
+    let mut nested = ops_core::subprocess::spawn_child_locked(
+        ops(&repo_a)
+            .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
+            .arg(&repo_b)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn nested");
     std::thread::sleep(Duration::from_millis(500));
     assert!(
         nested.try_wait().expect("poll").is_none(),
@@ -449,31 +475,37 @@ fn a_merge_lock_held_in_one_repository_does_not_cover_another() {
 #[test]
 fn an_inherited_lock_does_not_cover_a_job_that_outlives_its_holder() {
     let (_dir, repo, wt) = repo_with_worktree();
-    let out = ops(&repo)
-        .args(["lock", "code-review-merge", "--", "printenv", "OPS_LOCKS_HELD"])
-        .output()
-        .expect("run first holder");
+    let out = ops_core::subprocess::output_locked(ops(&repo).args([
+        "lock",
+        "code-review-merge",
+        "--",
+        "printenv",
+        "OPS_LOCKS_HELD",
+    ]))
+    .expect("run first holder");
     assert!(out.status.success(), "first holder: {out:?}");
     let leaked = String::from_utf8(out.stdout).expect("utf8").trim_end().to_string();
     assert!(!leaked.is_empty(), "the locked command sees OPS_LOCKS_HELD");
 
-    let mut holder = ops(&repo)
-        .args(["lock", "code-review-merge", "--", "sleep", "30"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn second holder");
+    let mut holder = ops_core::subprocess::spawn_child_locked(
+        ops(&repo)
+            .args(["lock", "code-review-merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .expect("spawn second holder");
     wait_until("the second holder to take the lock", || {
         status(&wt, "code-review-merge").contains("held (alive)")
     });
 
-    let mut commit = ops(&wt)
-        .env("OPS_LOCKS_HELD", &leaked)
-        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn commit");
+    let mut commit = ops_core::subprocess::spawn_child_locked(
+        ops(&wt)
+            .env("OPS_LOCKS_HELD", &leaked)
+            .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn commit");
     std::thread::sleep(Duration::from_millis(500));
     assert!(
         commit.try_wait().expect("poll").is_none(),

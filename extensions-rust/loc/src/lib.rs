@@ -43,7 +43,7 @@ pub const DESCRIPTION: &str = "Rust line counts split into production, test, and
 pub const SHORTNAME: &str = "rust-loc";
 /// Registry key of the `rust-loc` data provider this crate registers —
 /// the key the about loc subpage looks the statistics up by.
-pub const DATA_PROVIDER_NAME: &str = "rust-loc";
+pub const DATA_PROVIDER_NAME: &str = ops_extension::provider_names::RUST_LOC;
 
 /// Datasource extension exposing per-region Rust line counts under the
 /// [`DATA_PROVIDER_NAME`] key.

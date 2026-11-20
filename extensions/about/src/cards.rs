@@ -177,9 +177,9 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 /// Render contract:
 ///
 /// The grid switches between 3, 2, and 1 cards per row at the
-/// [`CardLayoutConfig::MIN_WIDTH_3_CARDS`] and
-/// [`CardLayoutConfig::MIN_WIDTH_2_CARDS`] thresholds, but each card is
-/// always rendered at fixed [`CardLayoutConfig::CARD_WIDTH`] (32) columns —
+/// `CardLayoutConfig::MIN_WIDTH_3_CARDS` and
+/// `CardLayoutConfig::MIN_WIDTH_2_CARDS` thresholds, but each card is
+/// always rendered at fixed `CardLayoutConfig::CARD_WIDTH` (32) columns —
 /// the underlying [`render_card`] is width-agnostic.
 ///
 /// Minimum supported terminal width is therefore `CARD_WIDTH` + 2 (the leading

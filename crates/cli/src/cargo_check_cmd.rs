@@ -91,12 +91,10 @@ pub fn run_cargo_check(check: &CargoCheck, root: &Path, dry_run: bool) -> anyhow
     }
     writeln!(out, "{}", check.command_line())?;
     out.flush()?;
-    let status = Command::new(resolve_cargo_bin())
-        .arg(check.plugin)
-        .args(check.args)
-        .current_dir(root)
-        .status()
-        .with_context(|| format!("failed to spawn {}", check.command_line()))?;
+    let status = ops_core::subprocess::status_locked(
+        Command::new(resolve_cargo_bin()).arg(check.plugin).args(check.args).current_dir(root),
+    )
+    .with_context(|| format!("failed to spawn {}", check.command_line()))?;
     Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 

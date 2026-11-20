@@ -851,7 +851,7 @@ fn run_terraform_plan(
 
     plan_cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
 
-    let mut child = plan_cmd.spawn().map_err(|e| {
+    let mut child = ops_core::subprocess::spawn_child_locked(&mut plan_cmd).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             anyhow::anyhow!(
                 "`terraform` binary not found on PATH.\n\
@@ -971,7 +971,7 @@ fn plan_status_result(detailed_exitcode: bool, exit: ChildExit) -> anyhow::Resul
 fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<String> {
     let mut cmd = std::process::Command::new(&env.terraform_program);
     cmd.args(["show", "-json"]).arg(binary_path).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = ops_core::subprocess::spawn_locked(|| cmd.spawn())
+    let mut child = ops_core::subprocess::spawn_child_locked(&mut cmd)
         .context("failed to run `terraform show -json`")?;
 
     let mut stderr =
@@ -1493,12 +1493,13 @@ mod tests {
     fn write_stub(path: &std::path::Path, script: &str) {
         use std::io::Write as _;
 
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-            .arg(path)
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut child = ops_core::subprocess::spawn_child_locked(
+            std::process::Command::new("/bin/sh")
+                .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+                .arg(path)
+                .stdin(std::process::Stdio::piped()),
+        )
+        .unwrap();
         // Dropping stdin closes the pipe so `cat` sees EOF.
         child.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success(), "writing stub {path:?}");
@@ -1513,7 +1514,8 @@ mod tests {
         let stub = dir.path().join("stub");
         write_stub(&stub, "#!/bin/sh\necho \"$1\"\n");
         assert_eq!(std::fs::metadata(&stub).unwrap().permissions().mode() & 0o777, 0o755);
-        let out = std::process::Command::new(&stub).arg("hi").output().unwrap();
+        let out = ops_core::subprocess::output_locked(std::process::Command::new(&stub).arg("hi"))
+            .unwrap();
         assert_eq!(out.stdout, b"hi\n");
     }
 

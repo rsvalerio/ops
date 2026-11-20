@@ -1,10 +1,10 @@
 ---
 id: TASK-2870
 title: 'CL-3: sidecar ingestors run their expensive collect before the workspace path is checked for sidecar compatibility'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 21:47'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:21'
 labels:
   - code-review-rust
   - CL
@@ -32,5 +32,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A workspace path the sidecar format cannot carry is refused before any sidecar ingestor's collect runs its external tool
+- [x] #1 A workspace path the sidecar format cannot carry is refused before any sidecar ingestor's collect runs its external tool
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added DataIngestor::precheck (default Ok) run by provide_via_ingestor before the ingest dir is created and collect runs; SidecarIngestorConfig::check_workspace forwards to the sidecar path check. tokei, rust-loc and coverage ingestors override precheck. Tests: orchestrator failing_precheck_skips_collect, per-ingestor precheck refusal tests.
+<!-- SECTION:NOTES:END -->

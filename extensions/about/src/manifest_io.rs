@@ -14,7 +14,7 @@ use std::path::Path;
 /// Read a manifest's text content if it exists and stays inside `root`.
 ///
 /// The manifest path is canonicalized (which follows symlinks) and must sit
-/// under the canonicalized `root` — the same [`read_contained`] boundary the
+/// under the canonicalized `root` — the same `read_contained` boundary the
 /// workspace-member read in `ops_about::workspace` uses: a root manifest that is a symlink out of the
 /// workspace is skipped with a `tracing::warn!` rather than having its
 /// fields surfaced, while a symlink that stays inside the root is followed.
@@ -208,7 +208,9 @@ mod tests {
     fn fifo_returns_none_without_blocking() {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = dir.path().join("package.json");
-        let status = std::process::Command::new("mkfifo").arg(&p).status().expect("run mkfifo");
+        let status =
+            ops_core::subprocess::status_locked(std::process::Command::new("mkfifo").arg(&p))
+                .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let root = dir.path().to_path_buf();

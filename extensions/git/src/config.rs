@@ -1351,10 +1351,10 @@ mod tests {
             }
             match planted {
                 Planted::Fifo => {
-                    let status = std::process::Command::new("mkfifo")
-                        .arg(&path)
-                        .status()
-                        .expect("run mkfifo");
+                    let status = ops_core::subprocess::status_locked(
+                        std::process::Command::new("mkfifo").arg(&path),
+                    )
+                    .expect("run mkfifo");
                     assert!(status.success(), "mkfifo failed");
                 }
                 Planted::Symlink => {

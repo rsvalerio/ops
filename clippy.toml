@@ -20,3 +20,15 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
+
+# Spawns go through `ops_core::subprocess::spawn_locked`, so a spawn on one
+# thread cannot inherit another thread's capture pipe before `FD_CLOEXEC` is
+# set on targets without `pipe2`. See crates/core/src/subprocess/spawn.rs.
+disallowed-methods = [
+  { path = "std::process::Command::spawn", reason = "spawn under ops_core::subprocess::spawn_locked" },
+  { path = "std::process::Command::output", reason = "use ops_core::subprocess::output_locked" },
+  { path = "std::process::Command::status", reason = "spawn under ops_core::subprocess::spawn_locked" },
+  { path = "tokio::process::Command::spawn", reason = "spawn under ops_core::subprocess::spawn_locked" },
+  { path = "tokio::process::Command::output", reason = "spawn under ops_core::subprocess::spawn_locked" },
+  { path = "tokio::process::Command::status", reason = "spawn under ops_core::subprocess::spawn_locked" },
+]

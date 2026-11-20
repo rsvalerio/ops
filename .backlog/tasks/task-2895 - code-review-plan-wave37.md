@@ -1,10 +1,10 @@
 ---
 id: TASK-2895
 title: 'code-review-plan-wave37'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-20 13:26'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:38'
 labels:
   - code-review-wave
 dependencies:
@@ -36,4 +36,8 @@ Subprocess spawn: keep unlocked spawns from overlapping captured spawns on non-p
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2895
+Worktree: /home/rsvalerio/projects/.wave-TASK-2895
+
 <!-- SECTION:NOTES:END -->

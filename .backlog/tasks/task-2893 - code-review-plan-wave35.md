@@ -1,10 +1,10 @@
 ---
 id: TASK-2893
 title: 'code-review-plan-wave35'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-20 13:26'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:24'
 labels:
   - code-review-wave
 dependencies:
@@ -38,4 +38,8 @@ sqlite sidecar ingestors: refuse an unrepresentable workspace path before runnin
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2893
+Worktree: /home/rsvalerio/projects/.wave-TASK-2893
+
 <!-- SECTION:NOTES:END -->

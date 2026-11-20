@@ -323,14 +323,15 @@ mod tests {
     #[test]
     fn sqlite_open_takes_a_file_prefix_literally() {
         let cwd = tempfile::tempdir().expect("tempdir");
-        let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
-            .args(["--exact", "connection::tests::open_file_prefixed_path_in_cwd"])
-            .args(["--ignored", "--quiet"])
-            .env(FILE_PREFIX_CHILD_ENV, "1")
-            .current_dir(cwd.path())
-            .stdout(std::process::Stdio::null())
-            .status()
-            .expect("re-run the test binary");
+        let status = ops_core::subprocess::status_locked(
+            std::process::Command::new(std::env::current_exe().expect("test binary"))
+                .args(["--exact", "connection::tests::open_file_prefixed_path_in_cwd"])
+                .args(["--ignored", "--quiet"])
+                .env(FILE_PREFIX_CHILD_ENV, "1")
+                .current_dir(cwd.path())
+                .stdout(std::process::Stdio::null()),
+        )
+        .expect("re-run the test binary");
         assert!(status.success(), "child open failed: {status}");
         assert!(
             cwd.path().join(FILE_PREFIX_NAME).is_file(),

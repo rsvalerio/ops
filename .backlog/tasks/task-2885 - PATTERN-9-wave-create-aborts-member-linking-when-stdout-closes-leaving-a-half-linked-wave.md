@@ -1,10 +1,10 @@
 ---
 id: TASK-2885
 title: 'PATTERN-9: wave create aborts member linking when stdout closes, leaving a half-linked wave'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-19 07:57'
-updated_date: '2026-11-20 13:26'
+updated_date: '2026-11-20 18:11'
 labels:
   - code-review-rust
   - error-handling
@@ -30,6 +30,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 all member rewrites complete before any progress output, or an output failure no longer stops the remaining rewrites; the output error is still returned
-- [ ] #2 a test with a writer that fails after the first line asserts every member got its parent_task_id and status
+- [x] #1 all member rewrites complete before any progress output, or an output failure no longer stops the remaining rewrites; the output error is still returned
+- [x] #2 a test with a writer that fails after the first line asserts every member got its parent_task_id and status
+
 <!-- AC:END -->

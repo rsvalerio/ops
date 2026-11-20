@@ -82,6 +82,22 @@ impl SidecarIngestorConfig {
         }
     }
 
+    /// Refuse a workspace path the sidecar format cannot carry.
+    ///
+    /// [`Self::collect_sidecar`] applies the same check when it writes the
+    /// sidecar, but only after the ingestor's external tool has run. Call
+    /// this from [`DataIngestor::precheck`] so a deterministic refusal
+    /// happens before that cost is paid, on every run.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] with [`std::io::ErrorKind::InvalidInput`] if
+    /// `working_directory` holds an ASCII control byte or (off Unix) is not
+    /// valid UTF-8.
+    pub fn check_workspace(&self, working_directory: &Path) -> DbResult<()> {
+        crate::sql::check_workspace_path(working_directory)
+    }
+
     /// Write serializable data to JSON and create workspace sidecar.
     ///
     /// Both files are staged through the verified [`IngestDir`] anchor with
@@ -382,6 +398,23 @@ pub trait DataIngestor: Send + Sync {
     /// Used as the primary key in the `data_sources` tracking table.
     fn name(&self) -> &'static str;
 
+    /// Cheap pre-flight check, run before [`Self::collect`].
+    ///
+    /// The orchestrator calls this before it creates the ingest directory or
+    /// runs `collect`, so a failure that is certain to recur (an input the
+    /// staged format cannot represent) is reported without paying for the
+    /// external tool run. It must not run external commands or stage files.
+    /// The default accepts everything; sidecar ingestors forward to
+    /// [`SidecarIngestorConfig::check_workspace`].
+    ///
+    /// # Errors
+    ///
+    /// If `collect` is certain to fail for this context.
+    fn precheck(&self, ctx: &Context) -> DbResult<()> {
+        let _ = ctx;
+        Ok(())
+    }
+
     /// Collect raw data (run external commands, produce JSON files).
     ///
     /// This method runs the external tool (e.g., `cargo metadata`) and stages
@@ -510,6 +543,32 @@ mod tests {
         let dir = anchor(&temp_dir);
         ingestor.collect(&ctx, &dir).expect("collect should succeed");
         assert!(dir.entry_path("data.json").exists());
+    }
+
+    /// `check_workspace` refuses exactly the paths `collect_sidecar` would
+    /// refuse when writing the sidecar, and accepts an ordinary path.
+    #[test]
+    fn check_workspace_refuses_control_byte_path() {
+        let cfg = SidecarIngestorConfig::new("precheck", "data.json", "data_sources");
+        cfg.check_workspace(Path::new("/some/workspace")).expect("ordinary path accepted");
+        let err = cfg
+            .check_workspace(Path::new("/some/work\nspace"))
+            .expect_err("a control byte cannot be carried by the sidecar");
+        match err {
+            DbError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
+    }
+
+    /// The default `precheck` accepts any context.
+    #[test]
+    fn default_precheck_accepts() {
+        let ingestor = MockIngestor { name: "test" };
+        let ctx = Context::new(
+            std::sync::Arc::new(ops_core::config::Config::empty()),
+            std::path::PathBuf::from("/some/work\nspace"),
+        );
+        ingestor.precheck(&ctx).expect("default precheck accepts");
     }
 
     /// a successful `collect_sidecar` must leave no

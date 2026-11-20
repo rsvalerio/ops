@@ -55,7 +55,7 @@ pub const DESCRIPTION: &str = "LLVM code coverage provider (per-file line, funct
 pub const SHORTNAME: &str = "cov";
 /// Registry key of the `coverage` data provider this crate registers — the
 /// key the about coverage subpage looks the per-unit coverage table up by.
-pub const DATA_PROVIDER_NAME: &str = "coverage";
+pub const DATA_PROVIDER_NAME: &str = ops_extension::provider_names::COVERAGE;
 
 /// Lines of stderr retained when a `cargo llvm-cov` invocation exits
 /// non-zero — both the hard-fail bail in `subprocess::check_llvm_cov_output`

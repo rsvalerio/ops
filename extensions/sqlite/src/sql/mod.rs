@@ -124,6 +124,7 @@ pub fn relativize_path(path: &std::path::Path, workspace_root: &std::path::Path)
     path.strip_prefix(workspace_root).unwrap_or(path).to_string_lossy().into_owned()
 }
 
+pub(crate) use ingest::check_workspace_path;
 pub use ingest::{
     data_dir_for_db, default_db_path, execute_json_load, external_err, in_transaction,
     load_json_string, provide_via_ingestor, query_rows_to_json, read_workspace_sidecar,

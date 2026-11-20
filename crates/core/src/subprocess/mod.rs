@@ -14,7 +14,7 @@
 //!
 //! - [`cap`] — env-knob parsers for the timeout and per-stream byte cap.
 //! - [`drain`] — bounded pipe-drain primitives and the post-timeout reaper.
-//! - [`spawn`] — the process-wide spawn lock every pipe-creating spawn takes.
+//! - [`spawn`] — the process-wide spawn lock every spawn takes.
 //! - this `mod.rs` — error types, the public `run_with_timeout` and
 //!   `run_cargo` shells, and the cargo/rustup binary resolvers.
 //!
@@ -62,7 +62,7 @@ pub use cap::{
     TIMEOUT_ENV,
 };
 
-pub use spawn::{output_locked, spawn_locked};
+pub use spawn::{output_locked, spawn_child_locked, spawn_locked, status_locked};
 
 use cap::output_byte_cap;
 use drain::{
@@ -247,7 +247,7 @@ fn run_with_timeout_inner(
 ) -> Result<Output, RunError> {
     let deadline = instant_after(timeout);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
-    let mut child = spawn_locked(|| cmd.spawn()).map_err(|e| {
+    let mut child = spawn_child_locked(cmd).map_err(|e| {
         // Name the failing operation and program in
         // the rendered error so a missing binary surfaces as
         // "cargo metadata: failed to spawn cargo: …" instead of a bare

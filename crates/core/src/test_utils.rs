@@ -724,24 +724,24 @@ pub fn git_fixture_os(
     // Diagnostic text only — `to_string_lossy` is fine for a panic message.
     let rendered = args.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ");
     let cmd = format!("git -C {} {}", dir.display(), rendered);
-    match Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        // A GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE leaking in from the
-        // outer environment (a test that exported one, or a developer's
-        // shell) redirects the fixture's repository discovery away from
-        // `dir` — `git -C` sets the CWD but env vars win over discovery —
-        // so the fixture reads or mutates some other repo and the test
-        // asserts against a fixture that was never written. Scrub all
-        // three; `-C dir` is the only repository locator that remains.
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .args(args)
-        .output()
-    {
+    match crate::subprocess::output_locked(
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            // A GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE leaking in from the
+            // outer environment (a test that exported one, or a developer's
+            // shell) redirects the fixture's repository discovery away from
+            // `dir` — `git -C` sets the CWD but env vars win over discovery —
+            // so the fixture reads or mutates some other repo and the test
+            // asserts against a fixture that was never written. Scrub all
+            // three; `-C dir` is the only repository locator that remains.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .args(args),
+    ) {
         Ok(output) if output.status.success() => Ok(()),
         Ok(output) => Err(GitFixtureError::CommandFailed {
             cmd,

@@ -6,7 +6,7 @@
 use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::{ProjectUnit, UnitTarget};
-use ops_extension::provider_names::CARGO_METADATA;
+use ops_extension::provider_names::{CARGO_METADATA, SQLITE, TOKEI};
 use ops_extension::{Context, DataRegistry};
 
 use crate::cards::{layout_cards_in_grid_with_width, render_card};
@@ -62,7 +62,7 @@ pub fn run_about_units_with(
 
     // Warm sqlite + tokei so the stack provider can enrich Rust-specific
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
-    warm_providers(&mut ctx, data_registry, &["sqlite", "tokei"], "units");
+    warm_providers(&mut ctx, data_registry, &[SQLITE, TOKEI], "units");
 
     // "This stack was never wired up" and "the stack's provider ran and
     // found nothing" are different facts; `load_or_default` collapses them

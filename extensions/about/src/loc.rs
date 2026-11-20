@@ -14,6 +14,7 @@ use std::io::Write;
 use ops_core::project_identity::region_display;
 use ops_core::table::{Cell, OpsTable};
 use ops_core::text::{capitalize, format_number};
+use ops_extension::provider_names::{RUST_LOC, SQLITE};
 use ops_extension::{Context, DataRegistry};
 use ops_sqlite::sql::RustLocStat;
 
@@ -44,7 +45,7 @@ pub fn query_rust_loc_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,
 ) -> Option<RustLocPage> {
-    warm_providers(ctx, data_registry, &["sqlite", "rust-loc"], "loc");
+    warm_providers(ctx, data_registry, &[SQLITE, RUST_LOC], "loc");
 
     let db = ops_sqlite::get_db(ctx)?;
     let regions = match ops_sqlite::sql::query_rust_loc_summary(db) {
@@ -368,7 +369,7 @@ pub fn run_about_loc_json_with(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("loc")?;
-    warm_providers(&mut ctx, data_registry, &["sqlite", "rust-loc"], "loc");
+    warm_providers(&mut ctx, data_registry, &[SQLITE, RUST_LOC], "loc");
     let rows = ops_sqlite::get_db(&ctx).map_or_else(Vec::new, |db| {
         ops_sqlite::sql::query_rust_loc_files(db).unwrap_or_else(|e| {
             tracing::warn!(error = ?e, "about/loc: query_rust_loc_files failed");

@@ -120,7 +120,7 @@ pub const SHORTNAME: &str = "cargo";
 /// Note the underscore spelling, unlike the hyphenated [`NAME`]: consumers
 /// such as ops-about-rust's manifest cache look the provider up by exactly
 /// this key.
-pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
+pub const DATA_PROVIDER_NAME: &str = ops_extension::provider_names::CARGO_TOML;
 
 /// Extension that provides Cargo.toml parsing capabilities.
 ///

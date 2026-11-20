@@ -339,8 +339,10 @@ mod tests {
         let script_path = dir.path().join("pre-probe");
         std::fs::write(&script_path, probe_script!()).unwrap();
 
-        let parse =
-            std::process::Command::new("/bin/sh").arg("-n").arg(&script_path).status().unwrap();
+        let parse = ops_core::subprocess::status_locked(
+            std::process::Command::new("/bin/sh").arg("-n").arg(&script_path),
+        )
+        .unwrap();
         assert!(parse.success(), "prologue must parse under `sh -n`");
 
         // PATH deliberately excludes the ambient one so a developer's own
@@ -357,7 +359,7 @@ mod tests {
             for (k, v) in envs {
                 cmd.env(k, v);
             }
-            cmd.output().unwrap()
+            ops_core::subprocess::output_locked(&mut cmd).unwrap()
         };
 
         for value in ["1", "true", "TRUE", "Yes", "on"] {
