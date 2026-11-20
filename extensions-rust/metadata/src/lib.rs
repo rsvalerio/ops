@@ -38,7 +38,12 @@ use std::time::Duration;
 const NAME: &str = "metadata";
 const DESCRIPTION: &str = "Cargo metadata provider (workspace info, dependencies)";
 const SHORTNAME: &str = "meta";
-const DATA_PROVIDER_NAME: &str = "metadata";
+/// Registry and context-cache key of the `cargo metadata` data provider.
+///
+/// Public so consumers reading the warmed document (`ctx.cached(..)`) key on
+/// the producer's own constant: a cache miss is the documented "not warmed"
+/// fallback, so a drifted literal would compile and silently read nothing.
+pub const DATA_PROVIDER_NAME: &str = "metadata";
 
 /// Default timeout for `cargo metadata`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
@@ -233,7 +238,7 @@ const STDERR_TAIL_LINES: usize = 5;
 ///
 /// The error string carries the numeric exit code (or `signal` when there is
 /// none) so a SIGKILL/OOM kill is distinguishable from a real cargo failure.
-/// Mirrors `interpret_deny_result` / `interpret_upgrade_output` in the deps
+/// Mirrors `interpret_deny_output` / `interpret_upgrade_output` in the deps
 /// crate.
 pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {

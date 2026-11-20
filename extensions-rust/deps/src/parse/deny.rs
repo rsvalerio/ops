@@ -53,7 +53,7 @@ fn is_unused_license_config(code: &str) -> bool {
 
 /// Run `cargo deny check` and parse the JSON output.
 ///
-/// See [`interpret_deny_result`] for how the exit code is read.
+/// See [`interpret_deny_output`] for how the exit code is read.
 ///
 /// # Errors
 ///
@@ -68,8 +68,7 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
     )
     .map_err(|e| anyhow::anyhow!("failed to run cargo deny: {e}"))?;
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    interpret_deny_result(output.status.code(), &stderr)
+    interpret_deny_output(output.status.code(), &output.stdout, &output.stderr)
 }
 
 /// Every bit `cargo deny check` can set in a failing exit code: advisories
@@ -82,8 +81,14 @@ const fn is_check_failure(code: i32) -> bool {
     code > 0 && code & !CHECK_FAILURE_MASK == 0
 }
 
-/// Map a cargo-deny `(exit_code, stderr)` pair to either a parsed
-/// `DenyResult` or a hard error.
+/// Map an already-collected cargo-deny `(exit code, stdout, stderr)` triple
+/// to either a parsed `DenyResult` or a hard error.
+///
+/// Shaped like its siblings `interpret_upgrade_output` and
+/// `interpret_machete_output`, including the lossy UTF-8 decode happening
+/// here rather than in the caller. `cargo deny --format json` writes its
+/// whole diagnostic stream to stderr, so `stdout` carries nothing this
+/// parser reads; it is taken for signature parity only.
 ///
 /// `cargo deny check` exits `0` when no check failed, and otherwise with a
 /// bitset of the checks that did ([`CHECK_FAILURE_MASK`]). Two failures that
@@ -97,7 +102,13 @@ const fn is_check_failure(code: i32) -> bool {
 /// If `cargo deny` reported a failure without a decodable finding (a
 /// configuration or usage error, or a crash before any diagnostic), was
 /// killed by a signal, or exited with a status outside the check bitset.
-pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
+pub fn interpret_deny_output(
+    exit_code: Option<i32>,
+    _stdout: &[u8],
+    stderr: &[u8],
+) -> anyhow::Result<DenyResult> {
+    let stderr = String::from_utf8_lossy(stderr);
+    let stderr = stderr.as_ref();
     match exit_code {
         Some(0) => interpret_passing_run(stderr),
         Some(code) if is_check_failure(code) => interpret_failing_run(code, stderr),
@@ -489,7 +500,12 @@ fn label_subject(diag: &DecodedDiagnostic) -> Option<String> {
 /// Drops undecodable lines one at a time. Callers that need to know *how
 /// many* were dropped — the difference between "clean" and "a whole
 /// diagnostic class stopped decoding" — must go through
-/// [`interpret_deny_result`], which applies `check_partial_decode_loss`.
+/// [`interpret_deny_output`], which applies `check_partial_decode_loss`.
+///
+/// **Not a drift-safe entry point**, so it is `#[cfg(test)]`-only, like
+/// `parse_upgrade_table`: production code reaches the parse through
+/// [`interpret_deny_output`].
+#[cfg(test)]
 pub fn parse_deny_output(stderr: &str) -> DenyResult {
     parse_deny_output_inner(stderr).0
 }

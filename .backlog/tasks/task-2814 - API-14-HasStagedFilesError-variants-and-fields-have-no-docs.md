@@ -1,10 +1,10 @@
 ---
 id: TASK-2814
 title: 'API-14: HasStagedFilesError variants and fields have no docs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - API
@@ -29,9 +29,10 @@ dedup_key: 'API-14:extensions/hook-common/src/git_state.rs:HasStagedFilesError'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each HasStagedFilesError variant has a doc comment stating when has_staged_files_with_timeout returns it
-- [ ] #2 Each public field is documented, including exit_code being None on signal termination and stderr being trimmed lossy UTF-8
-- [ ] #3 The Io variant's message or doc accurately describes the failing operation (waiting on the child)
+- [x] #1 Each HasStagedFilesError variant has a doc comment stating when has_staged_files_with_timeout returns it
+- [x] #2 Each public field is documented, including exit_code being None on signal termination and stderr being trimmed lossy UTF-8
+- [x] #3 The Io variant's message or doc accurately describes the failing operation (waiting on the child)
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2770
 title: 'API-23: render_resource_table takes two adjacent bool parameters'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:43'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:55'
 labels:
   - code-review-rust
   - API
@@ -30,8 +30,9 @@ dedup_key: 'API-23:extensions-terraform/plan/src/render.rs:render_resource_table
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 render_resource_table's TTY and colour knobs are distinct enum types (or one options struct), so swapping them does not compile
-- [ ] #2 render_summary_table, render_outputs_table and run_plan_pipeline_to_with_tty use the same types for their colour / TTY parameter
+- [x] #1 render_resource_table's TTY and colour knobs are distinct enum types (or one options struct), so swapping them does not compile
+- [x] #2 render_summary_table, render_outputs_table and run_plan_pipeline_to_with_tty use the same types for their colour / TTY parameter
+
 <!-- AC:END -->
 
 ## Implementation Notes

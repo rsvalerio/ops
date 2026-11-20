@@ -11,7 +11,12 @@
 //! than stripping the offending part, because a partially rewritten URL is
 //! still a link someone will follow. The rejections are: any control byte in
 //! the body, a scheme outside the `http(s)` allowlist, userinfo in the
-//! authority, a hostless SSH body, and `..` path traversal.
+//! authority, and a hostless SSH body.
+//!
+//! Path traversal is stripped, not rejected: on every branch, `.` and `..`
+//! path segments are removed while the authority is kept verbatim, so
+//! `https://host/o/../../x` renders as `https://host/o/x`. The host cannot
+//! change, so the scrubbed link still points at the declared host.
 
 // The control-character predicate and the scheme allowlist are shared with
 // the Python provider through `ops_about::text_util`, so the sanitisation
@@ -127,7 +132,23 @@ fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
     }
     // Clean-URL fall-through: borrow the trimmed slice so a well-formed
     // `https://github.com/owner/repo` (no `.git` suffix) needs no allocation.
-    Cow::Borrowed(s.trim_end_matches(".git"))
+    // A path carrying `.` or `..` segments is scrubbed like every other
+    // branch.
+    let trimmed = s.trim_end_matches(".git");
+    if has_dot_segment(trimmed) {
+        return Cow::Owned(scrub_full_url_path(trimmed));
+    }
+    Cow::Borrowed(trimmed)
+}
+
+/// Whether the path of a `[<scheme>://]<authority>/<path>` value carries a
+/// `.` or `..` segment (either separator), which [`scrub_path_segments`]
+/// would remove. A query or fragment is not part of the path.
+fn has_dot_segment(url: &str) -> bool {
+    let (url, _) = split_query_fragment(url);
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    rest.split_once('/')
+        .is_some_and(|(_, path)| path.split(['/', '\\']).any(|seg| seg == "." || seg == ".."))
 }
 
 /// Recognise the bare `owner/repo` npm shorthand that npm itself accepts in
@@ -164,6 +185,9 @@ fn is_bare_github_shorthand(s: &str) -> bool {
 /// merely begins with a digit by requiring **all** characters before the next
 /// `/` to be digits: `host:42/foo` is a port, `host:42-archive/x` is a path.
 ///
+/// `.` and `..` path segments are scrubbed, as on every other
+/// [`normalize_repo_url`] branch; the host is kept verbatim.
+///
 /// A hostless input (`ssh:///path`, `ssh://git@/path`, or scp-form `git@:foo`
 /// with an empty host segment) returns an empty `String`, so the caller drops
 /// the field rather than rendering a syntactically broken `https:///<path>`
@@ -183,7 +207,7 @@ pub fn ssh_to_https(rest: &str) -> String {
         }
         _ => trimmed.to_string(),
     };
-    format!("https://{body}")
+    format!("https://{}", scrub_authority_and_path(&body))
 }
 
 /// Append `/tree/HEAD/<directory>` to a base repository URL so monorepo
@@ -247,13 +271,21 @@ fn scrub_authority_and_path(authority_and_path: &str) -> String {
 /// The `git+<scheme>://` branch of [`normalize_repo_url`] keeps the scheme
 /// intact, so only the path portion is scrubbed: scrubbing `scheme://` too
 /// would collapse `https://` to `https:/`, the empty segment between the two
-/// slashes being filtered like any other.
+/// slashes being filtered like any other. A query or fragment is not part of
+/// the path, so it is kept verbatim.
 fn scrub_full_url_path(url: &str) -> String {
+    let (url, query_fragment) = split_query_fragment(url);
     if let Some((scheme, rest)) = url.split_once("://") {
-        format!("{scheme}://{}", scrub_authority_and_path(rest))
+        format!("{scheme}://{}{query_fragment}", scrub_authority_and_path(rest))
     } else {
-        scrub_authority_and_path(url)
+        format!("{}{query_fragment}", scrub_authority_and_path(url))
     }
+}
+
+/// Split `url` before its first `?` or `#`, returning the scheme, authority
+/// and path, then the query and fragment (empty when there is neither).
+fn split_query_fragment(url: &str) -> (&str, &str) {
+    url.find(['?', '#']).and_then(|i| url.split_at_checked(i)).unwrap_or((url, ""))
 }
 
 pub fn is_numeric_port_prefix(path: &str) -> bool {
@@ -279,6 +311,43 @@ mod tests {
         let out2 = normalize_repo_url(with_git);
         assert!(matches!(out2, std::borrow::Cow::Borrowed(_)));
         assert_eq!(out2, "https://github.com/owner/repo");
+    }
+
+    /// The clean `https://` fall-through scrubs traversal segments like the
+    /// `git+https://` branch does, keeping the host.
+    #[test]
+    fn normalize_https_traversal_is_scrubbed() {
+        assert_eq!(normalize_repo_url("https://host/o/../../x"), "https://host/o/x");
+        assert_eq!(
+            normalize_repo_url("https://host/o/../../x"),
+            normalize_repo_url("git+https://host/o/../../x")
+        );
+    }
+
+    /// A query or fragment is not path: dot segments in it are kept
+    /// verbatim, while those in the path before it are still scrubbed.
+    #[test]
+    fn normalize_keeps_query_and_fragment_verbatim() {
+        let raw = "https://host/repo?path=../../src";
+        let out = normalize_repo_url(raw);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(out, raw);
+        assert_eq!(normalize_repo_url("https://host/repo#../../x"), "https://host/repo#../../x");
+        assert_eq!(
+            normalize_repo_url("https://host/o/../r?path=../../src#../a"),
+            "https://host/o/r?path=../../src#../a"
+        );
+        assert_eq!(
+            normalize_repo_url("git+https://host/o/./r?path=../src"),
+            "https://host/o/r?path=../src"
+        );
+    }
+
+    /// The `ssh://` branch scrubs traversal segments after the rewrite.
+    #[test]
+    fn normalize_ssh_traversal_is_scrubbed() {
+        assert_eq!(normalize_repo_url("ssh://git@host/o/../../x"), "https://host/o/x");
+        assert_eq!(normalize_repo_url("ssh://git@host:../../x"), "https://host/x");
     }
 
     #[test]

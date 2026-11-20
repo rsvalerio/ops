@@ -1,10 +1,10 @@
 ---
 id: TASK-2748
 title: 'API-2: Waiver prefix match treats ''.'' in file names as a segment boundary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:40'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:45'
 labels:
   - code-review-rust
   - api
@@ -37,13 +37,17 @@ The existing test `waiver_prefix_matching_respects_segment_boundaries` only chec
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A waiver matches only when its file part equals the location's file exactly, and its key part is a whole-segment prefix of the location's key path
-- [ ] #2 Waivers `Cargo`, `deny` and the empty string cover nothing, and tests assert this
-- [ ] #3 A nested workspace directory name containing '.' cannot be covered by a waiver for a shorter directory name, and a test covers it
+- [x] #1 A waiver matches only when its file part equals the location's file exactly, and its key part is a whole-segment prefix of the location's key path
+- [x] #2 Waivers `Cargo`, `deny` and the empty string cover nothing, and tests assert this
+- [x] #3 A nested workspace directory name containing '.' cannot be covered by a waiver for a shorter directory name, and a test covers it
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.16 (code-review-rust run, 2026-11-18).
+
+Waiver matching now splits waiver and location into file and key parts: the file part must match exactly, the key part is a whole-segment prefix. Key segments holding a '.' (nested workspace dirs, TOML keys) are rendered double-quoted, so 'tools.x' is one segment. Tests: a_file_name_dot_is_not_a_waiver_boundary, a_dotted_workspace_dir_is_one_segment. docs/foundation.md updated.
+
 <!-- SECTION:NOTES:END -->

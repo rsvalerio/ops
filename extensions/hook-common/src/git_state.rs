@@ -12,23 +12,65 @@ use std::time::Duration;
 /// --cached` exits.
 const STDERR_DRAIN_GRACE: Duration = Duration::from_millis(500);
 
+/// Most bytes of the child's stderr the drain keeps.
+///
+/// Only the opening lines of git's stderr are useful in a diagnostic, and
+/// the buffer is rendered verbatim into the hook's error output, so a chatty
+/// wrapper (or an orphaned grandchild holding the pipe) must not be able to
+/// grow it without limit. Bytes past the cap are read and discarded.
+pub const MAX_STDERR_BYTES: u64 = 64 * 1024;
+
+/// Marker appended to the captured stderr when the child wrote more than
+/// [`MAX_STDERR_BYTES`].
+pub const STDERR_TRUNCATED_MARKER: &str = "[stderr truncated]";
+
 /// Typed failure for [`has_staged_files_with_timeout`].
+///
+/// Callers branch on the variant to decide whether a hook fails or skips,
+/// so each variant documents exactly when it is returned.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HasStagedFilesError {
+    /// The probe process could not be started at all: `program` is missing,
+    /// not executable, or the spawn itself failed.
     #[error("failed to run `{program} diff --cached`")]
     Spawn {
+        /// The program the probe tried to run, as the caller passed it.
         program: String,
+        /// The error the spawn returned.
         #[source]
         source: std::io::Error,
     },
+    /// The probe started but did not exit within `timeout`; it has been
+    /// killed and reaped.
     #[error("`{program} diff --cached` timed out after {timeout:?}")]
-    Timeout { program: String, timeout: Duration },
-    #[error("`{program} diff --cached` failed (exit {exit_code:?}): {stderr}")]
-    NonZeroExit { program: String, exit_code: Option<i32>, stderr: String },
-    #[error("failed to read output from `{program} diff --cached`")]
-    Io {
+    Timeout {
+        /// The program the probe ran.
         program: String,
+        /// The bounded wait that elapsed.
+        timeout: Duration,
+    },
+    /// The probe exited with a status other than 0 ("nothing staged") or 1
+    /// ("staged changes"), such as git's 128 outside a repository.
+    #[error("`{program} diff --cached` failed (exit {exit_code:?}): {stderr}")]
+    NonZeroExit {
+        /// The program the probe ran.
+        program: String,
+        /// The exit code, or `None` when the child was terminated by a
+        /// signal and has no exit code.
+        exit_code: Option<i32>,
+        /// The child's stderr, decoded as lossy UTF-8 and trimmed. At most
+        /// [`MAX_STDERR_BYTES`] of it are kept; longer output ends with
+        /// [`STDERR_TRUNCATED_MARKER`]. Empty when the child wrote nothing
+        /// within the drain grace period.
+        stderr: String,
+    },
+    /// Waiting on the started probe failed, so its exit status is unknown.
+    #[error("failed to wait for `{program} diff --cached`")]
+    Io {
+        /// The program the probe ran.
+        program: String,
+        /// The error the wait returned.
         #[source]
         source: std::io::Error,
     },
@@ -133,11 +175,14 @@ pub fn read_stderr_bounded(
 /// the thread, its accumulating `Vec<u8>`, and the pipe FD remain pinned
 /// for the lifetime of the longest-lived pipe holder.
 ///
+/// The buffer itself is capped at [`MAX_STDERR_BYTES`]; the thread reads and
+/// discards anything past it.
+///
 /// In a one-shot CLI invocation the cost is bounded by process exit, so
 /// pre-commit and friends accept it. **Do not call this from a long-lived
 /// host (LSP-style daemon, `ops watch` mode, persistent runner): every
 /// hung subprocess pins one drain thread plus one pipe FD plus one
-/// unbounded buffer for the host's lifetime.** A future daemon caller
+/// capped buffer for the host's lifetime.** A future daemon caller
 /// must either close the pipe read end on `wait_timeout` return or move
 /// to a non-blocking drain that observes the parent's cancellation.
 ///
@@ -200,20 +245,35 @@ fn spawn_diff_cached(
 /// sender in the impossible arm keeps `read_stderr_bounded` from waiting
 /// out its full grace period instead of panicking.
 fn spawn_stderr_drain(child: &mut std::process::Child) -> Receiver<Vec<u8>> {
-    use std::io::Read;
-
     let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
     match child.stderr.take() {
-        Some(mut stderr_pipe) => {
+        Some(stderr_pipe) => {
             std::thread::spawn(move || {
-                let mut buf = Vec::new();
-                let _ = stderr_pipe.read_to_end(&mut buf);
-                let _ = stderr_tx.send(buf);
+                let _ = stderr_tx.send(drain_capped(stderr_pipe, MAX_STDERR_BYTES));
             });
         }
         None => drop(stderr_tx),
     }
     stderr_rx
+}
+
+/// Read `reader` to EOF, keeping at most `cap` bytes and discarding the rest.
+///
+/// Draining to EOF (rather than stopping at the cap) keeps the child from
+/// blocking on a full pipe. When anything was discarded the kept bytes end
+/// with [`STDERR_TRUNCATED_MARKER`] on its own line. Read errors end the
+/// drain with whatever was kept, as the uncapped drain did.
+fn drain_capped(mut reader: impl std::io::Read, cap: u64) -> Vec<u8> {
+    use std::io::Read as _;
+
+    let mut buf = Vec::new();
+    let _ = (&mut reader).take(cap).read_to_end(&mut buf);
+    let discarded = std::io::copy(&mut reader, &mut std::io::sink()).unwrap_or(0);
+    if discarded > 0 {
+        buf.push(b'\n');
+        buf.extend_from_slice(STDERR_TRUNCATED_MARKER.as_bytes());
+    }
+    buf
 }
 
 /// Wait for the child with a hard deadline, killing it on timeout.
@@ -264,6 +324,25 @@ fn classify_diff_exit(
 mod tests {
     use super::*;
     use crate::test_helpers::EnvGuard;
+
+    #[test]
+    fn drain_capped_keeps_short_output_whole() {
+        assert_eq!(drain_capped(&b"fatal: boom"[..], 64), b"fatal: boom");
+    }
+
+    #[test]
+    fn drain_capped_truncates_and_marks_output_past_the_cap() {
+        let input = [b'x'; 100];
+        let kept = drain_capped(&input[..], 10);
+        let expected = format!("{}\n{STDERR_TRUNCATED_MARKER}", "x".repeat(10));
+        assert_eq!(kept, expected.as_bytes());
+    }
+
+    #[test]
+    fn drain_capped_output_exactly_at_the_cap_is_not_marked() {
+        let input = vec![b'x'; 10];
+        assert_eq!(drain_capped(&input[..], 10), input);
+    }
 
     #[test]
     fn read_stderr_bounded_handles_disconnected_sender() {

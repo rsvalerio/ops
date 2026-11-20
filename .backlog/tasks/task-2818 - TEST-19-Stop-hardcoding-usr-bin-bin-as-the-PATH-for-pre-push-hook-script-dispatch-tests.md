@@ -1,10 +1,10 @@
 ---
 id: TASK-2818
 title: 'TEST-19: Stop hardcoding /usr/bin:/bin as the PATH for pre-push hook-script dispatch tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:47'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:00'
 labels:
   - code-review-rust
   - TEST
@@ -29,9 +29,10 @@ dedup_key: 'TEST-19:extensions/run-before-push/src/lib.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Dispatch tests build PATH as the tempdir followed by the inherited PATH (std::env::var_os("PATH") / env::join_paths), not a literal /usr/bin:/bin
-- [ ] #2 Tests that need no external tools (missing-ops guard, bypass) keep the tempdir-only PATH
-- [ ] #3 The three dispatch tests still pass and the fake ops still shadows any real ops on PATH
+- [x] #1 Dispatch tests build PATH as the tempdir followed by the inherited PATH (std::env::var_os("PATH") / env::join_paths), not a literal /usr/bin:/bin
+- [x] #2 Tests that need no external tools (missing-ops guard, bypass) keep the tempdir-only PATH
+- [x] #3 The three dispatch tests still pass and the fake ops still shadows any real ops on PATH
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2772
 title: 'ERR-4: terraform plan killed by a signal is reported as exit code 1'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:43'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:56'
 labels:
   - code-review-rust
   - ERR
@@ -29,8 +29,9 @@ dedup_key: 'ERR-4:extensions-terraform/plan/src/lib.rs:plan_status_result'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A None exit code yields an error saying terraform plan was terminated by a signal (naming the signal via ExitStatusExt::signal on unix where available), not a fabricated exit code
-- [ ] #2 plan_status_interpretation_matches_terraform_exit_codes is updated to assert the signal wording
+- [x] #1 A None exit code yields an error saying terraform plan was terminated by a signal (naming the signal via ExitStatusExt::signal on unix where available), not a fabricated exit code
+- [x] #2 plan_status_interpretation_matches_terraform_exit_codes is updated to assert the signal wording
+
 <!-- AC:END -->
 
 ## Implementation Notes

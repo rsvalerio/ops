@@ -1,10 +1,10 @@
 ---
 id: TASK-2724
 title: 'SEC-14: Maven module child-pom read escapes workspace via root-relative and symlinked paths'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:34'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - security
@@ -32,9 +32,10 @@ Second, `parse_pom_xml(&cwd.join(&module))` passes the **child directory** as th
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The in-tree check rejects RootDir and Prefix components in addition to absolute and ParentDir
-- [ ] #2 Child pom reads are contained against the workspace root (cwd), not the child directory, so a symlinked module directory pointing outside the workspace is not read
-- [ ] #3 Tests cover a symlinked module directory (unix) and the unit is still emitted for count parity
+- [x] #1 The in-tree check rejects RootDir and Prefix components in addition to absolute and ParentDir
+- [x] #2 Child pom reads are contained against the workspace root (cwd), not the child directory, so a symlinked module directory pointing outside the workspace is not read
+- [x] #3 Tests cover a symlinked module directory (unix) and the unit is still emitted for count parity
+
 <!-- AC:END -->
 
 ## Implementation Notes

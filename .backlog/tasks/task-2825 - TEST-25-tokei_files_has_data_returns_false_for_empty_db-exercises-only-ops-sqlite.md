@@ -1,10 +1,10 @@
 ---
 id: TASK-2825
 title: 'TEST-25: tokei_files_has_data_returns_false_for_empty_db exercises only ops-sqlite'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - test
@@ -29,12 +29,16 @@ dedup_key: 'TEST-25:extensions/tokei/src/tests.rs:tokei_files_has_data_returns_f
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test is removed from ops-tokei, or changed to exercise tokei code (e.g. the provider's provide_from_db path on an empty DB triggering ingestion)
-- [ ] #2 If table_has_data on a missing table is not already covered in ops-sqlite, an equivalent test exists there
+- [x] #1 The test is removed from ops-tokei, or changed to exercise tokei code (e.g. the provider's provide_from_db path on an empty DB triggering ingestion)
+- [x] #2 If table_has_data on a missing table is not already covered in ops-sqlite, an equivalent test exists there
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.32 (code-review-rust run, 2026-11-18).
+
+AC2: table_has_data on a missing table is already covered by ops-sqlite's table_has_data_no_table (extensions/sqlite/src/sql/ingest/sql.rs).
+
 <!-- SECTION:NOTES:END -->

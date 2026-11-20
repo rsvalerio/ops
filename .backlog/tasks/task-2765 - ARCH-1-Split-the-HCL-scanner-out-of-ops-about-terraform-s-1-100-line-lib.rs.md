@@ -1,10 +1,10 @@
 ---
 id: TASK-2765
 title: 'ARCH-1: Split the HCL scanner out of ops-about-terraform''s 1,100-line lib.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:42'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:49'
 labels:
   - code-review-rust
   - ARCH
@@ -34,9 +34,10 @@ The 1,150-line `#[cfg(test)] mod tests` covers all three in one block as well.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The HCL comment-stripping and required_version scanning code (strip_*, scan_*, heredoc tracking, Refusal, sanitize) lives in its own module (e.g. src/hcl_scan.rs) with its unit tests beside it
-- [ ] #2 Filesystem discovery (required-version file walk, local module counting) is separated from extension wiring, leaving lib.rs as a thin entry point
-- [ ] #3 No behaviour change: the existing test suite passes unchanged apart from moves, and ops verify is green
+- [x] #1 The HCL comment-stripping and required_version scanning code (strip_*, scan_*, heredoc tracking, Refusal, sanitize) lives in its own module (e.g. src/hcl_scan.rs) with its unit tests beside it
+- [x] #2 Filesystem discovery (required-version file walk, local module counting) is separated from extension wiring, leaving lib.rs as a thin entry point
+- [x] #3 No behaviour change: the existing test suite passes unchanged apart from moves, and ops verify is green
+
 <!-- AC:END -->
 
 ## Implementation Notes

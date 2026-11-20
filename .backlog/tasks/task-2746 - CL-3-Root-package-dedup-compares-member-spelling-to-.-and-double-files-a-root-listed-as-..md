@@ -1,10 +1,10 @@
 ---
 id: TASK-2746
 title: 'CL-3: Root-package dedup compares member spelling to "." and double-files a root listed as "./"'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:27'
 labels:
   - code-review-rust
   - CL
@@ -29,12 +29,16 @@ dedup_key: 'CL-3:extensions-rust/create-review-tasks/src/provider.rs:RustReviewT
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The root-member check compares by path meaning (segments with "." and empty segments removed; empty means root), not by the raw string "."; alternatively normalize_member canonicalises an all-dot member to "." and the provider relies on that documented contract
-- [ ] #2 A hybrid manifest listing the root as "./" (and ".//") yields the root package exactly once; covered by a test alongside hybrid_manifest_does_not_duplicate_a_root_listed_as_member
+- [x] #1 The root-member check compares by path meaning (segments with "." and empty segments removed; empty means root), not by the raw string "."; alternatively normalize_member canonicalises an all-dot member to "." and the provider relies on that documented contract
+- [x] #2 A hybrid manifest listing the root as "./" (and ".//") yields the root package exactly once; covered by a test alongside hybrid_manifest_does_not_duplicate_a_root_listed_as_member
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.14 (code-review-rust run, 2026-11-18).
+
+Took the AC #1 alternative: normalize_member now emits the exported ROOT_MEMBER ('.') for every segment-less literal ('./', './/', ''), and the provider's ROOT_PACKAGE_PATH is defined as that constant.
+
 <!-- SECTION:NOTES:END -->

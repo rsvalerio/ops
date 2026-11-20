@@ -1468,6 +1468,7 @@ dependencies = [
  "ops-core",
  "ops-extension",
  "ops-git",
+ "ops-metadata",
  "ops-sqlite",
  "serde",
  "serde_json",
@@ -1671,6 +1672,7 @@ version = "0.94.1"
 dependencies = [
  "anyhow",
  "ops-core",
+ "ops-hook-common",
  "serial_test",
  "tempfile",
  "thiserror 2.0.21",
@@ -1856,6 +1858,7 @@ name = "ops-tokei"
 version = "0.94.1"
 dependencies = [
  "anyhow",
+ "encoding_rs_io",
  "ignore",
  "ops-extension",
  "ops-sqlite",

@@ -1,10 +1,10 @@
 ---
 id: TASK-2811
 title: 'TEST-11: concurrent upgrade test asserts a loser error path the code no longer has'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -29,9 +29,10 @@ dedup_key: 'TEST-11:extensions/hook-common/src/install.rs:upgrade_legacy_hook_co
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts every concurrent caller returns Ok (wins == n) and the final hook content equals the ops payload
-- [ ] #2 The test doc and inline comments describe the Current-on-recheck success path instead of a loser error
-- [ ] #3 The never-produced 'failed to re-read existing hook' string is removed from the test
+- [x] #1 The test asserts every concurrent caller returns Ok (wins == n) and the final hook content equals the ops payload
+- [x] #2 The test doc and inline comments describe the Current-on-recheck success path instead of a loser error
+- [x] #3 The never-produced 'failed to re-read existing hook' string is removed from the test
+
 <!-- AC:END -->
 
 ## Implementation Notes

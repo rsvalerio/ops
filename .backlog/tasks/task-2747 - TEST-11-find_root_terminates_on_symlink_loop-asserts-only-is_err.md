@@ -1,10 +1,10 @@
 ---
 id: TASK-2747
 title: 'TEST-11: find_root_terminates_on_symlink_loop asserts only is_err()'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:28'
 labels:
   - code-review-rust
   - testing
@@ -29,7 +29,8 @@ dedup_key: 'TEST-11:extensions-rust/cargo-toml/src/tests/find_root.rs:find_root_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts the specific FindWorkspaceRootError variant produced for a symlink loop (expected CanonicalizeFailed with the start path), not just is_err()
+- [x] #1 The test asserts the specific FindWorkspaceRootError variant produced for a symlink loop (expected CanonicalizeFailed with the start path), not just is_err()
+
 <!-- AC:END -->
 
 ## Implementation Notes

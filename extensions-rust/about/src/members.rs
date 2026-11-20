@@ -23,7 +23,11 @@ use std::path::Path;
 /// Resolved members come back in one canonical
 /// spelling — a leading `./`, repeated separators and interior `.` segments
 /// are collapsed — so `./crates/foo` and `crates/foo` are the same member and
-/// the `dedup` below sees them as one. An *unsupported* glob shape is the one
+/// the `dedup` below sees them as one. A literal naming the workspace root in
+/// any spelling (`.`, `./`, `.//`) is emitted as [`ROOT_MEMBER`]. A literal
+/// that exists on disk but resolves outside the workspace root (a symlinked
+/// member directory) is dropped with a warn, as glob expansions are. An
+/// *unsupported* glob shape is the one
 /// exception and still passes through verbatim (see below), because the point
 /// of emitting it is to show the operator the text their manifest holds.
 ///
@@ -49,6 +53,7 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
     };
 
     let exclude = ExcludeSet::from_entries(&ws.exclude);
+    let containment = LiteralContainment::new(workspace_root);
 
     let mut resolved = Vec::new();
     for member in &ws.members {
@@ -69,10 +74,16 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
             // see both collapse to one spelling or the crate double-counts.
             // Glob expansion already emits the canonical form — it derives its
             // strings from a `canonicalize`d path — so only literals need this.
-            MemberShape::Literal => resolved.push(normalize_member(member)),
+            MemberShape::Literal => {
+                if containment.admits(member) {
+                    resolved.push(normalize_member(member));
+                }
+            }
             MemberShape::Unsupported => {
+                // Debug-format the manifest-controlled pattern so embedded
+                // newlines / ANSI escapes cannot forge log records.
                 tracing::warn!(
-                    pattern = %member,
+                    pattern = ?member,
                     "workspace member glob shape not supported by ops about; passing through unchanged"
                 );
                 resolved.push(member.clone());
@@ -94,6 +105,73 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
     // in the units / coverage providers, diverging from `cargo metadata`.
     resolved.dedup();
     resolved
+}
+
+/// Containment check for *literal* `[workspace].members` entries, the
+/// counterpart of the one [`resolve_glob_entry`] applies to glob expansions.
+///
+/// A literal member that exists on disk is canonicalized and must resolve
+/// inside the canonical workspace root, so a member directory that is a
+/// symlink out of the checkout is dropped before any manifest under it is
+/// read. A member that does not exist (`NotFound`, which includes a dangling
+/// symlink) is kept: nothing is there to follow, and downstream reads treat an
+/// absent member manifest as expected. Any other resolution failure is
+/// rejected, failing closed.
+struct LiteralContainment<'a> {
+    workspace_root: &'a Path,
+    /// The canonical workspace root, resolved on the first literal that
+    /// exists so a manifest of globs only pays no extra syscall.
+    canonical_root: std::cell::OnceCell<Option<std::path::PathBuf>>,
+}
+
+impl<'a> LiteralContainment<'a> {
+    const fn new(workspace_root: &'a Path) -> Self {
+        Self { workspace_root, canonical_root: std::cell::OnceCell::new() }
+    }
+
+    /// Whether the literal `member` may be emitted as a resolved member.
+    fn admits(&self, member: &str) -> bool {
+        let joined = self.workspace_root.join(member);
+        let canonical = match std::fs::canonicalize(&joined) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
+            Err(e) => {
+                tracing::warn!(
+                    member = ?member,
+                    path = ?joined.display(),
+                    error = ?e,
+                    "workspace member could not be resolved; skipped"
+                );
+                return false;
+            }
+        };
+        let canonical_root = self
+            .canonical_root
+            .get_or_init(|| match std::fs::canonicalize(self.workspace_root) {
+                Ok(root) => Some(root),
+                Err(e) => {
+                    tracing::warn!(
+                        workspace_root = ?self.workspace_root.display(),
+                        error = ?e,
+                        "workspace root could not be resolved; literal members skipped"
+                    );
+                    None
+                }
+            })
+            .as_deref();
+        let Some(canonical_root) = canonical_root else {
+            return false;
+        };
+        if canonical.starts_with(canonical_root) {
+            return true;
+        }
+        tracing::warn!(
+            member = ?member,
+            resolved = ?canonical.display(),
+            "workspace member resolves outside the workspace root; skipped"
+        );
+        false
+    }
 }
 
 /// `[workspace].exclude` entries, matched with the same single-`*` semantics
@@ -233,6 +311,15 @@ fn normalize_exclude_prefix(prefix: &str) -> String {
     normalized
 }
 
+/// The one spelling [`resolved_workspace_members`] uses for a member that
+/// names the workspace root itself.
+///
+/// Every literal entry with no meaningful path segments (`"."`, `"./"`,
+/// `".//"`, `""`) resolves to exactly this string, so a consumer asking "does
+/// the member list name the root?" compares against this constant rather than
+/// guessing at the spellings a manifest may use.
+pub const ROOT_MEMBER: &str = ".";
+
 /// One canonical spelling for a resolved member path.
 ///
 /// Cargo accepts `crates/foo`, `./crates/foo` and `crates//foo` as the same
@@ -244,13 +331,12 @@ fn normalize_exclude_prefix(prefix: &str) -> String {
 /// Rebuilds the path from [`path_segments`], which is where the `./`, `.` and
 /// repeated-separator handling lives, joined with the platform
 /// separator so the output matches what the glob expander produces. An entry
-/// with no meaningful segments at all (`"."`, `""`) has no canonical form to
-/// emit, so it is passed through unchanged rather than collapsed to the empty
-/// string — which downstream would join to the workspace root itself.
+/// with no meaningful segments at all names the workspace root and is emitted
+/// as [`ROOT_MEMBER`], never as the empty string.
 fn normalize_member(member: &str) -> String {
     let normalized = path_segments(member).collect::<Vec<_>>().join(std::path::MAIN_SEPARATOR_STR);
     if normalized.is_empty() {
-        member.to_string()
+        ROOT_MEMBER.to_string()
     } else {
         normalized
     }
@@ -882,14 +968,79 @@ mod tests {
         assert!(!set.excludes("crates/core"), "and does not over-match");
     }
 
-    /// an entry with no meaningful segments has no
-    /// canonical form to emit. Collapsing it to the empty string would make
-    /// `workspace_root.join(member)` resolve to the workspace root itself, so
-    /// it is passed through unchanged instead.
+    /// An entry with no meaningful segments names the workspace root, and
+    /// every spelling of it is emitted as the single [`ROOT_MEMBER`] string
+    /// consumers compare against — never the empty string.
     #[test]
-    fn a_member_with_no_segments_is_passed_through_unchanged() {
-        assert_eq!(normalize_member("."), ".");
-        assert_eq!(normalize_member(""), "");
+    fn every_spelling_of_the_root_member_normalises_to_root_member() {
+        for spelling in [".", "./", ".//", "././", ""] {
+            assert_eq!(normalize_member(spelling), ROOT_MEMBER, "spelling {spelling:?}");
+        }
+        let manifest = manifest_with_members(&["./", ".//", "."]);
+        assert_eq!(
+            resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent")),
+            vec![ROOT_MEMBER.to_string()],
+        );
+    }
+
+    /// A literal member that is a symlink to a directory outside the
+    /// workspace is dropped, with a Debug-formatted warn, exactly as a glob
+    /// expansion through the same symlink is — and its out-of-tree manifest
+    /// never reaches a consumer. Its ordinary sibling still resolves.
+    #[cfg(unix)]
+    #[test]
+    fn literal_member_symlinked_outside_the_workspace_is_dropped() {
+        let root = tempfile::tempdir().expect("root");
+        let outside = tempfile::tempdir().expect("outside");
+
+        let crates = root.path().join("crates");
+        std::fs::create_dir_all(crates.join("inside")).expect("inside");
+        std::fs::write(crates.join("inside/Cargo.toml"), "[package]\nname=\"inside\"\n")
+            .expect("inside manifest");
+        let evil = outside.path().join("evil");
+        std::fs::create_dir_all(&evil).expect("evil");
+        std::fs::write(evil.join("Cargo.toml"), "[package]\nname=\"evil\"\n")
+            .expect("evil manifest");
+        std::os::unix::fs::symlink(&evil, crates.join("escapee")).expect("symlink");
+
+        let manifest = manifest_with_members(&["crates/inside", "crates/escapee"]);
+        let (logs, resolved) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
+            resolved_workspace_members(&manifest, root.path())
+        });
+        assert_eq!(
+            resolved,
+            vec![format!("crates{}inside", std::path::MAIN_SEPARATOR)],
+            "the symlinked-out literal member must be dropped"
+        );
+        assert!(
+            logs.contains("resolves outside the workspace root")
+                && logs.contains("member=\"crates/escapee\""),
+            "the drop must be announced with the Debug-formatted member, got: {logs}"
+        );
+    }
+
+    /// The unsupported-glob passthrough warn Debug-formats the raw
+    /// `[workspace].members` entry: a hostile manifest reaching this arm with
+    /// a newline or ESC in the pattern must not forge a log record.
+    #[test]
+    fn unsupported_glob_warn_debug_escapes_control_characters() {
+        let member = "crates/{a,b}\nforged\u{1b}[31m";
+        let manifest: CargoToml = toml::from_str(&format!(
+            "[workspace]\nmembers = [{}]\n",
+            toml::Value::String(member.to_string())
+        ))
+        .expect("parse manifest");
+        let (logs, resolved) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
+            resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent"))
+        });
+        assert_eq!(resolved, vec![member.to_string()], "the pattern still passes through");
+        assert!(logs.contains("glob shape not supported"), "expected the warn, got: {logs}");
+        assert!(!logs.contains('\u{1b}'), "raw ESC must not reach the log line: {logs:?}");
+        assert!(!logs.contains("\nforged"), "raw newline must not reach the log line: {logs:?}");
+        assert!(
+            logs.contains("\\n") && logs.contains("\\u{1b}"),
+            "pattern must be Debug-escaped in the log line, got: {logs}"
+        );
     }
 
     /// Cargo accepts a `./` prefix in both `members`

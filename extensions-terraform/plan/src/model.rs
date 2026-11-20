@@ -96,7 +96,8 @@ impl Action {
     /// Classifies a raw terraform action sequence into one [`Action`].
     ///
     /// Returns `None` for an empty action list (no actions reported by
-    /// Terraform). For non-empty lists that do not match a known shape,
+    /// Terraform); this crate's callers turn that into `Action::Unknown` with
+    /// a warning rather than dropping the change. For non-empty lists that do not match a known shape,
     /// returns `Some(Action::Unknown)` and emits a `tracing::warn!` with
     /// the raw action strings — fail loud, not fail open.
     #[must_use = "the classified action drives rendering, colour and sorting"]

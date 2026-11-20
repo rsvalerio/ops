@@ -1,10 +1,10 @@
 ---
 id: TASK-2728
 title: 'TEST-32: provider_name test asserts DATA_PROVIDER_NAME back to its own literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:35'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-32:extensions-python/about/src/lib.rs:tests::provider_name'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The provider_name test is removed, or replaced by an assertion of behaviour the name drives (e.g. registry lookup) that is not already covered by extension_registers_identity_and_units_providers
-- [ ] #2 cargo test -p ops-about-python passes
+- [x] #1 The provider_name test is removed, or replaced by an assertion of behaviour the name drives (e.g. registry lookup) that is not already covered by extension_registers_identity_and_units_providers
+- [x] #2 cargo test -p ops-about-python passes
+
 <!-- AC:END -->
 
 ## Implementation Notes

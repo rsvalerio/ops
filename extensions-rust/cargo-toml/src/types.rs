@@ -4,7 +4,6 @@
 //! All types derive `Deserialize` for parsing and implement `Clone` for caching.
 //! Workspace inheritance resolution lives in [`crate::inheritance`].
 
-use ops_core::serde_defaults;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -127,7 +126,7 @@ pub struct Package {
     pub edition: InheritableString,
 
     /// Minimum supported Rust version (can be inherited from workspace).
-    #[serde(default, alias = "rust-version")]
+    #[serde(default, rename = "rust-version", alias = "rust_version")]
     pub rust_version: InheritableString,
 
     /// List of authors (can be inherited from workspace).
@@ -158,7 +157,7 @@ pub struct Package {
     pub license: InheritableString,
 
     /// Path to license file (can be inherited from workspace).
-    #[serde(alias = "license-file")]
+    #[serde(rename = "license-file", alias = "license_file")]
     pub license_file: Option<InheritableString>,
 
     /// Keywords for crates.io (can be inherited from workspace).
@@ -169,8 +168,8 @@ pub struct Package {
     #[serde(default)]
     pub categories: InheritableVec,
 
-    /// Path to the main source file.
-    #[serde(alias = "default-run")]
+    /// Name of the binary `cargo run` executes when no `--bin` is given.
+    #[serde(rename = "default-run", alias = "default_run")]
     pub default_run: Option<String>,
 
     /// Whether to publish to crates.io.
@@ -319,7 +318,7 @@ pub struct Workspace {
     pub dependencies: BTreeMap<String, DepSpec>,
 
     /// Default members for `cargo build/test` without `-p`.
-    #[serde(default, alias = "default-members")]
+    #[serde(default, rename = "default-members", alias = "default_members")]
     pub default_members: Vec<String>,
 
     /// Path to workspace root (excluding this crate).
@@ -361,7 +360,7 @@ pub struct WorkspacePackage {
     pub repository: Option<String>,
 
     /// Shared rust-version.
-    #[serde(alias = "rust-version")]
+    #[serde(rename = "rust-version", alias = "rust_version")]
     pub rust_version: Option<String>,
 
     /// Shared README.
@@ -376,7 +375,7 @@ pub struct WorkspacePackage {
     pub categories: Vec<String>,
 
     /// Shared license file path.
-    #[serde(alias = "license-file")]
+    #[serde(rename = "license-file", alias = "license_file")]
     pub license_file: Option<String>,
 
     /// Shared publish setting.
@@ -456,7 +455,7 @@ impl DepSpec {
     /// Returns `true` if default features are enabled (default is true).
     #[must_use]
     pub fn uses_default_features(&self) -> bool {
-        self.detail().is_none_or(|d| d.default_features)
+        self.detail().is_none_or(|d| d.default_features.unwrap_or(true))
     }
 
     /// Returns the renamed package name if using `package = "original-name"`.
@@ -467,7 +466,7 @@ impl DepSpec {
 }
 
 /// Detailed dependency specification (table form).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct DetailedDepSpec {
     /// Version requirement.
@@ -496,9 +495,14 @@ pub struct DetailedDepSpec {
     #[serde(default)]
     pub optional: bool,
 
-    /// Whether default features are enabled.
-    #[serde(default = "serde_defaults::default_true", alias = "default-features")]
-    pub default_features: bool,
+    /// Whether default features are enabled: `None` when the manifest does
+    /// not write `default-features`, which cargo treats as `true`.
+    ///
+    /// Kept as an `Option` because workspace inheritance needs to tell "not
+    /// written" from an explicit `true` (see the inheritance resolver);
+    /// [`DepSpec::uses_default_features`] applies the `true` default.
+    #[serde(default, rename = "default-features", alias = "default_features")]
+    pub default_features: Option<bool>,
 
     /// Inherit from workspace dependencies.
     pub workspace: Option<bool>,
@@ -508,23 +512,4 @@ pub struct DetailedDepSpec {
 
     /// Target platform (e.g., "`cfg(target_os` = \"linux\")").
     pub target: Option<String>,
-}
-
-impl Default for DetailedDepSpec {
-    fn default() -> Self {
-        Self {
-            version: None,
-            path: None,
-            git: None,
-            branch: None,
-            tag: None,
-            rev: None,
-            features: Vec::new(),
-            optional: false,
-            default_features: true,
-            workspace: None,
-            package: None,
-            target: None,
-        }
-    }
 }

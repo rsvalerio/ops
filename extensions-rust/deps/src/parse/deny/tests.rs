@@ -3,6 +3,12 @@
 
 use super::*;
 
+/// Drive [`interpret_deny_output`] with an empty stdout, as cargo-deny
+/// leaves it: its JSON stream is all on stderr.
+fn interpret_stderr(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
+    interpret_deny_output(exit_code, b"", stderr.as_bytes())
+}
+
 // -- Deny exit-code interpretation --
 
 /// A broken `deny.toml` is not a check failure: cargo-deny 0.20 logs the
@@ -10,10 +16,10 @@ use super::*;
 /// failure) without emitting a classifiable diagnostic. The stream below is
 /// what `cargo deny --format json check` prints for a key it does not know.
 #[test]
-fn interpret_deny_result_reports_config_error_from_error_log() {
+fn interpret_deny_output_reports_config_error_from_error_log() {
     let stderr = r#"{"fields":{"code":"unexpected-keys","labels":[{"column":1,"line":3,"message":"","span":"bogus-key"}],"message":"found 1 unexpected keys","severity":"error"},"type":"diagnostic"}
 {"fields":{"level":"ERROR","message":"failed to deserialize config from 'deny.toml'","timestamp":"2026-10-04T14:59:58Z"},"type":"log"}"#;
-    let err = interpret_deny_result(Some(1), stderr).expect_err("config error must surface");
+    let err = interpret_stderr(Some(1), stderr).expect_err("config error must surface");
     let msg = err.to_string();
     assert!(
         msg.contains("status 1") && msg.contains("configuration error"),
@@ -25,9 +31,9 @@ fn interpret_deny_result_reports_config_error_from_error_log() {
 /// The reason is cargo-deny's own text, so it is Debug-escaped like every
 /// other stderr excerpt.
 #[test]
-fn interpret_deny_result_config_error_debug_escapes_reason() {
+fn interpret_deny_output_config_error_debug_escapes_reason() {
     let stderr = r#"{"fields":{"level":"ERROR","message":"failed to parse \u001b[31mconfig\u001b[0m"},"type":"log"}"#;
-    let err = interpret_deny_result(Some(1), stderr).expect_err("config error must surface");
+    let err = interpret_stderr(Some(1), stderr).expect_err("config error must surface");
     let msg = err.to_string();
     assert!(msg.contains("configuration error"), "got: {msg}");
     assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
@@ -36,10 +42,10 @@ fn interpret_deny_result_config_error_debug_escapes_reason() {
 /// An `ERROR` log next to decodable findings does not hide them: the run
 /// reported what it found, so the findings are rendered.
 #[test]
-fn interpret_deny_result_keeps_findings_despite_error_log() {
+fn interpret_deny_output_keeps_findings_despite_error_log() {
     let stderr = r#"{"type":"log","fields":{"level":"ERROR","message":"failed to fetch advisory database"}}
 {"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
-    let result = interpret_deny_result(Some(2), stderr).expect("findings decode");
+    let result = interpret_stderr(Some(2), stderr).expect("findings decode");
     assert_eq!(result.bans.len(), 1);
 }
 
@@ -47,9 +53,9 @@ fn interpret_deny_result_keeps_findings_despite_error_log() {
 /// plain-text stderr. With no diagnostic to decode it must surface as an
 /// error rather than as a clean bans check.
 #[test]
-fn interpret_deny_result_errs_on_exit_2_usage_error() {
+fn interpret_deny_output_errs_on_exit_2_usage_error() {
     let stderr = "error: unexpected argument '--nope' found\n";
-    let err = interpret_deny_result(Some(2), stderr).expect_err("usage error must surface");
+    let err = interpret_stderr(Some(2), stderr).expect_err("usage error must surface");
     let msg = err.to_string();
     assert!(
         msg.contains("status 2") && msg.contains("zero diagnostics"),
@@ -62,10 +68,10 @@ fn interpret_deny_result_errs_on_exit_2_usage_error() {
 /// failure exits 2; its findings are decoded, not reported as a
 /// configuration error. Stream captured from cargo-deny 0.20.2.
 #[test]
-fn interpret_deny_result_decodes_bans_only_exit_code() {
+fn interpret_deny_output_decodes_bans_only_exit_code() {
     let stderr = r#"{"fields":{"code":"banned","graphs":[{"Krate":{"name":"denyexp","version":"0.1.0"}}],"labels":[{"column":19,"line":2,"message":"banned here","span":"denyexp"}],"message":"crate 'denyexp = 0.1.0' is explicitly banned","severity":"error"},"type":"diagnostic"}
 {"fields":{"bans":{"errors":1,"helps":0,"notes":0,"warnings":0},"licenses":{"errors":0,"helps":1,"notes":0,"warnings":0},"sources":{"errors":0,"helps":0,"notes":0,"warnings":0}},"type":"summary"}"#;
-    let result = interpret_deny_result(Some(2), stderr).expect("bans-only failure decodes");
+    let result = interpret_stderr(Some(2), stderr).expect("bans-only failure decodes");
     assert_eq!(result.bans.len(), 1);
     assert_eq!(result.bans[0].0.package, "denyexp");
     assert!(result.licenses.is_empty());
@@ -73,11 +79,11 @@ fn interpret_deny_result_decodes_bans_only_exit_code() {
 
 /// A licenses-only failure exits 4. Stream captured from cargo-deny 0.20.2.
 #[test]
-fn interpret_deny_result_decodes_licenses_only_exit_code() {
+fn interpret_deny_output_decodes_licenses_only_exit_code() {
     let stderr = r#"{"fields":{"code":"rejected","graphs":[{"Krate":{"name":"denyexp","version":"0.1.0"}}],"labels":[{"column":12,"line":5,"message":"rejected: license is not explicitly allowed","span":"MIT"}],"message":"failed to satisfy license requirements","severity":"error"},"type":"diagnostic"}
 {"fields":{"code":"license-not-encountered","graphs":[],"labels":[{"column":11,"line":2,"message":"unmatched license allowance","span":"Apache-2.0"}],"message":"license was not encountered","severity":"warning"},"type":"diagnostic"}
 {"fields":{"bans":{"errors":0,"helps":0,"notes":0,"warnings":0},"licenses":{"errors":1,"helps":0,"notes":0,"warnings":1},"sources":{"errors":0,"helps":0,"notes":0,"warnings":0}},"type":"summary"}"#;
-    let result = interpret_deny_result(Some(4), stderr).expect("licenses-only failure decodes");
+    let result = interpret_stderr(Some(4), stderr).expect("licenses-only failure decodes");
     assert_eq!(result.licenses.len(), 1);
     assert_eq!(result.licenses[0].0.package, "denyexp");
     assert_eq!(result.unused_license_allowances.len(), 1);
@@ -87,15 +93,15 @@ fn interpret_deny_result_decodes_licenses_only_exit_code() {
 /// Every non-empty combination of the four check bits is a check failure;
 /// the first value past the mask is not.
 #[test]
-fn interpret_deny_result_accepts_every_check_bitset_and_nothing_wider() {
+fn interpret_deny_output_accepts_every_check_bitset_and_nothing_wider() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
     for code in 1..=15 {
-        let result = interpret_deny_result(Some(code), stderr)
+        let result = interpret_stderr(Some(code), stderr)
             .unwrap_or_else(|e| panic!("exit {code} is a check failure: {e}"));
         assert_eq!(result.bans.len(), 1, "exit {code}");
     }
     for code in [16, 17, 101, -1] {
-        let err = interpret_deny_result(Some(code), stderr)
+        let err = interpret_stderr(Some(code), stderr)
             .expect_err("a status outside the check bitset must surface");
         assert!(
             err.to_string().contains(&format!("unexpected status code {code}")),
@@ -108,16 +114,16 @@ fn interpret_deny_result_accepts_every_check_bitset_and_nothing_wider() {
 /// diagnostics", not "no issues found". Returning `Ok(default)` would let
 /// `ops deps` exit 0 on a silently broken supply-chain pipeline.
 #[test]
-fn interpret_deny_result_errs_on_exit_1_with_empty_stderr() {
-    let result = interpret_deny_result(Some(1), "");
+fn interpret_deny_output_errs_on_exit_1_with_empty_stderr() {
+    let result = interpret_stderr(Some(1), "");
     let err = result.expect_err("empty stderr at exit 1 must surface");
     let msg = err.to_string();
     assert!(msg.contains("status 1") && msg.contains("no diagnostics"), "got: {msg}");
 }
 
 #[test]
-fn interpret_deny_result_errs_on_exit_1_with_whitespace_stderr() {
-    let result = interpret_deny_result(Some(1), "   \n\t \n");
+fn interpret_deny_output_errs_on_exit_1_with_whitespace_stderr() {
+    let result = interpret_stderr(Some(1), "   \n\t \n");
     assert!(result.is_err(), "whitespace-only stderr at exit 1 must surface");
 }
 
@@ -126,9 +132,9 @@ fn interpret_deny_result_errs_on_exit_1_with_whitespace_stderr() {
 /// every line decodes as malformed JSON, drops to debug, and the gate scores
 /// green on a non-diagnostic stream.
 #[test]
-fn interpret_deny_result_errs_on_exit_1_with_non_json_stderr() {
+fn interpret_deny_output_errs_on_exit_1_with_non_json_stderr() {
     let stderr = "error[A001]: failed to parse manifest\nerror: aborting due to previous error\n";
-    let result = interpret_deny_result(Some(1), stderr);
+    let result = interpret_stderr(Some(1), stderr);
     let err = result.expect_err("non-JSON stderr at exit 1 must surface");
     let msg = err.to_string();
     assert!(
@@ -141,25 +147,29 @@ fn interpret_deny_result_errs_on_exit_1_with_non_json_stderr() {
 /// partial stderr as an authoritative diagnostic stream would turn a
 /// SIGKILL/OOM into a "clean" run, so the gate errors instead.
 #[test]
-fn interpret_deny_result_errs_on_signal_kill() {
-    let result = interpret_deny_result(None, "");
+fn interpret_deny_output_errs_on_signal_kill() {
+    let result = interpret_stderr(None, "");
     let err = result.expect_err("None exit code must surface");
     assert!(err.to_string().contains("signal"), "error must name the signal-kill case, got: {err}");
 }
 
 #[test]
-fn interpret_deny_result_errs_on_signal_kill_even_with_partial_stderr() {
+fn interpret_deny_output_errs_on_signal_kill_even_with_partial_stderr() {
     // Even if the binary flushed some JSON before being killed, partial
     // diagnostics are not a clean run.
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"x","code":"vulnerability","advisory":{"id":"RUSTSEC-2024-0001","package":"x","title":"t"},"graphs":[]}}"#;
-    let result = interpret_deny_result(None, stderr);
-    assert!(result.is_err());
+    let err = interpret_stderr(None, stderr)
+        .expect_err("a signal kill must surface even with decodable stderr");
+    assert!(
+        err.to_string().contains("terminated by signal"),
+        "error must name the signal-kill case, got: {err}"
+    );
 }
 
 #[test]
-fn interpret_deny_result_passes_exit_code_0_through() {
+fn interpret_deny_output_passes_exit_code_0_through() {
     // Clean run: empty stderr, no diagnostics.
-    let result = interpret_deny_result(Some(0), "").expect("clean run is Ok");
+    let result = interpret_stderr(Some(0), "").expect("clean run is Ok");
     assert!(result.advisories.is_empty());
     assert!(result.licenses.is_empty());
     assert!(result.bans.is_empty());
@@ -172,8 +182,8 @@ fn interpret_deny_result_passes_exit_code_0_through() {
 /// understands, and accepting it would be the exit-0 twin of the
 /// zero-diagnostics-at-exit-1 silent muting.
 #[test]
-fn interpret_deny_result_errs_on_exit_code_0_with_non_json_stderr() {
-    let result = interpret_deny_result(Some(0), "warning: cargo-deny cache not found\n");
+fn interpret_deny_output_errs_on_exit_code_0_with_non_json_stderr() {
+    let result = interpret_stderr(Some(0), "warning: cargo-deny cache not found\n");
     let err = result.expect_err("a non-JSON stream at exit 0 must not score as clean");
     let msg = err.to_string();
     assert!(
@@ -186,10 +196,10 @@ fn interpret_deny_result_errs_on_exit_code_0_with_non_json_stderr() {
 /// contract: `log` / `summary` envelopes are not findings, but they prove
 /// the output mode, so an exit-0 run carrying only those stays `Ok`.
 #[test]
-fn interpret_deny_result_accepts_log_envelopes_on_exit_code_0() {
+fn interpret_deny_output_accepts_log_envelopes_on_exit_code_0() {
     let stderr = r#"{"type":"log","fields":{"level":"warn","message":"no advisory database found"}}
 {"type":"summary","fields":{"errors":0,"warnings":1}}"#;
-    let result = interpret_deny_result(Some(0), stderr).expect("envelope-carrying run is Ok");
+    let result = interpret_stderr(Some(0), stderr).expect("envelope-carrying run is Ok");
     assert!(result.advisories.is_empty());
 }
 
@@ -197,11 +207,11 @@ fn interpret_deny_result_accepts_log_envelopes_on_exit_code_0() {
 /// the dominant `ops deps` shape (`multiple-versions`, `unmaintained`,
 /// `yanked` at `warn` all exit 0) — must parse and stay `Ok`.
 #[test]
-fn interpret_deny_result_parses_warnings_on_exit_code_0() {
+fn interpret_deny_output_parses_warnings_on_exit_code_0() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"duplicate","code":"duplicate","graphs":[{"Krate":{"name":"serde_yaml","version":"0.9.0"}}]}}
 {"type":"diagnostic","fields":{"severity":"warning","message":"crate is unmaintained","code":"unmaintained","advisory":{"id":"RUSTSEC-2024-0375","package":"atty","title":"`atty` is unmaintained"},"graphs":[{"Krate":{"name":"atty","version":"0.2.14"}}]}}"#;
 
-    let result = interpret_deny_result(Some(0), stderr).expect("warning-level run is Ok");
+    let result = interpret_stderr(Some(0), stderr).expect("warning-level run is Ok");
     assert_eq!(result.bans.len(), 1);
     assert_eq!(result.advisories.len(), 1);
 }
@@ -212,13 +222,13 @@ fn interpret_deny_result_parses_warnings_on_exit_code_0() {
 /// the dominant path with no schema-drift protection, letting a per-code
 /// schema change drop rows while the report stayed green.
 #[test]
-fn interpret_deny_result_errs_on_partial_decode_loss_on_exit_code_0() {
+fn interpret_deny_output_errs_on_partial_decode_loss_on_exit_code_0() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"duplicate","code":"duplicate","graphs":[{"Krate":{"name":"baz","version":"2.0.0"}}]}}
 {"type":"diagnostic","fields":{"severity":"warning","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0001","package":"a","title":"t"}}}
 {"type":"diagnostic","fields":{"severity":"warning","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0002","package":"b","title":"t"}}}
 {"type":"diagnostic","fields":{"severity":"warning","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0003","package":"c","title":"t"}}}"#;
 
-    let err = interpret_deny_result(Some(0), stderr)
+    let err = interpret_stderr(Some(0), stderr)
         .expect_err("a class-wide decode loss on an exit-0 run must not pass the subset through");
     let msg = err.to_string();
     assert!(
@@ -228,9 +238,9 @@ fn interpret_deny_result_errs_on_partial_decode_loss_on_exit_code_0() {
 }
 
 #[test]
-fn interpret_deny_result_parses_diagnostics_on_exit_code_1() {
+fn interpret_deny_output_parses_diagnostics_on_exit_code_1() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"`atty` is unmaintained","code":"unmaintained","advisory":{"id":"RUSTSEC-2024-0375","package":"atty","title":"`atty` is unmaintained"},"graphs":[{"Krate":{"name":"atty","version":"0.2.14"},"parents":[]}]}}"#;
-    let result = interpret_deny_result(Some(1), stderr).expect("issues run is Ok");
+    let result = interpret_stderr(Some(1), stderr).expect("issues run is Ok");
     assert_eq!(result.advisories.len(), 1);
     assert_eq!(result.advisories[0].id, "RUSTSEC-2024-0375");
 }
@@ -303,13 +313,13 @@ fn resolve_package_is_idempotent_and_leaves_the_diagnostic_intact() {
 /// and `ops deps` would otherwise render "Advisories: None" in green while
 /// an unpatched RUSTSEC advisory sits in the tree.
 #[test]
-fn interpret_deny_result_errs_on_partial_decode_loss() {
+fn interpret_deny_output_errs_on_partial_decode_loss() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"duplicate","code":"duplicate","graphs":[{"Krate":{"name":"baz","version":"2.0.0"}}]}}
 {"type":"diagnostic","fields":{"severity":"error","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0001","package":"a","title":"t"}}}
 {"type":"diagnostic","fields":{"severity":"error","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0002","package":"b","title":"t"}}}
 {"type":"diagnostic","fields":{"severity":"error","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0003","package":"c","title":"t"}}}"#;
 
-    let err = interpret_deny_result(Some(1), stderr)
+    let err = interpret_stderr(Some(1), stderr)
         .expect_err("a class-wide decode loss must not report the surviving subset as complete");
     let msg = err.to_string();
     assert!(
@@ -328,7 +338,7 @@ fn interpret_deny_result_errs_on_partial_decode_loss() {
 /// findings is ordinary forward drift (cargo-deny adding a category) and
 /// must not fail the gate, or every upstream release breaks `ops deps`.
 #[test]
-fn interpret_deny_result_tolerates_a_single_unknown_code_among_many() {
+fn interpret_deny_output_tolerates_a_single_unknown_code_among_many() {
     let known = (0..9)
         .map(|i| {
             format!(
@@ -343,7 +353,7 @@ fn interpret_deny_result_tolerates_a_single_unknown_code_among_many() {
     );
 
     let result =
-        interpret_deny_result(Some(1), &stderr).expect("1-in-10 unknown codes must stay tolerated");
+        interpret_stderr(Some(1), &stderr).expect("1-in-10 unknown codes must stay tolerated");
     assert_eq!(result.bans.len(), 9);
 }
 
@@ -351,13 +361,13 @@ fn interpret_deny_result_tolerates_a_single_unknown_code_among_many() {
 /// toward the candidate denominator — otherwise a normal run with a couple
 /// of findings and a chatty log stream would look like a mass drop.
 #[test]
-fn interpret_deny_result_log_envelopes_do_not_inflate_the_candidate_count() {
+fn interpret_deny_output_log_envelopes_do_not_inflate_the_candidate_count() {
     let stderr = r#"{"type":"log","fields":{"timestamp":"2024-01-01","level":"INFO","message":"checking"}}
 {"type":"log","fields":{"timestamp":"2024-01-01","level":"INFO","message":"fetching"}}
 {"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}
 {"type":"summary","fields":{"bans":{"errors":1}}}"#;
 
-    let result = interpret_deny_result(Some(1), stderr)
+    let result = interpret_stderr(Some(1), stderr)
         .expect("log/summary envelopes must not be counted as dropped diagnostics");
     assert_eq!(result.bans.len(), 1);
 }
@@ -370,13 +380,13 @@ fn interpret_deny_result_log_envelopes_do_not_inflate_the_candidate_count() {
 /// read as `candidates == 1, dropped == 0` and the gate would stay green
 /// with an entire class missing.
 #[test]
-fn interpret_deny_result_counts_diagnostics_whose_fields_fail_to_decode() {
+fn interpret_deny_output_counts_diagnostics_whose_fields_fail_to_decode() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}
 {"type":"diagnostic","fields":{"severity":["error"],"message":"vuln","code":"security-vulnerability"}}
 {"type":"diagnostic","fields":"not-an-object"}
 {"type":"diagnostic"}"#;
 
-    let err = interpret_deny_result(Some(1), stderr)
+    let err = interpret_stderr(Some(1), stderr)
         .expect_err("recognised diagnostic envelopes with undecodable fields must count as drops");
     let msg = err.to_string();
     assert!(
@@ -388,12 +398,12 @@ fn interpret_deny_result_counts_diagnostics_whose_fields_fail_to_decode() {
 /// A line that is not JSON at all, and a non-diagnostic envelope, still must
 /// not reach the denominator — otherwise a chatty run looks like a mass drop.
 #[test]
-fn interpret_deny_result_malformed_non_diagnostic_lines_are_not_candidates() {
+fn interpret_deny_output_malformed_non_diagnostic_lines_are_not_candidates() {
     let stderr = r#"this is not json at all
 {"type":"log","fields":"not-an-object"}
 {"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
 
-    let result = interpret_deny_result(Some(1), stderr)
+    let result = interpret_stderr(Some(1), stderr)
         .expect("non-diagnostic noise must not be counted as dropped diagnostics");
     assert_eq!(result.bans.len(), 1);
 }
@@ -629,13 +639,13 @@ fn parse_deny_license_not_encountered_is_an_unused_allowance_warning() {
 /// were classified, every line dropped and the partial-decode-loss guard
 /// failed `ops deps --check` on an otherwise clean run.
 #[test]
-fn interpret_deny_result_accepts_a_stream_of_unused_license_allowances() {
+fn interpret_deny_output_accepts_a_stream_of_unused_license_allowances() {
     let second = LICENSE_NOT_ENCOUNTERED.replace("0BSD", "Zlib");
     let stderr = format!(
         "{LICENSE_NOT_ENCOUNTERED}\n{second}\n{}",
         r#"{"type":"summary","fields":{"errors":0,"warnings":2}}"#
     );
-    let result = interpret_deny_result(Some(0), &stderr).expect("unused allowances are warnings");
+    let result = interpret_stderr(Some(0), &stderr).expect("unused allowances are warnings");
     let subjects: Vec<&str> =
         result.unused_license_allowances.iter().map(|l| l.package.as_str()).collect();
     assert_eq!(subjects, ["0BSD", "Zlib"]);
@@ -654,10 +664,10 @@ fn parse_deny_label_span_is_not_a_package_for_crate_diagnostics() {
 /// Undecodable diagnostics still fail closed: classifying the unused-allowance
 /// code must not loosen the guard for codes nobody recognises.
 #[test]
-fn interpret_deny_result_still_fails_closed_on_unknown_codes_beside_unused_allowances() {
+fn interpret_deny_output_still_fails_closed_on_unknown_codes_beside_unused_allowances() {
     let unknown = r#"{"type":"diagnostic","fields":{"severity":"error","message":"m","code":"brand-new-code","graphs":[]}}"#;
     let stderr = format!("{LICENSE_NOT_ENCOUNTERED}\n{unknown}");
-    let err = interpret_deny_result(Some(1), &stderr).expect_err("1 of 2 dropped must fail closed");
+    let err = interpret_stderr(Some(1), &stderr).expect_err("1 of 2 dropped must fail closed");
     assert!(err.to_string().contains("1 dropped"), "got: {err}");
 }
 
@@ -715,15 +725,15 @@ fn parse_deny_output_skips_malformed_json_with_tracing() {
 
 // -- stderr tail Debug-escapes control bytes --
 
-/// `interpret_deny_result` must format the stderr tail through the `?`
+/// `interpret_deny_output` must format the stderr tail through the `?`
 /// formatter so embedded ANSI / newlines / NULs from cargo-deny cannot forge
 /// log records or repaint the operator terminal. The sibling contract on
 /// `interpret_upgrade_output` is pinned in `upgrade/exit_code_tests.rs`.
 /// Pin the escape on the zero-diagnostics exit-1 arm.
 #[test]
-fn interpret_deny_result_zero_diagnostics_debug_escapes_stderr_tail() {
+fn interpret_deny_output_zero_diagnostics_debug_escapes_stderr_tail() {
     let stderr = "error[A001]\n\x1b[31mfatal\x1b[0m\n";
-    let result = interpret_deny_result(Some(1), stderr);
+    let result = interpret_stderr(Some(1), stderr);
     let err = result.expect_err("non-JSON stderr at exit 1 must surface");
     let msg = err.to_string();
     assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");
@@ -731,9 +741,9 @@ fn interpret_deny_result_zero_diagnostics_debug_escapes_stderr_tail() {
 
 /// The same escape contract on an exit-2 usage error.
 #[test]
-fn interpret_deny_result_exit_two_debug_escapes_stderr_tail() {
+fn interpret_deny_output_exit_two_debug_escapes_stderr_tail() {
     let stderr = "error: \x1b[31minvalid TOML\x1b[0m\nbye\n";
-    let result = interpret_deny_result(Some(2), stderr);
+    let result = interpret_stderr(Some(2), stderr);
     let err = result.expect_err("usage error must surface");
     let msg = err.to_string();
     assert!(!msg.contains('\u{1b}'), "ANSI ESC must not survive in: {msg:?}");

@@ -1,10 +1,10 @@
 ---
 id: TASK-2745
 title: 'TEST-11: provider_resolve_root_auto_discover_fails_without_cargo_toml asserts only is_err()'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:28'
 labels:
   - code-review-rust
   - testing
@@ -29,7 +29,8 @@ dedup_key: 'TEST-11:extensions-rust/cargo-toml/src/tests/provider.rs:provider_re
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts the error is the workspace-root-not-found case (e.g. downcasts to FindWorkspaceRootError and checks is_not_found(), or matches the context message)
+- [x] #1 The test asserts the error is the workspace-root-not-found case (e.g. downcasts to FindWorkspaceRootError and checks is_not_found(), or matches the context message)
+
 <!-- AC:END -->
 
 ## Implementation Notes

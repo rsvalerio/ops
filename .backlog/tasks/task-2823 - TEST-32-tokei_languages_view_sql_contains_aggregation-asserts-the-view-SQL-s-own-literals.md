@@ -1,10 +1,10 @@
 ---
 id: TASK-2823
 title: 'TEST-32: tokei_languages_view_sql_contains_aggregation asserts the view SQL''s own literals'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:49'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - test
@@ -29,8 +29,9 @@ dedup_key: 'TEST-32:extensions/tokei/src/views.rs:tokei_languages_view_sql_conta
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tokei_languages_view_sql_contains_aggregation is removed, or replaced by an assertion on behaviour (aggregated rows) not on the SQL text
-- [ ] #2 cargo test -p ops-tokei passes
+- [x] #1 tokei_languages_view_sql_contains_aggregation is removed, or replaced by an assertion on behaviour (aggregated rows) not on the SQL text
+- [x] #2 cargo test -p ops-tokei passes
+
 <!-- AC:END -->
 
 ## Implementation Notes

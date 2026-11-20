@@ -1,10 +1,10 @@
 ---
 id: TASK-2805
 title: 'SEC-33: read_gitdir_pointer reads the .git pointer file with no size cap'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:21'
 labels:
   - code-review-rust
   - SEC
@@ -29,8 +29,9 @@ dedup_key: 'SEC-33:extensions/hook-common/src/git.rs:read_gitdir_pointer'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_gitdir_pointer reads the pointer through read_capped_to_string (or an equivalent take-bounded read) with a named MAX_* constant
-- [ ] #2 An over-cap .git pointer file is refused with a debug breadcrumb, covered by a unit test
+- [x] #1 read_gitdir_pointer reads the pointer through read_capped_to_string (or an equivalent take-bounded read) with a named MAX_* constant
+- [x] #2 An over-cap .git pointer file is refused with a debug breadcrumb, covered by a unit test
+
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: TASK-2752
 title: 'PERF-2: Size read_capped_source buffer from the known file size'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:52'
 labels:
   - code-review-rust
   - PERF
@@ -29,9 +29,10 @@ dedup_key: 'PERF-2:extensions-rust/loc/src/lib.rs:read_capped_source'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_capped_source pre-sizes its buffer from the size already known from open_sized (e.g. Vec::with_capacity of min(size, cap) + 1, converted without as-casts), or takes that size as a parameter
-- [ ] #2 Docs on MAX_SOURCE_BYTES / read_capped_source accurately describe the per-file resident bound
-- [ ] #3 Existing read_capped_source_detects_growth_past_the_cap and over-cap tests still pass
+- [x] #1 read_capped_source pre-sizes its buffer from the size already known from open_sized (e.g. Vec::with_capacity of min(size, cap) + 1, converted without as-casts), or takes that size as a parameter
+- [x] #2 Docs on MAX_SOURCE_BYTES / read_capped_source accurately describe the per-file resident bound
+- [x] #3 Existing read_capped_source_detects_growth_past_the_cap and over-cap tests still pass
+
 <!-- AC:END -->
 
 ## Implementation Notes

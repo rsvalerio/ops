@@ -131,7 +131,10 @@ pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 /// The cap is **per file, not per scan**: the walk runs on `ignore`'s
 /// parallel walker, so peak resident cost is this figure multiplied by the
 /// worker count (`ignore` defaults to the available parallelism). The cap
-/// bounds what any one worker can hold, not the process total.
+/// bounds what any one worker can hold, not the process total. Within a
+/// worker, the source buffer is sized from the file's measured length, so an
+/// unchanged file costs its own size plus one byte rather than a
+/// growth-rounded capacity.
 pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Walk `working_dir` for `.rs` files and classify each one.
@@ -294,7 +297,7 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
         );
         return streaming_outcome(&mut reader, region, deadline, path, relative);
     }
-    match read_capped_source(&mut reader, MAX_SOURCE_BYTES) {
+    match read_capped_source(&mut reader, MAX_SOURCE_BYTES, size) {
         Ok(Some(source)) => {
             // `count_source` warns on the nesting-depth cap but takes only
             // `&str`, so it has no path to name. Entering a span here adds
@@ -389,15 +392,30 @@ fn recount_grown_file(
 ///
 /// Reads `cap + 1` bytes so a file that grew past the cap after its size was
 /// checked is *detected* rather than silently read whole — `Ok(None)` tells the
-/// caller to degrade to the streaming count. The single extra byte keeps
-/// resident memory bounded by the cap even on that path.
+/// caller to degrade to the streaming count.
+///
+/// The buffer is sized up front from `measured_len`, the size the caller took
+/// from the open handle, clamped to the cap, plus one byte for the end-of-file
+/// probe. A file that has not changed since it was measured is therefore read
+/// into exactly `measured_len + 1` bytes with no reallocation. Only a file
+/// that grew after the measurement makes the buffer grow, and the `cap + 1`
+/// read limit still stops it: resident memory per file stays within `cap + 1`
+/// bytes of data, though growth past the pre-sized capacity can leave up to
+/// about twice that allocated.
 ///
 /// # Errors
 ///
 /// The read failed, or the bytes are not valid UTF-8 (the same `InvalidData`
 /// `read_to_string` produces).
-fn read_capped_source<R: Read>(reader: &mut R, cap: u64) -> std::io::Result<Option<String>> {
-    let mut bytes = Vec::new();
+fn read_capped_source<R: Read>(
+    reader: &mut R,
+    cap: u64,
+    measured_len: u64,
+) -> std::io::Result<Option<String>> {
+    // A length that does not fit `usize` only happens on a target narrower
+    // than the cap; falling back to an empty buffer just means growth.
+    let capacity = usize::try_from(measured_len.min(cap).saturating_add(1)).unwrap_or(0);
+    let mut bytes = Vec::with_capacity(capacity);
     reader.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
         return Ok(None);

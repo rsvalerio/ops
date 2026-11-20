@@ -1,10 +1,10 @@
 ---
 id: TASK-2757
 title: 'TEST-11: signal-kill-with-partial-stderr deny test asserts only is_err()'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:41'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-11:extensions-rust/deps/src/parse/deny/tests.rs:interpret_deny_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test unwraps the error with expect_err and asserts that its message names the signal-kill case, as its sibling test does
-- [ ] #2 The ops-deps tests pass
+- [x] #1 The test unwraps the error with expect_err and asserts that its message names the signal-kill case, as its sibling test does
+- [x] #2 The ops-deps tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes

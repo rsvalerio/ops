@@ -30,6 +30,7 @@ use crate::model::{Action, ClassifiedChange, Plan};
 use crate::render::render_outputs_table;
 use crate::render::render_resource_table;
 use crate::render::render_summary_table;
+use crate::render::{TableColor, TableWidth};
 
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
@@ -46,10 +47,22 @@ const DEFAULT_JSON_PLAN: &str = ".ops/tfplan.json";
 /// The CLI variant carries one `PlanOptions` and the dispatch arm forwards it
 /// directly to `run_plan_pipeline`, so adding a new flag only edits this
 /// struct.
+///
+/// `--json-file` selects a mode in which terraform never runs, so the flags
+/// that only steer a terraform run (`--out`, `--json-out`, `--keep-plan` and
+/// the passthrough arguments) conflict with it at parse time rather than
+/// being accepted and silently ignored.
 #[derive(clap::Args, Debug, Clone)]
 pub struct PlanOptions {
     /// Read plan JSON from a file instead of running terraform. Use `-` for stdin.
-    #[arg(long, value_name = "PATH")]
+    ///
+    /// Conflicts with `--out`, `--json-out`, `--keep-plan` and passthrough
+    /// arguments, which only apply when terraform runs.
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["out", "json_out", "keep_plan", "passthrough"]
+    )]
     pub json_file: Option<String>,
     /// Binary plan output path (default: .ops/tfplan.binary).
     #[arg(long, value_name = "PATH")]
@@ -69,7 +82,8 @@ pub struct PlanOptions {
     /// Show planned output value changes.
     #[arg(long)]
     pub show_outputs: bool,
-    /// Arguments passed through to `terraform plan` (default mode only).
+    /// Arguments passed through to `terraform plan` (default mode only;
+    /// rejected together with `--json-file`).
     ///
     /// `-out`, `-input`, `-detailed-exitcode` and `-json` are reserved by
     /// this pipeline and are rejected here; use `--out`,
@@ -105,13 +119,15 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
 ///
 /// If the plan JSON cannot be read (stdin, file, or a `terraform` invocation
 /// that fails or is not on `PATH`), is empty, or does not parse as a
-/// terraform plan; or if writing to the output sink fails.
+/// terraform plan; if writing to the output sink fails; or if
+/// `OPS_PLAN_JSON_MAX_BYTES` or `OPS_TERRAFORM_TIMEOUT_SECS` is set to anything
+/// but a positive integer.
 pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
     use std::io::IsTerminal;
-    let is_tty = std::io::stdout().is_terminal();
+    let width = TableWidth::for_terminal(std::io::stdout().is_terminal());
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    run_plan_pipeline_to_with_tty(opts, &mut handle, is_tty)
+    run_plan_pipeline_to_with_tty(opts, &mut handle, width)
 }
 
 /// Runs the plan pipeline, writing the rendered summary / resource / outputs
@@ -120,9 +136,9 @@ pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
 /// Library callers (LSP plugin, web UI, dry-run) and tests can supply their
 /// own `Vec<u8>` / file / pipe sink without spawning a subprocess.
 ///
-/// `is_tty` defaults to `false` because an arbitrary `&mut dyn Write` (a
-/// `Vec<u8>`, file, pipe) is not a terminal; width probing therefore stays
-/// disabled and snapshot output stays environment-independent. Callers that
+/// The width knob defaults to [`TableWidth::Fixed`] because an arbitrary
+/// `&mut dyn Write` (a `Vec<u8>`, file, pipe) is not a terminal; width probing
+/// therefore stays disabled and snapshot output stays environment-independent. Callers that
 /// *do* hand in a real TTY-backed writer should call
 /// [`run_plan_pipeline_to_with_tty`] explicitly.
 ///
@@ -130,31 +146,36 @@ pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
 ///
 /// If the plan JSON cannot be read (stdin, file, or a `terraform` invocation
 /// that fails or is not on `PATH`), is empty, or does not parse as a
-/// terraform plan; or if writing to the output sink fails.
+/// terraform plan; if writing to the output sink fails; or if
+/// `OPS_PLAN_JSON_MAX_BYTES` or `OPS_TERRAFORM_TIMEOUT_SECS` is set to anything
+/// but a positive integer.
 pub fn run_plan_pipeline_to(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
-    run_plan_pipeline_to_with_tty(opts, out, false)
+    run_plan_pipeline_to_with_tty(opts, out, TableWidth::Fixed)
 }
 
 /// Runs the plan pipeline, taking the writer's TTY-ness as a separate
 /// argument from the user's colour preference (`opts.no_color`).
 ///
-/// `is_tty` drives terminal-width probing in `render_resource_table`;
-/// `!opts.no_color` drives whether `Action::color()` is applied to cells.
+/// `width` ([`TableWidth`]) drives terminal-width probing in
+/// `render_resource_table`; `opts.no_color` decides the [`TableColor`] applied
+/// to cells.
 ///
 /// # Errors
 ///
 /// If the plan JSON cannot be read (stdin, file, or a `terraform` invocation
 /// that fails or is not on `PATH`), is empty, or does not parse as a
-/// terraform plan; or if writing to the output sink fails.
+/// terraform plan; if writing to the output sink fails; or if
+/// `OPS_PLAN_JSON_MAX_BYTES` or `OPS_TERRAFORM_TIMEOUT_SECS` is set to anything
+/// but a positive integer.
 pub fn run_plan_pipeline_to_with_tty(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
-    is_tty: bool,
+    width: TableWidth,
 ) -> anyhow::Result<ExitCode> {
-    run_plan_pipeline_code(opts, out, is_tty).map(ExitCode::from)
+    run_plan_pipeline_code(opts, out, width).map(ExitCode::from)
 }
 
 /// Runs the whole pipeline and returns the process exit code as a plain `u8`.
@@ -169,9 +190,9 @@ pub fn run_plan_pipeline_to_with_tty(
 fn run_plan_pipeline_code(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
-    is_tty: bool,
+    width: TableWidth,
 ) -> anyhow::Result<u8> {
-    run_plan_pipeline_code_with(opts, out, is_tty, &PipelineEnv::from_env())
+    run_plan_pipeline_code_with(opts, out, width, &PipelineEnv::from_env()?)
 }
 
 /// The injectable twin of [`run_plan_pipeline_code`]: same pipeline,
@@ -183,24 +204,24 @@ fn run_plan_pipeline_code(
 fn run_plan_pipeline_code_with(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
-    is_tty: bool,
+    width: TableWidth,
     env: &PipelineEnv,
 ) -> anyhow::Result<u8> {
     // Artifacts are recorded as this run creates them
     // so cleanup can run on *every* exit path below, not only on success.
     let mut created: Vec<PathBuf> = Vec::new();
-    let result = plan_pipeline_body(opts, out, is_tty, &mut created, env);
+    let result = plan_pipeline_body(opts, out, width, &mut created, env);
     with_artifact_cleanup(opts, &created, result)
 }
 
 fn plan_pipeline_body(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
-    is_tty: bool,
+    width: TableWidth,
     created: &mut Vec<PathBuf>,
     env: &PipelineEnv,
 ) -> anyhow::Result<u8> {
-    let use_color = !opts.no_color;
+    let color = if opts.no_color { TableColor::Off } else { TableColor::On };
 
     let json_str = match opts.json_file.as_deref() {
         Some("-") => read_stdin(env.json_cap)?,
@@ -214,19 +235,19 @@ fn plan_pipeline_body(
 
     let (plan, classified) = parse_and_classify(&json_str)?;
 
-    let summary = render_summary_table(&classified, use_color);
+    let summary = render_summary_table(&classified, color);
     write!(out, "{summary}").context("write summary table")?;
 
     let changes_present = classified.iter().any(|c| c.action.is_change());
     if changes_present {
-        let resources = render_resource_table(&classified, is_tty, use_color);
+        let resources = render_resource_table(&classified, width, color);
         write!(out, "{resources}").context("write resource table")?;
     }
 
     if opts.show_outputs {
         if let Some(ref outputs) = plan.output_changes {
             if !outputs.is_empty() {
-                let out_tbl = render_outputs_table(outputs, use_color);
+                let out_tbl = render_outputs_table(outputs, color);
                 write!(out, "{out_tbl}").context("write outputs table")?;
             }
         }
@@ -255,17 +276,35 @@ fn with_artifact_cleanup<T>(
     result
 }
 
+/// Classifies every resource change in `plan`, one row per entry.
+///
+/// No entry is ever dropped: a `resource_changes` entry whose `actions` list
+/// is empty classifies as [`Action::Unknown`] with a `tracing::warn!`, the
+/// same fail-closed degradation the outputs table applies. Dropping it would
+/// hide the row from every table and from [`has_changes`], so the
+/// `--detailed-exitcode` gate could report "no changes" for a plan this
+/// build could not read.
 fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
     plan.resource_changes
         .as_ref()
         .map(|rcs| {
             rcs.iter()
-                .filter_map(|rc| {
+                .map(|rc| {
+                    let action = Action::classify(&rc.change.actions).unwrap_or_else(|| {
+                        // The address is untrusted plan text and this event
+                        // may land on a terminal, so it is sanitized first.
+                        tracing::warn!(
+                            address = %sanitize_terminal_text(&rc.address),
+                            "terraform resource change reports an empty `actions` list; \
+                             surfacing as Unknown"
+                        );
+                        Action::Unknown
+                    });
                     // Sanitize at ingress as well as at
                     // the render sink, so the control characters never enter
                     // the public `ClassifiedChange` a library caller may print
                     // itself. `mode` is carried but not rendered by this crate.
-                    Action::classify(&rc.change.actions).map(|action| ClassifiedChange {
+                    ClassifiedChange {
                         action,
                         address: sanitize_terminal_text(&rc.address),
                         resource_type: sanitize_terminal_text(
@@ -283,7 +322,7 @@ fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
                             .mode
                             .as_deref()
                             .map_or_else(|| "managed".to_string(), sanitize_terminal_text),
-                    })
+                    }
                 })
                 .collect()
         })
@@ -366,15 +405,51 @@ const TERRAFORM_TIMEOUT_SECS_ENV: &str = "OPS_TERRAFORM_TIMEOUT_SECS";
 /// The configured wall-clock bound, in the same shape
 /// as [`plan_json_max_bytes`] — a positive integer through the documented
 /// env var, otherwise the documented default.
-fn terraform_timeout() -> std::time::Duration {
-    std::env::var(TERRAFORM_TIMEOUT_SECS_ENV)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&n| n > 0)
-        .map_or_else(
-            || std::time::Duration::from_secs(DEFAULT_TERRAFORM_TIMEOUT_SECS),
-            std::time::Duration::from_secs,
+///
+/// # Errors
+///
+/// If the variable is set to anything but a positive integer
+/// ([`parse_positive_override`]).
+fn terraform_timeout() -> anyhow::Result<std::time::Duration> {
+    let secs = parse_positive_override(
+        TERRAFORM_TIMEOUT_SECS_ENV,
+        std::env::var_os(TERRAFORM_TIMEOUT_SECS_ENV),
+    )?;
+    Ok(std::time::Duration::from_secs(secs.unwrap_or(DEFAULT_TERRAFORM_TIMEOUT_SECS)))
+}
+
+/// Parses a positive-integer override from the raw value of the
+/// environment variable `var`.
+///
+/// Unset, or set to the empty string (the `VAR= cmd` idiom for "unset"), is
+/// `Ok(None)`, so the caller applies its documented default. Anything else
+/// must be a plain positive decimal integer: a value such as `512MB`, `1e9`,
+/// ` 600`, `0` or a non-UTF-8 string is an error naming the variable and the
+/// rejected value. Falling back to the default instead would discard the
+/// operator's explicit setting without a word, and the cap's own error would
+/// then point at the very variable that was ignored.
+///
+/// The raw value is a parameter rather than an env read so the parsing is
+/// testable on injected strings without mutating the process environment.
+///
+/// # Errors
+///
+/// If `raw` is set, non-empty, and not a positive decimal integer.
+fn parse_positive_override(
+    var: &str,
+    raw: Option<std::ffi::OsString>,
+) -> anyhow::Result<Option<u64>> {
+    let Some(raw) = raw.filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    raw.to_str().and_then(|s| s.parse::<u64>().ok()).filter(|&n| n > 0).map(Some).ok_or_else(|| {
+        // Debug formatting escapes control characters in the echoed value.
+        anyhow::anyhow!(
+            "{var}={:?} is not a positive integer; set it to a whole number \
+                 greater than zero, or unset it to use the default",
+            raw.to_string_lossy()
         )
+    })
 }
 
 /// Waits for a terraform child under the wall-clock bound.
@@ -406,12 +481,19 @@ fn wait_for_child(
     }
 }
 
-fn plan_json_max_bytes() -> u64 {
-    std::env::var(PLAN_JSON_MAX_BYTES_ENV)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_PLAN_JSON_MAX_BYTES)
+/// The configured plan-JSON byte cap: a positive integer through
+/// `OPS_PLAN_JSON_MAX_BYTES`, otherwise [`DEFAULT_PLAN_JSON_MAX_BYTES`].
+///
+/// # Errors
+///
+/// If the variable is set to anything but a positive integer
+/// ([`parse_positive_override`]).
+fn plan_json_max_bytes() -> anyhow::Result<u64> {
+    let bytes = parse_positive_override(
+        PLAN_JSON_MAX_BYTES_ENV,
+        std::env::var_os(PLAN_JSON_MAX_BYTES_ENV),
+    )?;
+    Ok(bytes.unwrap_or(DEFAULT_PLAN_JSON_MAX_BYTES))
 }
 
 /// Everything this pipeline reads from the process environment, resolved
@@ -438,12 +520,17 @@ struct PipelineEnv {
 impl PipelineEnv {
     /// The production resolution: documented env overrides where set,
     /// documented defaults otherwise.
-    fn from_env() -> Self {
-        Self {
-            json_cap: plan_json_max_bytes(),
-            timeout: terraform_timeout(),
+    ///
+    /// # Errors
+    ///
+    /// If either override is set to anything but a positive integer, so a
+    /// mistyped setting fails the run up front instead of being ignored.
+    fn from_env() -> anyhow::Result<Self> {
+        Ok(Self {
+            json_cap: plan_json_max_bytes()?,
+            timeout: terraform_timeout()?,
             terraform_program: "terraform".to_string(),
-        }
+        })
     }
 }
 
@@ -804,7 +891,50 @@ fn run_terraform_plan(
     // it survived on disk (and `--keep-plan` keeps it forever).
     harden_artifact_permissions(binary_path);
 
-    plan_status_result(opts.detailed_exitcode, status.code(), status.success())
+    plan_status_result(opts.detailed_exitcode, ChildExit::from_status(status))
+}
+
+/// How a terraform child ended: with an exit code, or killed by a signal.
+///
+/// `ExitStatus::code()` is `None` exactly when the child did not exit on its
+/// own (on unix, a signal: the OOM killer, a CI runner's `SIGTERM`, a
+/// `SIGKILL`). Carrying that case as its own variant keeps the error from
+/// inventing an exit code terraform never returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildExit {
+    /// The child exited with this code.
+    Code(i32),
+    /// The child was terminated by a signal; the number, where the platform
+    /// reports one.
+    Signal(Option<i32>),
+}
+
+impl ChildExit {
+    fn from_status(status: std::process::ExitStatus) -> Self {
+        status.code().map_or_else(|| Self::Signal(exit_signal(status)), Self::Code)
+    }
+
+    /// The failure message for `invocation` ending this way.
+    fn failure_message(self, invocation: &str) -> String {
+        match self {
+            Self::Code(c) => format!("{invocation} failed with exit code {c}"),
+            Self::Signal(Some(n)) => format!("{invocation} was terminated by signal {n}"),
+            Self::Signal(None) => format!("{invocation} was terminated by a signal"),
+        }
+    }
+}
+
+/// The signal that terminated the child, on platforms that report one.
+#[cfg(unix)]
+fn exit_signal(status: std::process::ExitStatus) -> Option<i32> {
+    use std::os::unix::process::ExitStatusExt as _;
+    status.signal()
+}
+
+/// The signal that terminated the child, on platforms that report one.
+#[cfg(not(unix))]
+const fn exit_signal(_status: std::process::ExitStatus) -> Option<i32> {
+    None
 }
 
 /// Interprets `terraform plan`'s exit status, with one failure constructor
@@ -812,17 +942,18 @@ fn run_terraform_plan(
 ///
 /// The two branches differ only in which codes count as success: with
 /// `-detailed-exitcode`, terraform uses 2 for "succeeded, changes present";
-/// without it, only 0 is success.
-fn plan_status_result(
-    detailed_exitcode: bool,
-    code: Option<i32>,
-    success: bool,
-) -> anyhow::Result<()> {
-    let ok = if detailed_exitcode { matches!(code, Some(0 | 2)) } else { success };
+/// without it, only 0 is success. A child terminated by a signal is a failure
+/// either way, reported as such rather than as an exit code.
+fn plan_status_result(detailed_exitcode: bool, exit: ChildExit) -> anyhow::Result<()> {
+    let ok = match exit {
+        ChildExit::Code(0) => true,
+        ChildExit::Code(2) => detailed_exitcode,
+        ChildExit::Code(_) | ChildExit::Signal(_) => false,
+    };
     if ok {
         Ok(())
     } else {
-        bail!("terraform plan failed with exit code {}", code.unwrap_or(1));
+        bail!("{}", exit.failure_message("terraform plan"));
     }
 }
 
@@ -872,7 +1003,7 @@ fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<St
     if status.success() {
         Ok(json_str)
     } else {
-        Err(show_failure_error(status.code(), &stderr_bytes))
+        Err(show_failure_error(ChildExit::from_status(status), &stderr_bytes))
     }
 }
 
@@ -886,26 +1017,16 @@ fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<St
 /// errors flow, including any caller's log. The message keeps the exit
 /// status; the diagnostics go to `tracing::debug!`, the same routing
 /// `cleanup_artifacts` uses for operator-only detail.
-fn show_failure_error(code: Option<i32>, stderr: &[u8]) -> anyhow::Error {
+fn show_failure_error(exit: ChildExit, stderr: &[u8]) -> anyhow::Error {
     if !stderr.is_empty() {
         tracing::debug!(
             stderr = %String::from_utf8_lossy(stderr),
             "`terraform show -json` diagnostics (truncated to {TERRAFORM_STDERR_MAX_BYTES} bytes)"
         );
     }
-    code.map_or_else(
-        || {
-            anyhow::anyhow!(
-                "`terraform show -json` was terminated by a signal; \
-                 its diagnostics were logged at debug level"
-            )
-        },
-        |c| {
-            anyhow::anyhow!(
-                "`terraform show -json` failed with exit code {c}; \
-                 its diagnostics were logged at debug level"
-            )
-        },
+    anyhow::anyhow!(
+        "{}; its diagnostics were logged at debug level",
+        exit.failure_message("`terraform show -json`")
     )
 }
 
@@ -978,6 +1099,51 @@ mod tests {
         let path = dir.join("plan.json");
         std::fs::write(&path, contents).unwrap();
         path
+    }
+
+    /// Parses `args` the way the CLI does, through the clap-derived flags.
+    fn parse_cli(args: &[&str]) -> Result<PlanOptions, clap::Error> {
+        #[derive(clap::Parser, Debug)]
+        struct Cli {
+            #[command(flatten)]
+            opts: PlanOptions,
+        }
+        <Cli as clap::Parser>::try_parse_from(std::iter::once("plans").chain(args.iter().copied()))
+            .map(|cli| cli.opts)
+    }
+
+    /// Every terraform-mode flag is rejected beside `--json-file` with a
+    /// clap conflict naming both flags, instead of being silently dropped.
+    #[test]
+    fn json_file_rejects_terraform_mode_flags() {
+        for (extra, named) in [
+            (&["--out", "x.binary"][..], "--out"),
+            (&["--json-out", "x.json"][..], "--json-out"),
+            (&["--keep-plan"][..], "--keep-plan"),
+            (&["--", "-target=foo"][..], "passthrough"),
+        ] {
+            let mut args = vec!["--json-file", "plan.json"];
+            args.extend_from_slice(extra);
+            let err = parse_cli(&args).expect_err("conflicting flags must be rejected");
+            assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict, "{extra:?}");
+            let msg = err.to_string();
+            assert!(msg.contains("--json-file"), "error must name --json-file: {msg}");
+            assert!(msg.to_lowercase().contains(named), "error must name {named}: {msg}");
+        }
+    }
+
+    /// The flags that apply in both modes still combine with `--json-file`,
+    /// and the terraform-mode flags still parse without it.
+    #[test]
+    fn json_file_accepts_mode_independent_flags() {
+        let opts = parse_cli(&["--json-file", "plan.json", "--no-color", "--detailed-exitcode"])
+            .expect("mode-independent flags combine with --json-file");
+        assert_eq!(opts.json_file.as_deref(), Some("plan.json"));
+        assert!(opts.no_color && opts.detailed_exitcode);
+
+        let opts = parse_cli(&["--keep-plan", "--out", "x.binary", "--", "-target=foo"])
+            .expect("terraform-mode flags parse without --json-file");
+        assert_eq!(opts.passthrough, vec!["-target=foo"]);
     }
 
     #[test]
@@ -1107,6 +1273,38 @@ mod tests {
         assert_eq!(c.changed, vec!["source_details.image_id"]);
     }
 
+    /// A resource change whose `actions` list is empty fails closed: it is
+    /// kept as an `unknown` row under the warning banner, counts as a change,
+    /// and drives `--detailed-exitcode` to 2 instead of vanishing.
+    #[test]
+    fn classify_plan_surfaces_empty_actions_as_unknown() {
+        let json = r#"{
+            "format_version": "1.2",
+            "resource_changes": [
+                {
+                    "address": "aws_instance.web",
+                    "type": "aws_instance",
+                    "name": "web",
+                    "change": { "actions": [] }
+                }
+            ]
+        }"#;
+        let (_plan, changes) = parse_and_classify(json).expect("parse should succeed");
+        assert_eq!(changes.len(), 1, "the entry must not be dropped");
+        assert_eq!(changes[0].action, Action::Unknown);
+        assert!(has_changes(&changes));
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = stage_fixture(dir.path(), json);
+        let opts = PlanOptions { detailed_exitcode: true, ..opts_for_fixture(&path) };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed).expect("pipeline ok");
+        assert_eq!(code, 2, "an unreadable change must not report 'no changes'");
+        let rendered = String::from_utf8(buf).unwrap();
+        assert!(rendered.contains("WARNING: 1 resource change(s)"), "banner missing: {rendered}");
+        assert!(rendered.contains("unknown"), "unknown row missing: {rendered}");
+    }
+
     /// A plan JSON larger than the cap must be
     /// rejected without being slurped into memory. Override the cap to
     /// 64 bytes via `OPS_PLAN_JSON_MAX_BYTES` so the test stays fast.
@@ -1125,40 +1323,25 @@ mod tests {
         assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
     }
 
-    /// The stdin branch applies the same cap as the file branch: without it
-    /// the `--json-file=-` path (`cat /dev/zero | ops terraform plan
-    /// --json-file=-`) would OOM the renderer.
+    /// Every ingress point (the `-` stdin form, `--json-file`, and the
+    /// `terraform show -json` stdout of the default path) shares the capped
+    /// reader, so an over-cap payload is rejected the same way whatever the
+    /// source: the error names the source, the cap, and the
+    /// `OPS_PLAN_JSON_MAX_BYTES` override. Without the cap
+    /// `cat /dev/zero | ops plans --json-file=-` would OOM the renderer.
     #[test]
-    fn read_stdin_rejects_oversized_payload() {
-        let mut reader = std::io::Cursor::new(vec![b'x'; 1024]);
-        let result = read_capped(&mut reader, "on stdin", 64);
-        let err = result.expect_err("oversized stdin plan JSON must error");
-        let msg = format!("{err}");
-        assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
-        assert!(
-            msg.contains(PLAN_JSON_MAX_BYTES_ENV),
-            "error must name the override env var, got: {msg}"
-        );
-    }
-
-    /// The `terraform show -json` branch shares the capped reader, so the cap
-    /// and the documented override are named for that source too — the
-    /// default invocation is an ingress point `OPS_PLAN_JSON_MAX_BYTES` must
-    /// govern like the other two.
-    #[test]
-    fn read_capped_rejects_oversized_terraform_show_output() {
-        let mut reader = std::io::Cursor::new(vec![b'x'; 4096]);
-        let result = read_capped(&mut reader, "from `terraform show -json`", 32);
-        let msg = format!("{}", result.expect_err("oversized show output must error"));
-        assert!(
-            msg.contains("from `terraform show -json`"),
-            "error must name the source, got: {msg}"
-        );
-        assert!(msg.contains("exceeds 32 bytes"), "error must name the cap, got: {msg}");
-        assert!(
-            msg.contains(PLAN_JSON_MAX_BYTES_ENV),
-            "error must name the override env var, got: {msg}"
-        );
+    fn read_capped_rejects_over_cap_payload_from_every_source() {
+        for source in ["on stdin", "at plan.json", "from `terraform show -json`"] {
+            let mut reader = std::io::Cursor::new(vec![b'x'; 1024]);
+            let err = read_capped(&mut reader, source, 64).expect_err("over-cap must error");
+            let msg = format!("{err}");
+            assert!(msg.contains(source), "error must name the source, got: {msg}");
+            assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
+            assert!(
+                msg.contains(PLAN_JSON_MAX_BYTES_ENV),
+                "error must name the override env var, got: {msg}"
+            );
+        }
     }
 
     /// Over-cap is a cap error regardless of encoding. Deciding the size
@@ -1367,7 +1550,7 @@ mod tests {
         let result = run_plan_pipeline_code_with(
             &opts,
             &mut out,
-            false,
+            TableWidth::Fixed,
             &PipelineEnv {
                 json_cap: DEFAULT_PLAN_JSON_MAX_BYTES,
                 timeout: std::time::Duration::from_secs(1),
@@ -1415,7 +1598,7 @@ mod tests {
         let result = run_plan_pipeline_code_with(
             &opts,
             &mut out,
-            false,
+            TableWidth::Fixed,
             &PipelineEnv {
                 json_cap: DEFAULT_PLAN_JSON_MAX_BYTES,
                 timeout: std::time::Duration::from_secs(1),
@@ -1431,13 +1614,13 @@ mod tests {
         assert!(!binary.exists(), "artifact cleanup must still remove the plan artifact");
     }
 
-    /// A stdin payload at or below the cap must read
-    /// through unchanged.
+    /// A payload exactly at the cap reads through unchanged: the cap is
+    /// inclusive.
     #[test]
-    fn read_stdin_at_cap_returns_payload() {
+    fn read_capped_at_cap_returns_payload_unchanged() {
         let mut reader = std::io::Cursor::new(b"12345678".to_vec());
         let result = read_capped(&mut reader, "on stdin", 8);
-        assert_eq!(result.expect("at-cap stdin payload reads ok"), "12345678");
+        assert_eq!(result.expect("at-cap payload reads ok"), "12345678");
     }
 
     /// `run_plan_pipeline_to` writes its rendered tables
@@ -1474,7 +1657,7 @@ mod tests {
         let opts = PlanOptions { detailed_exitcode: true, ..opts_for_fixture(&path) };
 
         let mut buf: Vec<u8> = Vec::new();
-        let code = run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok");
+        let code = run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed).expect("pipeline ok");
         assert_eq!(code, 2, "changes present under --detailed-exitcode is 2");
     }
 
@@ -1488,7 +1671,7 @@ mod tests {
         let opts = PlanOptions { detailed_exitcode: true, ..opts_for_fixture(&no_changes) };
         let mut buf: Vec<u8> = Vec::new();
         assert_eq!(
-            run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok"),
+            run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed).expect("pipeline ok"),
             0,
             "a no-op-only plan is 0 even under --detailed-exitcode"
         );
@@ -1498,7 +1681,7 @@ mod tests {
         let opts = opts_for_fixture(&with_changes);
         let mut buf: Vec<u8> = Vec::new();
         assert_eq!(
-            run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok"),
+            run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed).expect("pipeline ok"),
             0,
             "changes without --detailed-exitcode is 0"
         );
@@ -1512,7 +1695,7 @@ mod tests {
 
         let opts = PlanOptions { show_outputs: true, ..opts_for_fixture(&path) };
         let mut buf: Vec<u8> = Vec::new();
-        run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok");
+        run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed).expect("pipeline ok");
         let out = String::from_utf8(buf).expect("utf-8");
         assert!(out.contains("Output"), "outputs table header must appear: {out}");
         assert!(out.contains("db_password"), "output name must appear: {out}");
@@ -1520,7 +1703,7 @@ mod tests {
         // Without the flag the same fixture must not render it.
         let opts = opts_for_fixture(&path);
         let mut buf: Vec<u8> = Vec::new();
-        run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok");
+        run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed).expect("pipeline ok");
         let out = String::from_utf8(buf).expect("utf-8");
         assert!(
             !out.contains("db_password"),
@@ -1535,7 +1718,7 @@ mod tests {
         let path = stage_fixture(dir.path(), "   \n\t  ");
         let opts = opts_for_fixture(&path);
         let mut buf: Vec<u8> = Vec::new();
-        let err = run_plan_pipeline_code(&opts, &mut buf, false)
+        let err = run_plan_pipeline_code(&opts, &mut buf, TableWidth::Fixed)
             .expect_err("whitespace-only plan JSON must error");
         assert!(
             format!("{err}").contains("plan JSON is empty"),
@@ -1546,7 +1729,7 @@ mod tests {
     /// Piped output (a `Vec<u8>` sink) produces byte-identical bytes
     /// regardless of the host terminal width, even when the caller has *not*
     /// requested `--no-color`. Colour and TTY detection are separate knobs, so
-    /// `run_plan_pipeline_to` defaults `is_tty=false` for buffered sinks and
+    /// `run_plan_pipeline_to` defaults to `TableWidth::Fixed` for buffered sinks and
     /// never probes `terminal_size::terminal_size()` for the Changes column.
     #[test]
     fn run_plan_pipeline_to_buffered_sink_is_terminal_width_independent() {
@@ -1571,12 +1754,13 @@ mod tests {
             "byte-identical output is required across runs for a buffered sink"
         );
 
-        // And explicitly: passing is_tty=false through the
+        // And explicitly: passing `TableWidth::Fixed` through the
         // `_with_tty` form must match the default `_to` behaviour, so
         // there is one canonical "buffered sink" rendering.
         let mut buf_c: Vec<u8> = Vec::new();
-        run_plan_pipeline_to_with_tty(&make_opts(), &mut buf_c, false).expect("pipeline ok");
-        assert_eq!(buf_a, buf_c, "run_plan_pipeline_to must default is_tty=false");
+        run_plan_pipeline_to_with_tty(&make_opts(), &mut buf_c, TableWidth::Fixed)
+            .expect("pipeline ok");
+        assert_eq!(buf_a, buf_c, "run_plan_pipeline_to must default to TableWidth::Fixed");
     }
 
     #[test]
@@ -1782,7 +1966,7 @@ mod tests {
     #[test]
     fn show_failure_error_omits_the_captured_stderr_body() {
         let stderr = b"Error: invalid provider credentials: AKIAIOSFODNN7EXAMPLE / wJalrXUtnFEMI";
-        let msg = format!("{}", show_failure_error(Some(1), stderr));
+        let msg = format!("{}", show_failure_error(ChildExit::Code(1), stderr));
         assert!(
             !msg.contains("AKIAIOSFODNN7EXAMPLE"),
             "the secret-bearing stderr body must not appear: {msg}"
@@ -1793,9 +1977,9 @@ mod tests {
         );
         assert!(msg.contains("exit code 1"), "the exit status must be reported: {msg}");
 
-        let signalled = format!("{}", show_failure_error(None, b""));
+        let signalled = format!("{}", show_failure_error(ChildExit::Signal(Some(9)), b""));
         assert!(
-            signalled.contains("signal"),
+            signalled.contains("terminated by signal 9"),
             "a signalled child must still be described: {signalled}"
         );
     }
@@ -1848,7 +2032,12 @@ mod tests {
             ..test_opts()
         };
         let mut created = Vec::new();
-        let err = run_terraform_pipeline(&opts, &mut created, &PipelineEnv::from_env())
+        let env = PipelineEnv {
+            json_cap: DEFAULT_PLAN_JSON_MAX_BYTES,
+            timeout: std::time::Duration::from_secs(DEFAULT_TERRAFORM_TIMEOUT_SECS),
+            terraform_program: "terraform".to_string(),
+        };
+        let err = run_terraform_pipeline(&opts, &mut created, &env)
             .expect_err("reserved flag must error");
         assert!(format!("{err}").contains("reserved by `ops plans`"));
         assert!(created.is_empty(), "nothing may be recorded as created before terraform runs");
@@ -1858,19 +2047,77 @@ mod tests {
     /// this pins the success and failure codes of each.
     #[test]
     fn plan_status_interpretation_matches_terraform_exit_codes() {
-        plan_status_result(true, Some(0), true).expect("detailed 0 is success");
-        plan_status_result(true, Some(2), false).expect("detailed 2 is success");
-        plan_status_result(false, Some(0), true).expect("plain 0 is success");
+        plan_status_result(true, ChildExit::Code(0)).expect("detailed 0 is success");
+        plan_status_result(true, ChildExit::Code(2)).expect("detailed 2 is success");
+        plan_status_result(false, ChildExit::Code(0)).expect("plain 0 is success");
 
-        let err = plan_status_result(true, Some(1), false).expect_err("detailed 1 is failure");
+        let err = plan_status_result(true, ChildExit::Code(1)).expect_err("detailed 1 is failure");
         assert!(format!("{err}").contains("exit code 1"));
 
         // Without -detailed-exitcode, 2 is a plain failure.
-        let err = plan_status_result(false, Some(2), false).expect_err("plain 2 is failure");
+        let err = plan_status_result(false, ChildExit::Code(2)).expect_err("plain 2 is failure");
         assert!(format!("{err}").contains("exit code 2"));
 
-        // A signalled child reports no code; the message falls back to 1.
-        let err = plan_status_result(false, None, false).expect_err("signalled child is failure");
-        assert!(format!("{err}").contains("exit code 1"));
+        // A signalled child reports the signal, never a fabricated exit code,
+        // under either interpretation.
+        for detailed in [false, true] {
+            let err = plan_status_result(detailed, ChildExit::Signal(Some(9)))
+                .expect_err("signalled child is failure");
+            let msg = format!("{err}");
+            assert!(msg.contains("terminated by signal 9"), "{msg}");
+            assert!(!msg.contains("exit code"), "no exit code may be invented: {msg}");
+        }
+        let err = plan_status_result(false, ChildExit::Signal(None))
+            .expect_err("signalled child is failure");
+        assert!(format!("{err}").contains("terminated by a signal"));
+    }
+
+    /// A real child killed by a signal is classified as `Signal`, carrying
+    /// the signal number.
+    #[cfg(unix)]
+    #[test]
+    fn child_exit_reads_the_terminating_signal() {
+        use std::os::unix::process::ExitStatusExt as _;
+        // Raw wait status 9: terminated by SIGKILL, no exit code.
+        let status = std::process::ExitStatus::from_raw(9);
+        assert_eq!(ChildExit::from_status(status), ChildExit::Signal(Some(9)));
+        // Raw wait status 0x0100: exited with code 1.
+        let status = std::process::ExitStatus::from_raw(0x0100);
+        assert_eq!(ChildExit::from_status(status), ChildExit::Code(1));
+    }
+
+    /// Unset and empty overrides fall through to the caller's default, and
+    /// a plain positive integer is taken as given.
+    #[test]
+    fn parse_positive_override_accepts_unset_empty_and_positive_values() {
+        let var = PLAN_JSON_MAX_BYTES_ENV;
+        assert_eq!(parse_positive_override(var, None).unwrap(), None);
+        assert_eq!(parse_positive_override(var, Some("".into())).unwrap(), None);
+        assert_eq!(parse_positive_override(var, Some("600".into())).unwrap(), Some(600));
+    }
+
+    /// A set-but-invalid override is an error naming the variable and the
+    /// rejected value, never a silent fallback to the default.
+    #[test]
+    fn parse_positive_override_rejects_invalid_values_naming_variable_and_value() {
+        let var = TERRAFORM_TIMEOUT_SECS_ENV;
+        for bad in ["512MB", "1e9", " 600", "0", "-1"] {
+            let err = parse_positive_override(var, Some(bad.into()))
+                .expect_err("an invalid override must be rejected");
+            let msg = format!("{err}");
+            assert!(msg.contains(var), "error must name {var}: {msg}");
+            assert!(msg.contains(&format!("{bad:?}")), "error must echo {bad:?}: {msg}");
+        }
+    }
+
+    /// A non-UTF-8 value is rejected too, not read as unset.
+    #[cfg(unix)]
+    #[test]
+    fn parse_positive_override_rejects_non_utf8_value() {
+        use std::os::unix::ffi::OsStringExt as _;
+        let raw = std::ffi::OsString::from_vec(vec![0x36, 0xff, 0x30]);
+        let err = parse_positive_override(PLAN_JSON_MAX_BYTES_ENV, Some(raw))
+            .expect_err("a non-UTF-8 override must be rejected");
+        assert!(format!("{err}").contains(PLAN_JSON_MAX_BYTES_ENV));
     }
 }

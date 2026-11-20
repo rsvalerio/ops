@@ -1,10 +1,10 @@
 ---
 id: TASK-2813
 title: 'TEST-11: has_staged_files_errors_outside_git_repo accepts any error containing "failed"'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -29,12 +29,16 @@ dedup_key: 'TEST-11:extensions/run-before-commit/src/lib.rs:tests::has_staged_fi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts the specific HasStagedFilesError variant returned for a non-repository directory
-- [ ] #2 The disjunction on the generic substring "failed" is removed
+- [x] #1 The test asserts the specific HasStagedFilesError variant returned for a non-repository directory
+- [x] #2 The disjunction on the generic substring "failed" is removed
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.28 (code-review-rust run, 2026-11-18).
+
+git outside a repository exits 129 (unknown option cached, --no-index fallback) on current git and 128 on older releases; the test asserts NonZeroExit with Some(128|129) and git's diagnostic. Test moved to extensions/hook-common/tests/git_state.rs with TASK-2804.
+
 <!-- SECTION:NOTES:END -->

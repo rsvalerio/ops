@@ -1275,3 +1275,74 @@ fn available_annotation_parses_without_warn() {
         "an unknown annotation must still warn; got {logged:?}"
     );
 }
+
+/// Every note shape cargo's lockfile-change printer appends (latest version,
+/// MSRV, publish age) parses without the trailing-tokens warn, on `Adding`
+/// lines as well as `Updating` lines, and leaves the version fields intact.
+#[test]
+fn cargo_annotation_shapes_parse_without_warn() {
+    let updating = [
+        "    Updating jiff v0.2.35 -> v0.2.46 (available: v1.0.1, requires Rust 1.85)\n",
+        "    Updating jiff v0.2.35 -> v0.2.46 (requires Rust 1.85)\n",
+        "    Updating jiff v0.2.35 -> v0.2.46 (available: v1.0.1, published 3 days ago)\n",
+        "    Updating jiff v0.2.35 -> v0.2.46 (available: v1.0.1, requires Rust 1.85, published 3 days ago)\n",
+        "    Updating jiff v0.2.35 -> v0.2.46 (published 2 days ago, minimum age 7 days)\n",
+    ];
+    for line in updating {
+        let logged = capture_warn(|| {
+            let result = parse_update_output(line.as_bytes());
+            assert_eq!(result.entries.len(), 1, "{line:?}");
+            let entry = &result.entries[0];
+            assert_eq!(entry.name(), "jiff");
+            assert_eq!(entry.from(), Some("0.2.35"));
+            assert_eq!(entry.to(), Some("0.2.46"));
+        });
+        assert!(
+            !logged.contains("unexpected trailing tokens"),
+            "cargo note on {line:?} must not warn; got {logged:?}"
+        );
+    }
+
+    let adding = [
+        "      Adding foo v0.1.0 (available: v0.2.0)\n",
+        "      Adding foo v0.1.0 (available: v0.2.0, requires Rust 1.85)\n",
+        "      Adding foo v0.1.0 (requires Rust 1.85)\n",
+    ];
+    for line in adding {
+        let logged = capture_warn(|| {
+            let result = parse_update_output(line.as_bytes());
+            assert_eq!(result.entries.len(), 1, "{line:?}");
+            let entry = &result.entries[0];
+            assert_eq!(entry.name(), "foo");
+            assert_eq!(entry.to(), Some("0.1.0"));
+            assert!(entry.from().is_none());
+        });
+        assert!(
+            !logged.contains("unexpected trailing tokens"),
+            "cargo note on {line:?} must not warn; got {logged:?}"
+        );
+    }
+}
+
+/// Near misses of cargo's note shapes are still format drift and still warn.
+#[test]
+fn malformed_cargo_annotation_still_warns() {
+    let lines = [
+        "    Updating serde v1.0.0 -> v1.0.1 (available: v2.0.0, frobnicated)\n",
+        "    Updating serde v1.0.0 -> v1.0.1 (available: latest)\n",
+        "    Updating serde v1.0.0 -> v1.0.1 (requires Rust 1.85) extra\n",
+        "    Updating serde v1.0.0 -> v1.0.1 (requires Rust)\n",
+        "    Updating serde v1.0.0 -> v1.0.1 (available: v2.0.0, requires Rust 1.85, requires Rust 1.86)\n",
+        "      Adding foo v0.1.0 (published 3 days ago\n",
+    ];
+    for line in lines {
+        let logged = capture_warn(|| {
+            let result = parse_update_output(line.as_bytes());
+            assert_eq!(result.entries.len(), 1, "{line:?}");
+        });
+        assert!(
+            logged.contains("unexpected trailing tokens"),
+            "malformed note on {line:?} must warn; got {logged:?}"
+        );
+    }
+}

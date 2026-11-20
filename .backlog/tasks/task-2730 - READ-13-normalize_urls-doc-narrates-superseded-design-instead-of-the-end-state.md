@@ -1,10 +1,10 @@
 ---
 id: TASK-2730
 title: 'READ-13: normalize_urls doc narrates superseded design instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:35'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - READ
@@ -34,8 +34,9 @@ The enduring contract (keys normalised case-insensitively with `-` == space; on 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The normalize_urls doc states only the current behaviour: normalisation rule, first-seen-wins collision policy with its warn, and the shape of the returned map
-- [ ] #2 No sentence in the doc contrasts the code with a previous or alternative implementation
+- [x] #1 The normalize_urls doc states only the current behaviour: normalisation rule, first-seen-wins collision policy with its warn, and the shape of the returned map
+- [x] #2 No sentence in the doc contrasts the code with a previous or alternative implementation
+
 <!-- AC:END -->
 
 ## Implementation Notes

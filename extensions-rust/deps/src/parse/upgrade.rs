@@ -42,7 +42,7 @@ pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<Upgra
 /// exit-code and format-drift semantics without spawning the binary.
 ///
 /// This is the *guarded* upgrade entry point, published on the same terms as
-/// [`super::interpret_deny_result`]. It is the only path that applies
+/// [`super::deny::interpret_deny_output`]. It is the only path that applies
 /// `check_missing_separator_drift`, `check_header_drift` and
 /// `check_row_shape_drift`, so it is what callers who want the crate's
 /// fail-closed posture reach for.
@@ -364,18 +364,8 @@ fn clamp_to_char_boundaries(line: &str, start: usize, end: usize) -> Option<(usi
         return None;
     }
     let clamped_end = end.min(len);
-    let mut s = start;
-    // Loop guard keeps `s < clamped_end <= line.len()`, so `saturating_add`
-    // equals `+= 1` exactly.
-    while s < clamped_end && !line.is_char_boundary(s) {
-        s = s.saturating_add(1);
-    }
-    let mut e = clamped_end;
-    // Loop guard keeps `e > s >= 0`, so `saturating_sub` equals `-= 1`
-    // exactly.
-    while e > s && !line.is_char_boundary(e) {
-        e = e.saturating_sub(1);
-    }
+    let s = line.ceil_char_boundary(start);
+    let e = line.floor_char_boundary(clamped_end);
     if s >= e {
         return None;
     }

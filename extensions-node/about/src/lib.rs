@@ -8,13 +8,14 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one.
 
+// `allow`, not `expect`: the suppression is cfg-scoped to `test`, so an
+// `#[expect]` would fire `unfulfilled_lint_expectations` in every non-test
+// build.
 #![cfg_attr(
     test,
     allow(
         clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
+        reason = "fixture setup and assertions in this crate's tests unwrap freely; a failed unwrap is a failed test"
     )
 )]
 
@@ -137,6 +138,13 @@ mod tests {
     // alias it so call sites keep the short name.
     use ops_about::test_support::write_file as write;
 
+    /// Run the identity provider over the fixture in `dir` and deserialise
+    /// the identity it produces.
+    fn identity_for(dir: &std::path::Path) -> ProjectIdentity {
+        let mut ctx = ops_extension::Context::test_context(dir.to_path_buf());
+        serde_json::from_value(NodeIdentityProvider.provide(&mut ctx).unwrap()).unwrap()
+    }
+
     #[test]
     fn build_stack_detail_both_set() {
         assert_eq!(
@@ -195,10 +203,7 @@ mod tests {
                 &dir.path().join("package.json"),
                 &format!("{{\"name\":\"x\",\"homepage\":\"{homepage}\"}}"),
             );
-            let provider = NodeIdentityProvider;
-            let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-            let id: ProjectIdentity =
-                serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+            let id = identity_for(dir.path());
             assert!(
                 id.homepage.is_none(),
                 "hostile homepage {homepage:?} must reach identity as None"
@@ -250,10 +255,7 @@ mod tests {
   "repository": "github:user/repo"
 }"#,
         );
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.name, "my-pkg");
         assert_eq!(id.version.as_deref(), Some("1.2.3"));
         assert_eq!(id.description.as_deref(), Some("Demo package"));
@@ -324,10 +326,7 @@ mod tests {
   ]
 }"#,
         );
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.authors, vec!["Alice <a@example.com>", "Bob <b@example.com>", "Carol"]);
     }
 
@@ -341,10 +340,7 @@ mod tests {
   "repository": { "type": "git", "url": "git+https://github.com/o/r.git" }
 }"#,
         );
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
     }
 
@@ -356,10 +352,7 @@ mod tests {
             r#"{ "name": "x", "engines": { "node": ">=18" } }"#,
         );
         write(&dir.path().join("pnpm-workspace.yaml"), "packages:\n  - 'packages/*'\n");
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.stack_detail.as_deref(), Some("Node >=18 · pnpm"));
     }
 
@@ -368,10 +361,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("package.json"), r#"{ "name": "x" }"#);
         write(&dir.path().join("yarn.lock"), "# yarn\n");
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.stack_detail.as_deref(), Some("yarn"));
     }
 
@@ -383,20 +373,14 @@ mod tests {
             r#"{ "name": "x", "packageManager": "pnpm@9.0.0" }"#,
         );
         write(&dir.path().join("yarn.lock"), "");
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.stack_detail.as_deref(), Some("pnpm"));
     }
 
     #[test]
     fn fallback_to_dir_name_when_no_package_json() {
         let dir = tempfile::tempdir().unwrap();
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.stack_label, "Node");
         assert!(id.version.is_none());
     }
@@ -412,10 +396,7 @@ mod tests {
             "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n",
         )
         .unwrap();
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
     }
 
@@ -426,10 +407,7 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "x", "license": { "type": "Apache-2.0" } }"#,
         );
-        let provider = NodeIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_for(dir.path());
         assert_eq!(id.license.as_deref(), Some("Apache-2.0"));
     }
 

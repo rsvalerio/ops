@@ -60,8 +60,10 @@ impl DataProvider for RustUnitsProvider {
             }
         };
         let dep_counts = crate_dep_counts(ctx);
-        let targets =
-            ctx.cached("metadata").map(|metadata| crate_targets(metadata)).unwrap_or_default();
+        let targets = ctx
+            .cached(ops_metadata::DATA_PROVIDER_NAME)
+            .map(|metadata| crate_targets(metadata))
+            .unwrap_or_default();
 
         // The canonical-manifest-path map is built once per workspace
         // (`LoadedManifest` is itself cached per workspace root), so sibling
@@ -214,7 +216,7 @@ fn resolve_dep_count(
     dep_counts: &HashMap<String, i64>,
 ) -> Option<i64> {
     if package_name.is_none() {
-        tracing::debug!(member, "no package name resolved for member; dep_count unavailable");
+        tracing::debug!(member = ?member, "no package name resolved for member; dep_count unavailable");
         return None;
     }
     // Borrow the canonical path as `&str` so the HashMap lookup costs no
@@ -224,7 +226,7 @@ fn resolve_dep_count(
     // corrupted name.
     let Some(key) = canonical_manifest_path.to_str() else {
         tracing::debug!(
-            member,
+            member = ?member,
             manifest_path = ?canonical_manifest_path,
             "canonical manifest_path is not valid UTF-8; skipping dep_count lookup"
         );
@@ -233,8 +235,8 @@ fn resolve_dep_count(
     let lookup = dep_counts.get(key).copied();
     if lookup.is_none() {
         tracing::debug!(
-            member,
-            manifest_path = %key,
+            member = ?member,
+            manifest_path = ?key,
             "no dep_count row for canonical manifest_path"
         );
     }

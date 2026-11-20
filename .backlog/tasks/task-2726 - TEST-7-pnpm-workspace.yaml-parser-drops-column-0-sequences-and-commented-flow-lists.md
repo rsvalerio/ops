@@ -1,10 +1,10 @@
 ---
 id: TASK-2726
 title: 'TEST-7: pnpm-workspace.yaml parser drops column-0 sequences and commented flow lists'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:34'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - test
@@ -40,9 +40,10 @@ The test module covers indented block lists, flow lists, sibling keys and commen
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A `packages:` block whose `- item` lines sit at column 0 yields every item
-- [ ] #2 `packages: [a, b] # comment` yields a and b
-- [ ] #3 Unit tests pin both shapes, and a sibling top-level key after a column-0 sequence still ends the block
+- [x] #1 A `packages:` block whose `- item` lines sit at column 0 yields every item
+- [x] #2 `packages: [a, b] # comment` yields a and b
+- [x] #3 Unit tests pin both shapes, and a sibling top-level key after a column-0 sequence still ends the block
+
 <!-- AC:END -->
 
 ## Implementation Notes

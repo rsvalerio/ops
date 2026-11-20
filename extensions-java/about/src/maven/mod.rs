@@ -12,13 +12,13 @@ use ops_core::project_identity::{AboutFieldDef, ProjectUnit};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use super::maven_about_fields;
-use pom::parse_pom_xml;
+use pom::{parse_pom_xml, parse_pom_xml_within};
 
 pub struct MavenIdentityProvider;
 
 impl DataProvider for MavenIdentityProvider {
     fn name(&self) -> &'static str {
-        "project_identity"
+        crate::DATA_PROVIDER_NAME
     }
 
     fn about_fields(&self) -> Vec<AboutFieldDef> {
@@ -61,7 +61,7 @@ pub struct MavenUnitsProvider;
 
 impl DataProvider for MavenUnitsProvider {
     fn name(&self) -> &'static str {
-        "project_units"
+        ops_about::units::PROJECT_UNITS_PROVIDER
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -81,14 +81,17 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     pom.modules
         .into_iter()
         .map(|module| {
-            // A `<module>` entry is untrusted manifest text, so an absolute
-            // or `..`-carrying path never reaches `join` + read — the same
-            // policy the Go stack applies to `go.work` `use` directives. The
-            // unit is still emitted (count parity); only the child-pom
-            // enrichment is skipped.
-            let in_tree = !Path::new(&module).is_absolute()
-                && !Path::new(&module).components().any(|c| matches!(c, Component::ParentDir));
-            let child = in_tree.then(|| parse_pom_xml(&cwd.join(&module))).flatten();
+            // A `<module>` entry is untrusted manifest text, so an absolute,
+            // root- or prefix-anchored (`\evil`, `C:evil`) or `..`-carrying
+            // path never reaches `join` + read — the same policy the Go
+            // stack applies to `go.work` `use` directives. The child read is
+            // then contained against `cwd`, so a module directory symlinked
+            // out of the workspace is not read either. The unit is still
+            // emitted (count parity); only the child-pom enrichment is
+            // skipped.
+            let child = is_in_tree(&module)
+                .then(|| parse_pom_xml_within(&cwd.join(&module), cwd))
+                .flatten();
             let name = child
                 .as_ref()
                 .and_then(|c| c.name.clone().or_else(|| c.artifact_id.clone()))
@@ -99,6 +102,16 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             unit
         })
         .collect()
+}
+
+/// Whether a `<module>` path stays relative to the directory it is joined
+/// onto: not absolute and free of root, prefix and parent components.
+fn is_in_tree(module: &str) -> bool {
+    let path = Path::new(module);
+    !path.is_absolute()
+        && !path
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
 }
 
 #[cfg(test)]
@@ -306,5 +319,75 @@ mod tests {
         assert_eq!(units[0].path, "../sibling");
         assert_ne!(units[0].name, "should-not-be-read");
         assert_eq!(units[0].version, None);
+    }
+
+    /// A `<module>` naming an in-tree symlink to a directory outside the
+    /// workspace is still listed (count parity), but the pom behind the link
+    /// is not read: the child read is contained against the workspace root.
+    #[cfg(unix)]
+    #[test]
+    fn maven_units_symlinked_out_of_tree_module_is_listed_but_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("pom.xml"),
+            "<project>\n<modules>\n<module>core</module>\n</modules>\n</project>",
+        )
+        .unwrap();
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(
+            elsewhere.join("pom.xml"),
+            "<project>\n<artifactId>should-not-be-read</artifactId>\n<version>9</version>\n</project>",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&elsewhere, root.join("core")).unwrap();
+
+        let units = collect_units(&root);
+
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].path, "core");
+        assert_ne!(units[0].name, "should-not-be-read");
+        assert_eq!(units[0].version, None);
+    }
+
+    /// An in-tree module directory is still read: containment against the
+    /// workspace root does not refuse a child pom that lives under it.
+    #[test]
+    fn maven_units_in_tree_module_pom_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<modules>\n<module>core</module>\n</modules>\n</project>",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("core")).unwrap();
+        std::fs::write(
+            dir.path().join("core/pom.xml"),
+            "<project>\n<artifactId>core-art</artifactId>\n<version>3</version>\n</project>",
+        )
+        .unwrap();
+
+        let units = collect_units(dir.path());
+
+        assert_eq!(units[0].name, "core-art");
+        assert_eq!(units[0].version.as_deref(), Some("3"));
+    }
+
+    /// Absolute, root-anchored and parent-carrying module paths are out of
+    /// tree; plain relative and nested paths are in tree.
+    #[test]
+    fn is_in_tree_rejects_anchored_and_parent_paths() {
+        assert!(is_in_tree("core"));
+        assert!(is_in_tree("libs/core"));
+        assert!(!is_in_tree("../sibling"));
+        assert!(!is_in_tree("libs/../../x"));
+        assert!(!is_in_tree("/etc"));
+        #[cfg(windows)]
+        {
+            assert!(!is_in_tree("\\evil"));
+            assert!(!is_in_tree("C:evil"));
+        }
     }
 }

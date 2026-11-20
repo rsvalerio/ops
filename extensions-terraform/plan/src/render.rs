@@ -29,6 +29,51 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
     Action::NoOp,
 ];
 
+/// Whether a renderer may probe the real terminal's width.
+///
+/// A separate knob from [`TableColor`]: width probing depends on whether the
+/// writer is a terminal, colour on the user's preference. Conflating them
+/// would make piped-but-coloured output environment-sensitive and would
+/// disable width probing on a real TTY under `--no-color`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TableWidth {
+    /// The writer is a terminal: size the wrapping `Changes` column to the
+    /// terminal's width.
+    Probe,
+    /// The writer is a buffer, file or pipe: never consult the terminal, so
+    /// the output is byte-identical whatever the host terminal's size.
+    Fixed,
+}
+
+impl TableWidth {
+    /// [`Self::Probe`] for a terminal writer, [`Self::Fixed`] otherwise.
+    #[must_use]
+    pub const fn for_terminal(is_terminal: bool) -> Self {
+        if is_terminal {
+            Self::Probe
+        } else {
+            Self::Fixed
+        }
+    }
+}
+
+/// Whether action cells are coloured with [`Action::color`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TableColor {
+    /// Colour the action cells.
+    On,
+    /// Plain cells (`--no-color`).
+    Off,
+}
+
+impl TableColor {
+    const fn enabled(self) -> bool {
+        matches!(self, Self::On)
+    }
+}
+
 /// Strips terminal control sequences from untrusted plan text.
 ///
 /// `OpsTable` is the shared sink for every table in the workspace, so the
@@ -54,13 +99,13 @@ Inspect the rows marked `unknown` before applying.\n"
 ///
 /// The table has one `Action` / `Count` row for each action present in
 /// `changes`, followed by `Plan: N to add, N to change, N to destroy.`, where
-/// "change" counts updates and replacements together. `use_color` decides
+/// "change" counts updates and replacements together. `color` decides
 /// whether the action cells are coloured.
 ///
 /// An empty `changes` returns the `No changes. Infrastructure is up-to-date.`
 /// line, never an empty string.
 #[must_use]
-pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
+pub fn render_summary_table(changes: &[ClassifiedChange], color: TableColor) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
     for c in changes {
         // Each tally counts a distinct element of the in-memory `changes`
@@ -77,8 +122,8 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
     // `OpsTable::with_tty` only gates colour in
     // `cell()`, so the colour preference (not TTY detection) is what
     // belongs here. Width-aware rendering is decoupled in
-    // `render_resource_table` via a separate `is_tty` flag.
-    let mut table = OpsTable::with_tty(use_color);
+    // `render_resource_table` via a separate `TableWidth` knob.
+    let mut table = OpsTable::with_tty(color.enabled());
     table.set_header(vec!["Action", "Count"]);
 
     for action in ACTION_DISPLAY_ORDER {
@@ -107,18 +152,17 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
 
 /// Renders the per-resource change table.
 ///
-/// `is_tty` and `use_color` are deliberately separate knobs: `is_tty` drives
-/// terminal-width probing (right-sizing the `Changes` column) while `use_color`
-/// drives whether `Action::color()` is applied to cells. Conflating them would
-/// make piped-but-coloured output environment-sensitive and would disable
-/// width probing on a real TTY under `--no-color`. Callers derive `is_tty`
-/// from `IsTerminal` on the actual writer (or pass `false` for buffered sinks)
-/// and `use_color` from the user's preference (e.g. `!no_color`).
+/// `width` and `color` are deliberately separate types: `width` drives
+/// terminal-width probing (right-sizing the `Changes` column) while `color`
+/// drives whether `Action::color()` is applied to cells, so swapping them
+/// does not compile. Callers derive `width` from `IsTerminal` on the actual
+/// writer ([`TableWidth::for_terminal`], or [`TableWidth::Fixed`] for
+/// buffered sinks) and `color` from the user's preference.
 #[must_use]
 pub fn render_resource_table(
     changes: &[ClassifiedChange],
-    is_tty: bool,
-    use_color: bool,
+    width: TableWidth,
+    color: TableColor,
 ) -> String {
     let mut filtered: Vec<&ClassifiedChange> =
         changes.iter().filter(|c| c.action.is_change()).collect();
@@ -145,16 +189,19 @@ pub fn render_resource_table(
 
     // `OpsTable::with_tty` gates colour in
     // `cell()`, so the colour preference is what belongs here. The
-    // `is_tty` flag controls width probing below.
-    let mut table = OpsTable::with_tty(use_color);
+    // `width` knob controls width probing below.
+    let mut table = OpsTable::with_tty(color.enabled());
     table.set_header(vec!["Action", "Target", "Resource", "Changes"]);
 
     // Only consult the real terminal size when the caller actually has a
-    // TTY. Probing it under is_tty=false (piped, tests, CI snapshots) would
+    // TTY. Probing it under `TableWidth::Fixed` (piped, tests, CI snapshots) would
     // make render output environment-sensitive and break byte-identical
     // snapshot reproducibility.
-    let term_width =
-        if is_tty { terminal_size::terminal_size().map(|(w, _)| usize::from(w.0)) } else { None };
+    let term_width = if matches!(width, TableWidth::Probe) {
+        terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
+    } else {
+        None
+    };
 
     for c in &filtered {
         let action_cell = table.cell(c.action.label(), c.action.color());
@@ -194,14 +241,14 @@ fn summarize_changed(changed: &[String]) -> String {
 ///
 /// `outputs` maps each output name to its change object, whose `actions`
 /// array decides the row's action. When any output's action cannot be read,
-/// a `WARNING:` banner naming the count precedes the table. `use_color`
+/// a `WARNING:` banner naming the count precedes the table. `color`
 /// decides whether the action cells are coloured.
 ///
 /// An empty `outputs` returns an empty string, so the caller prints nothing.
 #[must_use]
 pub fn render_outputs_table(
     outputs: &serde_json::Map<String, serde_json::Value>,
-    use_color: bool,
+    color: TableColor,
 ) -> String {
     if outputs.is_empty() {
         return String::new();
@@ -210,7 +257,7 @@ pub fn render_outputs_table(
     // See `render_summary_table`. The outputs
     // table has no width-aware column, so it only needs the colour
     // preference.
-    let mut table = OpsTable::with_tty(use_color);
+    let mut table = OpsTable::with_tty(color.enabled());
     table.set_header(vec!["Output", "Action"]);
 
     let mut unknown_count: usize = 0;
@@ -307,7 +354,7 @@ mod tests {
             make_change(Action::Create, "aws_instance", "api"),
             make_change(Action::Delete, "null_resource", "old"),
         ];
-        let output = render_summary_table(&changes, false);
+        let output = render_summary_table(&changes, TableColor::Off);
         assert!(output.contains("create"), "should contain create: {output}");
         assert!(output.contains("delete"), "should contain delete: {output}");
         assert!(!output.contains("update"), "should not contain update: {output}");
@@ -317,7 +364,7 @@ mod tests {
 
     #[test]
     fn summary_table_empty_changes() {
-        let output = render_summary_table(&[], false);
+        let output = render_summary_table(&[], TableColor::Off);
         assert!(output.contains("No changes"), "empty should say no changes: {output}");
     }
 
@@ -330,7 +377,7 @@ mod tests {
             make_change(Action::Delete, "null_resource", "old"),
             make_change(Action::Unknown, "aws_instance", "gone"),
         ];
-        let output = render_summary_table(&changes, false);
+        let output = render_summary_table(&changes, TableColor::Off);
         let unknown_pos = output.find("unknown").expect("unknown row present");
         let create_pos = output.find("create").expect("create row present");
         let delete_pos = output.find("delete").expect("delete row present");
@@ -347,7 +394,7 @@ mod tests {
             make_change(Action::Delete, "null_resource", "old"),
             make_change(Action::Update, "aws_s3_bucket", "logs"),
         ];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         let delete_pos = output.find("delete").expect("delete should be present");
         let create_pos = output.find("create").expect("create should be present");
         let update_pos = output.find("update").expect("update should be present");
@@ -364,7 +411,7 @@ mod tests {
             make_change(Action::Unknown, "aws_instance", "imported"),
             make_change(Action::Create, "aws_instance", "web"),
         ];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         assert!(
             output.starts_with(
                 "WARNING: 2 resource change(s) use an action this build does not recognize."
@@ -381,7 +428,7 @@ mod tests {
     #[test]
     fn resource_table_without_unknown_has_no_banner() {
         let changes = vec![make_change(Action::Create, "aws_instance", "web")];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         assert!(!output.contains("WARNING"), "no banner without unknown rows: {output}");
     }
 
@@ -393,7 +440,7 @@ mod tests {
             make_change(Action::Delete, "null_resource", "old"),
             make_change(Action::Unknown, "zzz_last_by_type", "gone"),
         ];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         let unknown_pos = output.find("unknown").expect("unknown row present");
         let delete_pos = output.find("delete").expect("delete row present");
         assert!(
@@ -420,7 +467,7 @@ mod tests {
                 ..make_change(Action::Replace, "oci_core_instance", "instance")
             },
         ];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         for needle in ["Target", "vm1", "core public ip", "private_ip_id", "vm2", "a, b, c +2"] {
             assert!(output.contains(needle), "{needle} must render: {output}");
         }
@@ -433,7 +480,7 @@ mod tests {
             make_change(Action::Create, "aws_instance", "web"),
             make_change(Action::NoOp, "aws_s3_bucket", "existing"),
         ];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         assert!(!output.contains("no-op"), "no-op should be filtered: {output}");
         assert!(output.contains("aws_instance"), "create should be present: {output}");
     }
@@ -441,7 +488,7 @@ mod tests {
     #[test]
     fn resource_table_empty_after_filter() {
         let changes = vec![make_change(Action::NoOp, "aws_s3_bucket", "existing")];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         assert!(output.is_empty(), "only no-op should produce empty output");
     }
 
@@ -457,7 +504,7 @@ mod tests {
             "web\r\u{1b}[2K\u{1b}[1A",
             "module.a\u{7f}b",
         )];
-        let output = render_resource_table(&changes, false, false);
+        let output = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         assert!(!output.contains('\u{1b}'), "no ESC byte may survive: {output:?}");
         assert!(!output.contains('\r'), "no CR byte may survive: {output:?}");
         assert!(!output.contains('\u{7f}'), "no DEL byte may survive: {output:?}");
@@ -467,7 +514,7 @@ mod tests {
         );
     }
 
-    /// `render_resource_table(.., false, ..)` must be byte-identical
+    /// `render_resource_table(.., TableWidth::Fixed, ..)` must be byte-identical
     /// regardless of the host TTY size, so snapshot tests stay reproducible
     /// across CI / local / piped invocations.
     #[test]
@@ -479,10 +526,10 @@ mod tests {
         ];
         // Drive two non-TTY renders back-to-back. Any branch that consults
         // the real terminal size could theoretically observe a window
-        // resize between them; under is_tty=false they must NOT call
+        // resize between them; under `TableWidth::Fixed` they must NOT call
         // terminal_size at all and the output is therefore identical.
-        let a = render_resource_table(&changes, false, false);
-        let b = render_resource_table(&changes, false, false);
+        let a = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
+        let b = render_resource_table(&changes, TableWidth::Fixed, TableColor::Off);
         assert_eq!(a, b, "non-TTY output must be deterministic");
         // Sanity: width-dependent Changes-column truncation should not
         // appear when no TTY is available.
@@ -494,7 +541,7 @@ mod tests {
         let mut outputs = serde_json::Map::new();
         outputs.insert("region".into(), serde_json::json!({"actions": ["create"]}));
         outputs.insert("vpc_id".into(), serde_json::json!({"actions": ["update"]}));
-        let output = render_outputs_table(&outputs, false);
+        let output = render_outputs_table(&outputs, TableColor::Off);
         assert!(output.contains("region"), "should contain region: {output}");
         assert!(output.contains("vpc_id"), "should contain vpc_id: {output}");
         assert!(output.contains("create"), "should contain create: {output}");
@@ -505,7 +552,7 @@ mod tests {
     #[test]
     fn outputs_table_empty() {
         let outputs = serde_json::Map::new();
-        let output = render_outputs_table(&outputs, false);
+        let output = render_outputs_table(&outputs, TableColor::Off);
         assert!(output.is_empty());
     }
 
@@ -522,7 +569,7 @@ mod tests {
         ] {
             let mut outputs = serde_json::Map::new();
             outputs.insert("db_password".into(), value);
-            let output = render_outputs_table(&outputs, false);
+            let output = render_outputs_table(&outputs, TableColor::Off);
             assert!(output.contains("unknown"), "{label} must render as unknown: {output}");
             assert!(!output.contains("no-op"), "{label} must not fail open to no-op: {output}");
             assert!(
@@ -541,7 +588,7 @@ mod tests {
         outputs.insert("region".into(), serde_json::json!({"actions": ["create"]}));
         outputs.insert("db_password".into(), serde_json::json!({"before": 1}));
         outputs.insert("api_key".into(), serde_json::json!({"actions": [7]}));
-        let output = render_outputs_table(&outputs, false);
+        let output = render_outputs_table(&outputs, TableColor::Off);
         assert!(
             output.starts_with("WARNING: 2 output change(s)"),
             "only the two unreadable outputs count: {output}"
@@ -554,7 +601,7 @@ mod tests {
     fn outputs_table_strips_control_characters_from_keys() {
         let mut outputs = serde_json::Map::new();
         outputs.insert("db_\u{1b}[2Kpassword\r".into(), serde_json::json!({"actions": ["create"]}));
-        let output = render_outputs_table(&outputs, false);
+        let output = render_outputs_table(&outputs, TableColor::Off);
         assert!(!output.contains('\u{1b}'), "no ESC byte may survive: {output:?}");
         assert!(!output.contains('\r'), "no CR byte may survive: {output:?}");
         assert!(output.contains("db_[2Kpassword"), "the visible text must still render: {output}");

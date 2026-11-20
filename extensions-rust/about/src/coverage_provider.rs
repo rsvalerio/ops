@@ -324,11 +324,14 @@ mod cache_tests {
 
     /// The contract is that
     /// `cached_query_project_coverage` runs the underlying query exactly
-    /// once even when two threads enter concurrently. The outer mutex must
-    /// be held across the query: dropping it would let both threads observe
-    /// a miss, both dispatch, and `query_or_warn` fire its warn N times. We
-    /// pin it by running the two call sites from two threads (rather
-    /// than sequentially) and asserting the warn count is still 1.
+    /// once even when two threads enter concurrently. The outer mutex is held
+    /// only long enough to fetch (or insert) the per-`Sqlite` slot; the query
+    /// runs outside it, and it is the slot's `OnceLock::get_or_init` that
+    /// lets exactly one thread dispatch while the other waits for its value,
+    /// so `query_or_warn` fires its warn once. Holding the outer mutex across
+    /// the query is not needed and would serialise every provider behind it.
+    /// We pin the guarantee by running the two call sites from two threads
+    /// (rather than sequentially) and asserting the warn count is still 1.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
     fn project_coverage_warn_fires_once_under_concurrent_first_callers() {

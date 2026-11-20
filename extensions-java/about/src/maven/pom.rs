@@ -14,7 +14,10 @@
 //! - **One element per line for top-level scalars.** Open and close tags must
 //!   be on the same line for fields like `<artifactId>` (multi-line element
 //!   values are not supported). Single-line `<scm>...</scm>` and
-//!   `<licenses>...</licenses>` blocks are special-cased.
+//!   `<licenses>...</licenses>` blocks are special-cased. Elements glued to
+//!   the `<project>` opener's `>` (including a whole compact one-line POM)
+//!   are read as top-level scalars; section containers on that line are
+//!   not tracked.
 //! - **No nested duplicate elements.** Inside a section like `<scm>` the
 //!   first matching child wins; deeper nesting (e.g. nested `<url>` inside
 //!   another tag) is not tracked.
@@ -142,14 +145,27 @@ const SKIP_SECTIONS: &[(&str, &str)] = &[
     ("<prerequisites>", "</prerequisites>"),
 ];
 
+/// Parse `<project_root>/pom.xml`, contained within `project_root`.
 pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
-    // Route through the shared manifest_io helper so the
-    // NotFound-vs-other-IO classification stays consistent with the sibling
-    // parsers (go_mod, go_work, package_json, pyproject) rather than drifting
-    // from them when that policy changes.
-    let path = project_root.join("pom.xml");
-    let content = ops_about::manifest_io::read_optional_text(&path, project_root, "pom.xml")?;
+    parse_pom_xml_within(project_root, project_root)
+}
 
+/// Parse `<dir>/pom.xml`, reading it only if it resolves inside
+/// `workspace_root`.
+///
+/// A child module's pom is contained against the workspace root, not its own
+/// directory: a module directory that is a symlink out of the workspace
+/// canonicalizes outside the root and is not read. The read goes through the
+/// shared `manifest_io` helper, so the NotFound-vs-other-IO classification
+/// matches the sibling parsers (`go_mod`, `go_work`, `package_json`,
+/// `pyproject`).
+pub(super) fn parse_pom_xml_within(dir: &Path, workspace_root: &Path) -> Option<PomData> {
+    let path = dir.join("pom.xml");
+    let content = ops_about::manifest_io::read_optional_text(&path, workspace_root, "pom.xml")?;
+    Some(parse_pom_content(&content))
+}
+
+fn parse_pom_content(content: &str) -> PomData {
     let mut data = PomData::default();
     let mut started = false;
     let mut opener_pending = false;
@@ -168,8 +184,7 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
 
         if !started {
             if let Some(remainder) = accept_project_opener(line, &mut started, &mut opener_pending)
-                && !remainder.is_empty()
-                && dispatch_started_line(remainder, &mut section, &mut data)
+                && dispatch_opener_remainder(remainder, &mut section, &mut data)
             {
                 break;
             }
@@ -182,7 +197,7 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
 
     warn_unterminated(in_comment, opener_pending, &section);
 
-    Some(data)
+    data
 }
 
 /// Advance the `<project` opener state machine by one not-yet-started line.
@@ -190,10 +205,12 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
 /// Supports multi-line `<project ... >` openers, which real-world Maven
 /// formatters often emit (xmlns/xsi attributes split across lines): an
 /// "opener pending" state is tracked until the closing `>` arrives. Returns
-/// `Some(remainder)` when the document has just started and the text after
-/// the opener's closing `>` still carries an element to dispatch on this same
-/// line (e.g. a trailing `<artifactId>x</artifactId>` glued to the `>`), so
-/// the trailing tag is not silently dropped; `None` otherwise.
+/// `Some(remainder)` once the document has started, where `remainder` is the
+/// trimmed text after the opener's closing `>` on this same line (possibly
+/// empty). Every opener shape (bare `<project>`, single-line with attributes,
+/// and the closing line of a multi-line opener) hands back its remainder, so
+/// an element glued to the `>` is dispatched instead of dropped. Returns
+/// `None` while the document has not started.
 fn accept_project_opener<'a>(
     line: &'a str,
     started: &mut bool,
@@ -205,12 +222,35 @@ fn accept_project_opener<'a>(
         *started = true;
         return Some(after_gt.trim());
     }
-    if is_project_open(line) {
-        *started = true;
-    } else if is_project_open_start(line) {
-        *opener_pending = true;
+    match classify_project_opener(line) {
+        ProjectOpener::Complete(remainder) => {
+            *started = true;
+            Some(remainder)
+        }
+        ProjectOpener::Pending => {
+            *opener_pending = true;
+            None
+        }
+        ProjectOpener::NotOpener => None,
     }
-    None
+}
+
+/// Dispatch the text left on the opener's line after its closing `>`.
+///
+/// A compact POM puts the whole document on one line
+/// (`<project><artifactId>x</artifactId></project>`), so a trailing
+/// `</project>` is peeled off first and the elements before it are parsed
+/// like any started line. Returns `true` when the document ended on this
+/// line and the outer loop should break.
+fn dispatch_opener_remainder(
+    remainder: &str,
+    section: &mut PomSection,
+    data: &mut PomData,
+) -> bool {
+    let (body, closed) =
+        remainder.strip_suffix("</project>").map_or((remainder, false), |body| (body.trim(), true));
+    let ended = !body.is_empty() && dispatch_started_line(body, section, data);
+    closed || ended
 }
 
 /// Report every construct still open at end of input.
@@ -244,42 +284,40 @@ fn warn_unterminated(in_comment: bool, opener_pending: bool, section: &PomSectio
     }
 }
 
-/// Classify a `<project…` line as either a complete opener or the *start* of
-/// a multi-line opener. Returns `(matched, closed)`:
-/// - `(true, true)`  — full opener on this line (bare `<project>` or
-///   single-line `<project xmlns=...>`).
-/// - `(true, false)` — multi-line opener (`<project` + whitespace, no
-///   `>` yet on this line).
-/// - `(false, _)`    — not a `<project>` opener at all (e.g. `<projectInfo>`).
+/// How a not-yet-started line relates to the `<project>` opener.
+#[derive(Debug, PartialEq)]
+enum ProjectOpener<'a> {
+    /// The whole opener is on this line (bare `<project>` or one carrying
+    /// attributes). Holds the trimmed text after its closing `>`, which may
+    /// be empty or carry elements glued to the opener.
+    Complete(&'a str),
+    /// `<project` followed by attributes with no closing `>` on this line:
+    /// the opener continues on a later line.
+    Pending,
+    /// Not a `<project>` opener at all (e.g. `<projectInfo>` or `<project/>`).
+    NotOpener,
+}
+
+/// Classify a not-yet-started line against the `<project>` opener.
 ///
-/// Both [`is_project_open`] and [`is_project_open_start`] derive from
-/// this so a future Maven shape (e.g. `<project/>`) only has to be
-/// taught to one place.
-fn classify_project_opener(line: &str) -> (bool, bool) {
-    if line == "<project>" {
-        return (true, true);
-    }
+/// The tag name must end right after `project`: either the opener closes
+/// immediately (`<project>…`) or whitespace introduces attributes. That
+/// rejects unrelated tags whose name merely starts with `project`
+/// (`<projectInfo>`).
+fn classify_project_opener(line: &str) -> ProjectOpener<'_> {
     let Some(rest) = line.strip_prefix("<project") else {
-        return (false, false);
+        return ProjectOpener::NotOpener;
     };
-    if !rest.starts_with(char::is_whitespace) {
-        return (false, false);
+    if let Some(after_gt) = rest.strip_prefix('>') {
+        return ProjectOpener::Complete(after_gt.trim());
     }
-    (true, rest.contains('>'))
-}
-
-/// Match the `<project>` opener exactly: the bare tag or one carrying
-/// attributes (whitespace after `<project`). Rejects unrelated tags whose
-/// name merely starts with `project` (e.g. `<projectInfo>`).
-fn is_project_open(line: &str) -> bool {
-    matches!(classify_project_opener(line), (true, true))
-}
-
-/// Match the start of a multi-line `<project ...` opener: `<project` followed
-/// by whitespace (attributes) but no closing `>` on this line. Rejects
-/// `<projectInfo>` for the same reason as [`is_project_open`].
-fn is_project_open_start(line: &str) -> bool {
-    matches!(classify_project_opener(line), (true, false))
+    if !rest.starts_with(char::is_whitespace) {
+        return ProjectOpener::NotOpener;
+    }
+    match rest.split_once('>') {
+        Some((_, after_gt)) => ProjectOpener::Complete(after_gt.trim()),
+        None => ProjectOpener::Pending,
+    }
 }
 
 /// Process a single trimmed line in "started" state
@@ -1031,6 +1069,57 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("x".to_string()));
+    }
+
+    /// A single-line opener carrying attributes, with an element glued to its
+    /// closing `>`, dispatches that element like the multi-line opener does.
+    #[test]
+    fn parse_pom_single_line_attributed_opener_keeps_glued_element() {
+        let pom = parse_pom_str(
+            "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><artifactId>x</artifactId>\n<version>2.0</version>\n</project>",
+        );
+        assert_eq!(pom.artifact_id.as_deref(), Some("x"));
+        assert_eq!(pom.version.as_deref(), Some("2.0"));
+    }
+
+    /// A bare `<project>` with an element glued to it dispatches that element.
+    #[test]
+    fn parse_pom_bare_opener_keeps_glued_element() {
+        let pom =
+            parse_pom_str("<project><artifactId>x</artifactId>\n<name>Glued</name>\n</project>");
+        assert_eq!(pom.artifact_id.as_deref(), Some("x"));
+        assert_eq!(pom.name.as_deref(), Some("Glued"));
+    }
+
+    /// A compact POM with the whole document on one line yields its scalars.
+    #[test]
+    fn parse_pom_compact_one_line_pom_yields_scalars() {
+        let pom = parse_pom_str(
+            "<project><artifactId>x</artifactId><version>1.0</version><description>d</description></project>",
+        );
+        assert_eq!(pom.artifact_id.as_deref(), Some("x"));
+        assert_eq!(pom.version.as_deref(), Some("1.0"));
+        assert_eq!(pom.description.as_deref(), Some("d"));
+    }
+
+    /// A trailing `</project>` on the opener line ends the document: a stray
+    /// element after it is not captured.
+    #[test]
+    fn parse_pom_compact_one_line_pom_stops_at_project_close() {
+        let pom =
+            parse_pom_str("<project><artifactId>x</artifactId></project>\n<version>9</version>");
+        assert_eq!(pom.artifact_id.as_deref(), Some("x"));
+        assert_eq!(pom.version, None);
+    }
+
+    /// `<project/>` and `<projectInfo>` are not the opener.
+    #[test]
+    fn classify_project_opener_rejects_lookalike_tags() {
+        assert_eq!(classify_project_opener("<project/>"), ProjectOpener::NotOpener);
+        assert_eq!(classify_project_opener("<projectInfo>"), ProjectOpener::NotOpener);
+        assert_eq!(classify_project_opener("<project"), ProjectOpener::NotOpener);
+        assert_eq!(classify_project_opener("<project xmlns=\"a\""), ProjectOpener::Pending);
+        assert_eq!(classify_project_opener("<project>"), ProjectOpener::Complete(""));
     }
 
     /// A `<artifactId>` inside an XML comment must NOT

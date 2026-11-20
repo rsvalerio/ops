@@ -1,10 +1,10 @@
 ---
 id: TASK-2800
 title: 'TEST-12: ops-git re-tests ops_hook_common::find_git_dir already covered in its own crate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - test
@@ -29,8 +29,9 @@ dedup_key: 'TEST-12:extensions/git/src/config.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three find_git_dir_* tests are removed from extensions/git/src/config.rs, or replaced by a test that pins ops-git's own use of find_git_dir through GitInfo::collect
-- [ ] #2 ops_hook_common keeps the canonical find_git_dir tests
+- [x] #1 The three find_git_dir_* tests are removed from extensions/git/src/config.rs, or replaced by a test that pins ops-git's own use of find_git_dir through GitInfo::collect
+- [x] #2 ops_hook_common keeps the canonical find_git_dir tests
+
 <!-- AC:END -->
 
 ## Implementation Notes

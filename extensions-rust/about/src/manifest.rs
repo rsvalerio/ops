@@ -102,10 +102,8 @@ impl LoadedManifest {
     /// Every production consumer wants
     /// [`Self::resolved_members`] instead, and none currently needs the literal
     /// spec — so the accessor is test-gated rather than left standing as an
-    /// unused public affordance. Its name is the point: when a
-    /// linter/doc-generator consumer does arrive, the spelling at the call site
-    /// cannot be mistaken for the expanded list, which is precisely what the
-    /// old `Deref` into `CargoToml` allowed.
+    /// unused public affordance. Its name is the point: the spelling at a call
+    /// site cannot be mistaken for the expanded list.
     #[cfg(test)]
     pub(crate) fn unexpanded_workspace_members_spec(&self) -> &[String] {
         self.manifest.workspace.as_ref().map_or(&[][..], |w| w.members.as_slice())

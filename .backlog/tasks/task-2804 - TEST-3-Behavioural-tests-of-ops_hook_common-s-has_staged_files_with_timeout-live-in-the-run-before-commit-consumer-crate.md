@@ -1,10 +1,10 @@
 ---
 id: TASK-2804
 title: 'TEST-3: Behavioural tests of ops_hook_common''s has_staged_files_with_timeout live in the run-before-commit consumer crate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -30,9 +30,10 @@ dedup_key: 'TEST-3:extensions/run-before-commit/src/lib.rs:tests::has_staged_fil
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The has_staged_files_with_timeout behavioural tests (and their fake-git/ETXTBSY helpers) live in ops-hook-common
-- [ ] #2 run-before-commit keeps only tests for what has_staged_files contributes on top of the shared probe
-- [ ] #3 No net loss of scenarios: deletion, type change, non-repo, invalid UTF-8 stderr, missing binary, timeout, late stderr and large output are each still covered
+- [x] #1 The has_staged_files_with_timeout behavioural tests (and their fake-git/ETXTBSY helpers) live in ops-hook-common
+- [x] #2 run-before-commit keeps only tests for what has_staged_files contributes on top of the shared probe
+- [x] #3 No net loss of scenarios: deletion, type change, non-repo, invalid UTF-8 stderr, missing binary, timeout, late stderr and large output are each still covered
+
 <!-- AC:END -->
 
 ## Implementation Notes

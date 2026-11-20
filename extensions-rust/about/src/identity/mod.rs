@@ -43,7 +43,10 @@ impl DataProvider for RustIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let manifest = load_workspace_manifest(ctx)?;
-        let cwd = ctx.working_directory_arc().clone();
+        // Every manifest-derived field describes the resolved workspace, so
+        // `project_root` and the git repository fallback must describe it
+        // too — not whichever member directory `ops about` was run from.
+        let project_root = manifest.workspace_root().to_path_buf();
 
         // `LoadedManifest` exposes named accessors rather than `Deref`
         // into the raw `CargoToml`: the manifest's `[workspace].members`
@@ -51,7 +54,7 @@ impl DataProvider for RustIdentityProvider {
         // the resolved member list.
         let pkg = manifest.package();
         let ws_pkg = manifest.workspace_package();
-        let fields = resolve_identity_fields(pkg, ws_pkg, &cwd);
+        let fields = resolve_identity_fields(pkg, ws_pkg, &project_root);
         let metrics = query_identity_metrics(ctx);
 
         build_identity_value(
@@ -78,7 +81,7 @@ impl DataProvider for RustIdentityProvider {
                 m.coverage_percent = metrics.coverage_percent;
                 m.languages = metrics.languages;
             }),
-            &cwd,
+            &project_root,
         )
     }
 }
@@ -253,6 +256,40 @@ members = ["crates/core", "crates/cli"]
 
         assert_eq!(id.name, "my-workspace");
         assert_eq!(id.module_count, Some(2));
+    }
+
+    /// Run from a member crate, identity still describes the workspace:
+    /// `project_root` is the resolved workspace root (the same root every
+    /// manifest-derived field came from), not the member directory the
+    /// process happens to stand in.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache)]
+    fn identity_project_root_is_the_workspace_root_when_run_from_a_member() {
+        let dir = tempfile::tempdir().unwrap();
+        let member = dir.path().join("crates/core");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            member.join("Cargo.toml"),
+            "[package]\nname = \"core\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"my-workspace\"\nversion = \"2.0.0\"\n\n\
+             [workspace]\nmembers = [\"crates/core\"]\n",
+        )
+        .unwrap();
+
+        let mut ctx = ops_extension::Context::test_context(member);
+        let value = RustIdentityProvider.provide(&mut ctx).unwrap();
+        let id: ProjectIdentity = serde_json::from_value(value).unwrap();
+
+        assert_eq!(id.name, "my-workspace");
+        assert_eq!(
+            std::path::Path::new(&id.project_path),
+            dir.path(),
+            "project_root must be the workspace root, not the member cwd"
+        );
     }
 
     #[test]

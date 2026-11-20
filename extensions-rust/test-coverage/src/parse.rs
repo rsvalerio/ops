@@ -324,6 +324,60 @@ pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
     })
 }
 
+/// Soft-fail recovery for a non-zero `cargo llvm-cov` exit.
+///
+/// Reads and parses the report file named by `report_path`. When it carries
+/// usable coverage data ([`has_parseable_coverage_data`]), warns so the
+/// operator still sees the test breakage and returns `Some` with the
+/// flattened partial report — typically test failures under `--no-fail-fast`
+/// that still leave a complete report for the passing slice of the workspace.
+///
+/// Returns `None` when no usable report exists so the caller falls through
+/// to the cargo exit error: a report that cannot be read or parsed leaves a
+/// breadcrumb warn naming the path and the IO or JSON error (the cargo exit
+/// stays the headline error, but a failed read or a truncated report is a
+/// filesystem problem the operator would otherwise never see), and a report
+/// without usable `data` means cargo failed before instrumenting anything.
+fn recover_partial_report(
+    report_path: &Path,
+    output: &std::process::Output,
+) -> Option<Result<serde_json::Value, anyhow::Error>> {
+    let parsed = match std::fs::read(report_path) {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(raw) => Some(raw),
+            Err(err) => {
+                tracing::warn!(
+                    report_path = %report_path.display(),
+                    error = %err,
+                    "could not parse the llvm-cov JSON report after a non-zero cargo exit; \
+                     falling through to the cargo error"
+                );
+                None
+            }
+        },
+        Err(err) => {
+            tracing::warn!(
+                report_path = %report_path.display(),
+                error = %err,
+                "could not read the llvm-cov JSON report after a non-zero cargo exit; \
+                 falling through to the cargo error"
+            );
+            None
+        }
+    };
+    let valid_parsed = parsed.as_ref().filter(|raw| has_parseable_coverage_data(raw))?;
+    let tail = format_error_tail(&output.stderr, crate::STDERR_TAIL_LINES);
+    let marker = format_cargo_exit(output.status);
+    tracing::warn!(
+        exit = %marker,
+        stderr_tail = %tail,
+        report_path = %report_path.display(),
+        "cargo llvm-cov exited non-zero but the JSON report file is parseable; \
+         continuing with partial coverage data (likely test failures with --no-fail-fast)"
+    );
+    Some(flatten_coverage_json(valid_parsed))
+}
+
 /// Run `cargo llvm-cov` and flatten its JSON output into per-file records.
 ///
 /// With `--no-fail-fast`, `cargo llvm-cov` still exits non-zero when one or
@@ -348,49 +402,12 @@ pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
 /// sizes the `cargo llvm-cov` wait so the subprocess cannot outlive the
 /// budget bounding it. `None` means unbounded dispatch and leaves the wait
 /// at [`crate::subprocess::CARGO_LLVM_COV_TIMEOUT`].
-/// Soft-fail recovery for a non-zero `cargo llvm-cov` exit.
 ///
-/// Reads and parses the report file named by `report_path`. When it carries
-/// usable coverage data ([`has_parseable_coverage_data`]), warns so the
-/// operator still sees the test breakage and returns `Some` with the
-/// flattened partial report — typically test failures under `--no-fail-fast`
-/// that still leave a complete report for the passing slice of the workspace.
+/// # Errors
 ///
-/// Returns `None` when no usable report exists so the caller falls through
-/// to the cargo exit error: a report that cannot be read leaves a breadcrumb
-/// warn naming the path and the IO error (the cargo exit stays the headline
-/// error, but the failed read is a filesystem problem the operator would
-/// otherwise never see), and a report without usable `data` means cargo
-/// failed before instrumenting anything.
-fn recover_partial_report(
-    report_path: &Path,
-    output: &std::process::Output,
-) -> Option<Result<serde_json::Value, anyhow::Error>> {
-    let parsed = match std::fs::read(report_path) {
-        Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
-        Err(err) => {
-            tracing::warn!(
-                report_path = %report_path.display(),
-                error = %err,
-                "could not read the llvm-cov JSON report after a non-zero cargo exit; \
-                 falling through to the cargo error"
-            );
-            None
-        }
-    };
-    let valid_parsed = parsed.as_ref().filter(|raw| has_parseable_coverage_data(raw))?;
-    let tail = format_error_tail(&output.stderr, crate::STDERR_TAIL_LINES);
-    let marker = format_cargo_exit(output.status);
-    tracing::warn!(
-        exit = %marker,
-        stderr_tail = %tail,
-        report_path = %report_path.display(),
-        "cargo llvm-cov exited non-zero but the JSON report file is parseable; \
-         continuing with partial coverage data (likely test failures with --no-fail-fast)"
-    );
-    Some(flatten_coverage_json(valid_parsed))
-}
-
+/// If the temp report file cannot be created, `cargo llvm-cov` cannot be
+/// spawned or exits non-zero without a usable partial report, or the report
+/// cannot be read, parsed, or flattened.
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
 pub fn collect_coverage(
     working_dir: &Path,

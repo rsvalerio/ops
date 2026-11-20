@@ -1,10 +1,10 @@
 ---
 id: TASK-2861
 title: 'code-review-plan-wave25'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 20:32'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:34'
 labels:
   - code-review-wave
 dependencies:
@@ -51,4 +51,8 @@ Grouping: git hooks: hook-common git-dir safety, run-before-commit tests, ops-gi
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2841 (extensions/git/src/config.rs)
+
+Branch: code-review/TASK-2861
+Worktree: /home/rsvalerio/projects/.wave-TASK-2861
+
 <!-- SECTION:NOTES:END -->

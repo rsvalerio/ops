@@ -6,6 +6,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use ops_core::text::CappedReadError;
+
 /// Maximum number of parent directories to walk while searching for `.git`.
 /// Bounds the loop so a hostile cwd cannot force us to ascend to `/` repeatedly.
 const FIND_GIT_DIR_MAX_DEPTH: usize = 64;
@@ -35,6 +37,13 @@ const GITDIR_BACKREFERENCE: &str = "gitdir";
 /// device-backed) `gitdir` file from being slurped into memory unbounded.
 const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 
+/// Byte cap for the `.git` pointer file read.
+///
+/// Git writes a single `gitdir: <path>` line, so 64 KiB loses nothing real,
+/// while a planted multi-gigabyte `.git` file anywhere in the ancestor walk
+/// can no longer be slurped into memory by every `find_git_dir` caller.
+const MAX_GITDIR_POINTER_BYTES: u64 = 64 * 1024;
+
 /// Find the `.git` directory by walking up from the given path.
 ///
 /// Handles three cases:
@@ -42,7 +51,16 @@ const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 /// 2. Worktrees / submodules: `.git` is a regular file with body
 ///    `gitdir: <path>`. The path is resolved relative to the working copy root
 ///    and returned.
-/// 3. Otherwise walks up to the parent, up to [`FIND_GIT_DIR_MAX_DEPTH`] times.
+/// 3. No `.git` entry at all: walks up to the parent, up to
+///    [`FIND_GIT_DIR_MAX_DEPTH`] times.
+///
+/// The walk **stops at the first `.git` entry it finds**, like git itself.
+/// An entry that exists but is refused — a symlink, an unreadable, oversize
+/// or malformed pointer file, a pointer whose target fails containment, or
+/// any other file type — ends the search with `None`. It never ascends past
+/// it, because the enclosing repository does not own a nested checkout, and
+/// callers such as the hook installer would otherwise write into an
+/// unrelated repository.
 ///
 /// A relative input (including `"."`) is normalised to an absolute path
 /// first, via [`std::path::absolute`] — a pure lexical join onto the current
@@ -50,7 +68,7 @@ const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 /// `PathBuf::pop` cannot ascend past the process working directory, so a
 /// walk over the relative path itself would stop after one probe.
 ///
-/// Symlinked `.git` entries are deliberately skipped: callers like the hook
+/// Symlinked `.git` entries are deliberately refused: callers like the hook
 /// installer write into this directory and a redirected symlink is a
 /// supply-chain risk. The returned path is canonicalised so downstream
 /// consumers see a stable, real location.
@@ -69,8 +87,10 @@ pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
         std::path::absolute(from).unwrap_or_else(|_| from.to_path_buf())
     };
     for _ in 0..FIND_GIT_DIR_MAX_DEPTH {
-        if let Some(found) = probe_git_entry(&dir.join(".git")) {
-            return Some(found);
+        match probe_git_entry(&dir.join(".git")) {
+            GitEntry::Found(found) => return Some(found),
+            GitEntry::Refused => return None,
+            GitEntry::Absent => {}
         }
         if !dir.pop() {
             return None;
@@ -79,17 +99,49 @@ pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
     None
 }
 
-fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
-    let meta = std::fs::symlink_metadata(candidate).ok()?;
+/// What one level of the [`find_git_dir`] walk found at `<dir>/.git`.
+#[derive(Debug, PartialEq, Eq)]
+enum GitEntry {
+    /// No `.git` entry at this level: keep walking up.
+    Absent,
+    /// A `.git` entry resolved to this gitdir.
+    Found(PathBuf),
+    /// A `.git` entry exists here but was refused: the walk stops.
+    Refused,
+}
+
+fn probe_git_entry(candidate: &Path) -> GitEntry {
+    let meta = match std::fs::symlink_metadata(candidate) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return GitEntry::Absent,
+        Err(err) => {
+            // Something is there but cannot even be stat'ed: refuse rather
+            // than guess, and never fall through to an enclosing repository.
+            tracing::debug!(
+                path = ?candidate.display(),
+                error = ?err,
+                "failed to stat .git entry; stopping the walk",
+            );
+            return GitEntry::Refused;
+        }
+    };
     let ft = meta.file_type();
-    // Symlinked .git is skipped silently — never trust it for writes.
     if ft.is_dir() {
-        Some(std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf()))
+        GitEntry::Found(
+            std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf()),
+        )
     } else if ft.is_file() {
-        let resolved = read_gitdir_pointer(candidate)?;
-        Some(std::fs::canonicalize(&resolved).unwrap_or(resolved))
+        read_gitdir_pointer(candidate).map_or(GitEntry::Refused, |resolved| {
+            GitEntry::Found(std::fs::canonicalize(&resolved).unwrap_or(resolved))
+        })
     } else {
-        None
+        // A symlinked `.git` (or a FIFO, socket, device) is never trusted for
+        // writes, and it still marks this level as the repository root.
+        tracing::debug!(
+            path = ?candidate.display(),
+            "`.git` entry is neither a directory nor a regular file; stopping the walk",
+        );
+        GitEntry::Refused
     }
 }
 
@@ -125,20 +177,20 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
 ///
 /// Returns `None` (and emits a `tracing::debug!`) for any other shape.
 fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
-    let content = match std::fs::read_to_string(file) {
+    let content = match read_capped_to_string(file, MAX_GITDIR_POINTER_BYTES) {
         Ok(c) => c,
         Err(err) => {
             // A `.git` pointer file we can't read (EACCES, EISDIR, mid-write,
-            // etc.) is worth a diagnostic — the walker would otherwise fall
-            // through to the parent silently. debug! keeps it out of normal
+            // over the byte cap, not UTF-8) is worth a diagnostic — the walk
+            // would otherwise stop silently. debug! keeps it out of normal
             // logs while letting `RUST_LOG=ops_hook_common=debug` surface it.
             // Debug-format path/error so an
             // attacker-controlled `.git` pointer path cannot inject
             // newlines/ANSI escapes into operator-facing logs.
             tracing::debug!(
                 path = ?file.display(),
-                error = ?err,
-                "failed to read .git pointer file; skipping",
+                error = %err,
+                "failed to read .git pointer file; refusing it",
             );
             return None;
         }
@@ -351,35 +403,43 @@ fn is_separate_git_dir(dir: &Path) -> bool {
 /// Read at most `cap` bytes of `path` as UTF-8, mirroring the bounded-read
 /// posture of `MAX_GIT_CONFIG_BYTES` in `ops-git`.
 ///
-/// Returns `None` for every failure mode the callers already treat as "no
-/// usable content": unreadable, over the cap, or not valid UTF-8.
-fn read_capped_to_string(path: &Path, cap: u64) -> Option<String> {
+/// Every failure mode — unreadable, over the cap, not valid UTF-8 — comes
+/// back typed so each caller can leave a breadcrumb naming its own file.
+fn read_capped_to_string(path: &Path, cap: u64) -> Result<String, CappedReadError> {
     use std::io::Read as _;
 
-    let mut file = std::fs::File::open(path).ok()?;
+    let file = std::fs::File::open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CappedReadError::NotFound(e)
+        } else {
+            CappedReadError::Open(e)
+        }
+    })?;
     let mut bytes = Vec::new();
     // Read one byte past the cap so an oversize file is distinguishable from
     // one that lands exactly on it.
     let limit = cap.saturating_add(1);
-    (&mut file).take(limit).read_to_end(&mut bytes).ok()?;
+    file.take(limit).read_to_end(&mut bytes).map_err(CappedReadError::Read)?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        tracing::debug!(
-            path = ?path.display(),
-            cap,
-            "file exceeds byte cap; refusing to parse",
-        );
-        return None;
+        return Err(CappedReadError::TooLarge { cap });
     }
-    String::from_utf8(bytes).ok()
+    String::from_utf8(bytes).map_err(|e| CappedReadError::InvalidUtf8(e.utf8_error()))
 }
 
 /// True when `gitdir/gitdir` names `pointer` — the reverse link `git worktree
 /// add` writes alongside the forward `gitdir:` pointer.
 fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
-    let Some(recorded) =
-        read_capped_to_string(&gitdir.join(GITDIR_BACKREFERENCE), MAX_GITDIR_BACKREFERENCE_BYTES)
-    else {
-        return false;
+    let backreference = gitdir.join(GITDIR_BACKREFERENCE);
+    let recorded = match read_capped_to_string(&backreference, MAX_GITDIR_BACKREFERENCE_BYTES) {
+        Ok(recorded) => recorded,
+        Err(err) => {
+            tracing::debug!(
+                path = ?backreference.display(),
+                error = %err,
+                "no usable gitdir back-reference",
+            );
+            return false;
+        }
     };
     let Some(canonical_pointer) = canonicalize_gitdir_target(pointer) else {
         return false;
@@ -521,8 +581,69 @@ mod tests {
         let workspace = dir.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
         std::os::unix::fs::symlink(&outside, workspace.join(".git")).unwrap();
-        // Symlinked .git is skipped; with no real .git anywhere, the walk fails.
+        // A symlinked .git is refused, and the walk stops there.
         assert_eq!(find_git_dir(&workspace), None);
+    }
+
+    /// A refused `.git` entry in a nested directory stops the walk: it must
+    /// never ascend to the real repository enclosing it, or the hook
+    /// installer writes into a repository the operator did not ask about.
+    #[test]
+    fn find_git_dir_stops_at_a_refused_entry_instead_of_using_the_enclosing_repo() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outer_git = dir.path().join(".git");
+        std::fs::create_dir(&outer_git).unwrap();
+        let outer_git = std::fs::canonicalize(&outer_git).unwrap();
+
+        // A malformed pointer, and one whose relative target escapes the
+        // traversal cap: both are refused at the nested level.
+        let malformed = dir.path().join("malformed");
+        std::fs::create_dir(&malformed).unwrap();
+        std::fs::write(malformed.join(".git"), "not a pointer\n").unwrap();
+        let escaping = dir.path().join("x/y/escaping");
+        std::fs::create_dir_all(&escaping).unwrap();
+        std::fs::write(escaping.join(".git"), "gitdir: ../../../../elsewhere\n").unwrap();
+
+        for nested in [&malformed, &escaping] {
+            let sub = nested.join("src");
+            std::fs::create_dir(&sub).unwrap();
+            assert_eq!(find_git_dir(nested), None, "{}", nested.display());
+            assert_eq!(find_git_dir(&sub), None, "{}", sub.display());
+        }
+
+        #[cfg(unix)]
+        {
+            let symlinked = dir.path().join("symlinked");
+            std::fs::create_dir(&symlinked).unwrap();
+            std::os::unix::fs::symlink(&outer_git, symlinked.join(".git")).unwrap();
+            assert_eq!(find_git_dir(&symlinked), None);
+        }
+
+        // Control: with no `.git` entry in between, the outer repo is found.
+        let plain = dir.path().join("plain/src");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert_eq!(find_git_dir(&plain), Some(outer_git));
+    }
+
+    /// A `.git` pointer file over [`MAX_GITDIR_POINTER_BYTES`] is refused with
+    /// a debug breadcrumb instead of being read whole.
+    #[test]
+    fn oversize_gitdir_pointer_is_refused_with_a_breadcrumb() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let real = dir.path().join("real_gitdir");
+        std::fs::create_dir(&real).unwrap();
+        let pointer = dir.path().join(".git");
+        // A well-formed pointer line followed by padding past the cap, so
+        // only the size check can refuse it.
+        let mut body = format!("gitdir: {}\n", real.display());
+        body.push_str(&"\n".repeat(usize::try_from(MAX_GITDIR_POINTER_BYTES).unwrap()));
+        std::fs::write(&pointer, body).unwrap();
+
+        let (logged, ()) = ops_core::test_utils::capture_tracing(tracing::Level::DEBUG, || {
+            assert_eq!(read_gitdir_pointer(&pointer), None);
+        });
+        assert!(logged.contains("failed to read .git pointer file"), "got: {logged}");
+        assert!(logged.contains("byte cap"), "got: {logged}");
     }
 
     /// A relative `gitdir:` pointer that traverses several parents to
@@ -546,7 +667,7 @@ mod tests {
 
         // No real .git anywhere in the ancestor chain — only the planted
         // pointer. With the traversal bound the pointer is refused
-        // and the walk falls through to None.
+        // and the walk stops with None.
         assert_eq!(find_git_dir(&chain), None);
     }
 
@@ -574,7 +695,7 @@ mod tests {
         let (logged, ()) = ops_core::test_utils::capture_tracing(tracing::Level::DEBUG, || {
             // Walking from the workspace root finds *its* .git, not ours, so
             // probe the entry directly to exercise the read-error path.
-            assert!(probe_git_entry(&pointer).is_none());
+            assert_eq!(probe_git_entry(&pointer), GitEntry::Refused);
         });
 
         // Restore permissions so tempdir cleanup succeeds.
@@ -621,7 +742,7 @@ mod tests {
         std::fs::write(&pointer, "gitdir: sym/../escape_target\n").unwrap();
 
         // No real .git anywhere up the chain — only the planted pointer. The
-        // walk must reject the pointer and fall through to None.
+        // walk must reject the pointer and stop with None.
         assert_eq!(find_git_dir(&pointer_parent), None);
     }
 

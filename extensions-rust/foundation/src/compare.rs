@@ -21,8 +21,10 @@ pub enum Rule {
 /// One place where the repo diverges from the baseline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Drift {
-    /// `<file>` or `<file>:<dotted.key>` — also the key a waiver names.
+    /// `<file>` or `<file>:<dotted.key>` — also the key a waiver names. A
+    /// key segment holding a `.` is double-quoted, as in a TOML dotted key.
     pub location: String,
+    /// What diverged, rendered verbatim by the CLI next to `location`.
     pub message: String,
 }
 
@@ -126,10 +128,63 @@ fn lint_level(spec: &Value) -> Option<Level> {
 }
 
 fn join(location: &str, key: &str) -> String {
+    let key = key_segment(key);
     if location.contains(':') {
         format!("{location}.{key}")
     } else {
         format!("{location}:{key}")
+    }
+}
+
+/// One key-path segment, double-quoted when it holds a `.`, `"` or `\\` so
+/// none of them can be read as a segment boundary. Inside the quotes, `"` and
+/// `\\` are backslash-escaped, so a name's own quote cannot end the segment
+/// early (see [`key_segments`]).
+pub fn key_segment(key: &str) -> std::borrow::Cow<'_, str> {
+    if !key.contains(['.', '"', '\\']) {
+        return std::borrow::Cow::Borrowed(key);
+    }
+    let mut quoted = String::with_capacity(key.len().saturating_add(2));
+    quoted.push('"');
+    for c in key.chars() {
+        if matches!(c, '"' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(c);
+    }
+    quoted.push('"');
+    std::borrow::Cow::Owned(quoted)
+}
+
+/// Split a dotted key path into its segments, treating dots inside a
+/// double-quoted segment as part of the name. Inside quotes a backslash
+/// escapes the next character, so an escaped `"` does not close the quote.
+/// Segments are returned in their written (quoted, escaped) form.
+pub fn key_segments(path: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut rest = path;
+    loop {
+        let mut quoted = false;
+        let mut escaped = false;
+        let cut = rest.char_indices().find(|&(_, c)| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            match c {
+                '\\' if quoted => escaped = true,
+                '"' => quoted = !quoted,
+                _ => {}
+            }
+            c == '.' && !quoted
+        });
+        let Some((i, _)) = cut else {
+            segments.push(rest);
+            return segments;
+        };
+        let (segment, tail) = rest.split_at(i);
+        segments.push(segment);
+        rest = tail.strip_prefix('.').unwrap_or(tail);
     }
 }
 

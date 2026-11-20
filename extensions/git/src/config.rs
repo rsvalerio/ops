@@ -574,32 +574,6 @@ mod tests {
     }
 
     #[test]
-    fn find_git_dir_in_current() {
-        let dir = tempfile::tempdir().unwrap();
-        let git = dir.path().join(".git");
-        std::fs::create_dir(&git).unwrap();
-        let expected = std::fs::canonicalize(&git).unwrap();
-        assert_eq!(find_git_dir(dir.path()), Some(expected));
-    }
-
-    #[test]
-    fn find_git_dir_in_parent() {
-        let dir = tempfile::tempdir().unwrap();
-        let git = dir.path().join(".git");
-        std::fs::create_dir(&git).unwrap();
-        let sub = dir.path().join("sub");
-        std::fs::create_dir(&sub).unwrap();
-        let expected = std::fs::canonicalize(&git).unwrap();
-        assert_eq!(find_git_dir(&sub), Some(expected));
-    }
-
-    #[test]
-    fn find_git_dir_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(find_git_dir(dir.path()).is_none());
-    }
-
-    #[test]
     fn origin_url_https() {
         let cfg = "\
 [core]

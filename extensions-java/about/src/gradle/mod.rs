@@ -37,7 +37,7 @@ impl DataProvider for GradleIdentityProvider {
     }
 
     fn name(&self) -> &'static str {
-        "project_identity"
+        crate::DATA_PROVIDER_NAME
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -314,7 +314,7 @@ pub struct GradleUnitsProvider;
 
 impl DataProvider for GradleUnitsProvider {
     fn name(&self) -> &'static str {
-        "project_units"
+        ops_about::units::PROJECT_UNITS_PROVIDER
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {

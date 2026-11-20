@@ -1,10 +1,10 @@
 ---
 id: TASK-2736
 title: 'READ-6: Identity provider reports cwd, not the resolved workspace root, as project_root'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:37'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:28'
 labels:
   - code-review-rust
   - READ
@@ -29,8 +29,9 @@ dedup_key: 'READ-6:extensions-rust/about/src/identity/mod.rs:RustIdentityProvide
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RustIdentityProvider::provide passes manifest.workspace_root() (not ctx.working_directory) to build_identity_value and the repository fallback
-- [ ] #2 A test runs the identity provider with the working directory set to a member crate and asserts project_root equals the workspace root
+- [x] #1 RustIdentityProvider::provide passes manifest.workspace_root() (not ctx.working_directory) to build_identity_value and the repository fallback
+- [x] #2 A test runs the identity provider with the working directory set to a member crate and asserts project_root equals the workspace root
+
 <!-- AC:END -->
 
 ## Implementation Notes

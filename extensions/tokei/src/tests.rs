@@ -220,6 +220,60 @@ fn scan_tokei_skips_files_over_the_byte_cap() {
     assert!(!scan.truncated);
 }
 
+/// Pins that the byte cap is enforced on the open handle and the bytes read,
+/// not only on the walk's `stat`: `count_capped` refuses a file over the cap
+/// by the time it is opened, counts one at the cap, and decodes a UTF-16 file
+/// through tokei's BOM sniffing exactly as `LanguageType::parse` would.
+#[test]
+fn count_capped_enforces_the_cap_on_the_opened_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = TokeiConfig::default();
+    let path = dir.path().join("a.rs");
+
+    std::fs::write(
+        &path,
+        "fn a() {}
+",
+    )
+    .expect("write");
+    let stats = super::count_capped(LanguageType::Rust, &path, &config, 10)
+        .expect("read")
+        .expect("a file exactly at the cap is counted");
+    assert_eq!(stats.code, 1);
+
+    // The walk saw 10 bytes; the file has since grown past the cap.
+    std::fs::write(
+        &path,
+        "fn a() {}
+fn b() {}
+",
+    )
+    .expect("grow");
+    assert!(
+        super::count_capped(LanguageType::Rust, &path, &config, 10).expect("read").is_none(),
+        "a file over the cap when opened is refused, not read whole"
+    );
+
+    let utf16: Vec<u8> = [0xFF, 0xFE]
+        .into_iter()
+        .chain("fn a() {}\n".encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    std::fs::write(&path, utf16).expect("write utf16");
+    let expected = LanguageType::Rust.parse(path.clone(), &config).expect("tokei parse").stats;
+    let stats = super::count_capped(LanguageType::Rust, &path, &config, 1024)
+        .expect("read")
+        .expect("under the cap");
+    assert_eq!(stats.code, 1, "UTF-16 source is decoded before counting");
+    assert_eq!(
+        (stats.code, stats.blanks, stats.comments),
+        (expected.code, expected.blanks, expected.comments)
+    );
+
+    let err = super::count_capped(LanguageType::Rust, dir.path(), &config, 1024)
+        .expect_err("a directory is not a regular file");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+}
+
 #[test]
 fn scan_tokei_truncates_at_the_file_cap() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -552,14 +606,6 @@ fn tokei_collect_and_load_cycle() {
     assert!(!dir.entry_path("tokei_files.json").exists());
 }
 
-#[test]
-fn tokei_files_has_data_returns_false_for_empty_db() {
-    let db = Sqlite::open_in_memory().expect("open in-memory db");
-    init_schema(&db).expect("init schema");
-    let has = ops_sqlite::sql::table_has_data(&db, "tokei_files").expect("check");
-    assert!(!has, "empty db should have no tokei data");
-}
-
 // -- TokeiIngestor::load tests --
 //
 // `TokeiIngestor::load` is the single supported entry point for loading
@@ -609,10 +655,6 @@ fn load_tokei_succeeds_after_collect() {
     drop(conn);
     assert_eq!(count, i64::try_from(FIXTURE_FILE_COUNT).expect("fits"));
 }
-
-// The single-entry-point invariant is enforced by a `compile_fail` doctest
-// on the crate root: a second load entry point fails compilation instead
-// of silently coexisting with `TokeiIngestor::load`.
 
 // -- query_tokei_files tests --
 
@@ -668,20 +710,6 @@ fn tokei_ingestor_collect_empty_dir() {
     let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
     assert!(parsed.is_array());
     assert!(parsed.as_array().unwrap().is_empty());
-}
-
-#[test]
-fn tokei_ingestor_load_without_collect_fails() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    // Ingestors stage through a verified anchor, so the
-    // test drives the same handle `provide_via_ingestor` builds.
-    let dir =
-        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = Sqlite::open_in_memory().expect("open in-memory db");
-
-    let ingestor = TokeiIngestor;
-    let result = ingestor.load(&dir, &db);
-    assert!(result.is_err(), "load without prior collect should fail");
 }
 
 // -- flatten_tokei_to_json edge cases --

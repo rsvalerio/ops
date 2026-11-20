@@ -1,10 +1,10 @@
 ---
 id: TASK-2739
 title: 'ERR-6: workspace-inherited default-features fold disagrees with cargo because ''unspecified'' is a default-true bool'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - error-handling
@@ -35,9 +35,10 @@ Only the unspecified-member/false-workspace case matches. The `optional` fold (`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 default-features on DetailedDepSpec distinguishes 'not specified' from an explicit true/false (e.g. Option<bool>), with uses_default_features() still defaulting to true
-- [ ] #2 Inherited-dep resolution matches cargo: member true + workspace false enables defaults; member false + workspace unspecified/true keeps defaults on
-- [ ] #3 The resolve_from_detailed_dep doc comment describes cargo's actual precedence, and tests cover all four member/workspace combinations for both simple and detailed workspace deps
+- [x] #1 default-features on DetailedDepSpec distinguishes 'not specified' from an explicit true/false (e.g. Option<bool>), with uses_default_features() still defaulting to true
+- [x] #2 Inherited-dep resolution matches cargo: member true + workspace false enables defaults; member false + workspace unspecified/true keeps defaults on
+- [x] #3 The resolve_from_detailed_dep doc comment describes cargo's actual precedence, and tests cover all four member/workspace combinations for both simple and detailed workspace deps
+
 <!-- AC:END -->
 
 ## Implementation Notes

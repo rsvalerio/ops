@@ -49,10 +49,18 @@ fn find_root_terminates_on_symlink_loop() {
     std::os::unix::fs::symlink(&b, &a).unwrap();
     std::os::unix::fs::symlink(&a, &b).unwrap();
 
-    // canonicalize fails on the loop, so we get a clear error rather than
-    // an infinite loop.
-    let result = find_workspace_root(&a);
-    assert!(result.is_err());
+    // canonicalize fails on the loop (ELOOP, not NotFound), so we get a
+    // clear I/O error naming the start path rather than an infinite loop or
+    // a "no manifest" answer.
+    let err = find_workspace_root(&a).unwrap_err();
+    match &err {
+        FindWorkspaceRootError::CanonicalizeFailed { path, source } => {
+            assert_eq!(path, &a);
+            assert_ne!(source.kind(), std::io::ErrorKind::NotFound, "{source:?}");
+        }
+        other => panic!("expected CanonicalizeFailed, got: {other:?}"),
+    }
+    assert!(!err.is_not_found());
 }
 
 /// From inside a member crate, walk past the member manifest to
@@ -615,10 +623,86 @@ fn content_declares_workspace_rejects_non_headers() {
         "[\"workspace-ish\"]\n",
         // An unterminated header is not a header.
         "[workspace\nmembers = []\n",
+        // A row of a multi-line array that reads like a header.
+        "[package]\nx = [\n  [\"workspace\"]\n]\n",
     ] {
         assert!(
             !content_declares_workspace(content),
             "should NOT detect workspace in: {content:?}"
         );
+    }
+}
+
+/// TOML lets the workspace table be written as a root-table key before any
+/// header; cargo (and `nested.rs`, which parses the manifest) accept both
+/// the inline and the dotted form.
+#[test]
+fn content_declares_workspace_accepts_root_table_keys() {
+    for content in [
+        "workspace = { members = [\"crates/*\"] }\n",
+        "workspace.members = [\"crates/*\"]\nworkspace.resolver = \"2\"\n",
+        "# leading comment\n\nworkspace . resolver = \"2\"\n[package]\nname = \"x\"\n",
+        "\"workspace\".members = []\n",
+        "'workspace' = { resolver = \"2\" }\n",
+        // A multi-line array element starting with `[` does not end the root table.
+        "matrix = [\n  [1, 2],\n]\nworkspace.members = []\n",
+        // The same without a trailing comma: the last row's blank tail does
+        // not make it a header either.
+        "matrix = [\n  [1, 2]\n]\nworkspace.members = []\n",
+        "package.metadata.matrix = [\n  [1, 2],\n  [3, 4]\n]\nworkspace = { members = [] }\n",
+        // Brackets inside strings and comments do not unbalance the depth.
+        "names = [\n  \"]\", # ]]\n  ['[']\n]\nworkspace.members = []\n",
+    ] {
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
+    }
+}
+
+/// A dotted `workspace.<key>` after a table header belongs to that table,
+/// and a root key that is not the workspace table does not count.
+#[test]
+fn content_declares_workspace_rejects_workspace_keys_inside_other_tables() {
+    for content in [
+        "[package]\nname = \"x\"\nworkspace.members = []\n",
+        "[dependencies]\nworkspace.path = \"../workspace\"\n",
+        "[package]\nworkspace = { members = [] }\n",
+        "[[bin]]\nname = \"x\"\nworkspace.members = []\n",
+        // `workspace` as a plain string value is not a table.
+        "workspace = \"../root\"\n",
+        // A key that merely starts with `workspace`.
+        "workspaces.members = []\nworkspace-x = { a = 1 }\n",
+        // Inside a multi-line string before any header.
+        "doc = \"\"\"\nworkspace.members = []\n\"\"\"\n",
+    ] {
+        assert!(
+            !content_declares_workspace(content),
+            "should NOT detect workspace in: {content:?}"
+        );
+    }
+}
+
+/// Both walks must stop at a root that declares its workspace as a
+/// root-table key instead of climbing to an ancestor declaring `[workspace]`.
+#[test]
+fn find_root_selects_inline_declared_workspace_over_ancestor() {
+    for root_manifest in [
+        "workspace = { members = [\"crates/foo\"] }\n",
+        "workspace.members = [\"crates/foo\"]\nworkspace.resolver = \"2\"\n",
+    ] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ancestor = fs::canonicalize(tmp.path()).expect("canonicalize tempdir");
+        fs::write(ancestor.join("Cargo.toml"), "[workspace]\nmembers = [\"real\"]\n")
+            .expect("write ancestor workspace");
+
+        let real = ancestor.join("real");
+        let member = real.join("crates").join("foo");
+        fs::create_dir_all(&member).expect("create member dir");
+        fs::write(real.join("Cargo.toml"), root_manifest).expect("write inline workspace");
+        fs::write(member.join("Cargo.toml"), "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n")
+            .expect("write member");
+
+        let lenient = find_workspace_root(&member).expect("lenient walk");
+        assert_eq!(lenient, real, "lenient walk climbed past {root_manifest:?}");
+        let strict = find_workspace_root_strict(&member).expect("strict walk");
+        assert_eq!(strict, real, "strict walk climbed past {root_manifest:?}");
     }
 }

@@ -1,10 +1,10 @@
 ---
 id: TASK-2810
 title: 'TEST-32: run-before-commit tests assert constants back to their own literals'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-32:extensions/run-before-commit/src/lib.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The SKIP_ENV_VAR/script agreement is asserted by deriving the expected script text from the const, with no repeated literal
-- [ ] #2 The tautological assert_eq of legacy_markers against a copied literal is removed or replaced by a property assertion
+- [x] #1 The SKIP_ENV_VAR/script agreement is asserted by deriving the expected script text from the const, with no repeated literal
+- [x] #2 The tautological assert_eq of legacy_markers against a copied literal is removed or replaced by a property assertion
+
 <!-- AC:END -->
 
 ## Implementation Notes

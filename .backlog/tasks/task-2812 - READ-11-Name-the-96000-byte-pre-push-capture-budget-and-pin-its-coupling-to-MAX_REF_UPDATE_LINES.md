@@ -1,10 +1,10 @@
 ---
 id: TASK-2812
 title: 'READ-11: Name the 96000-byte pre-push capture budget and pin its coupling to MAX_REF_UPDATE_LINES'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 23:00'
 labels:
   - code-review-rust
   - READ
@@ -29,13 +29,17 @@ dedup_key: 'READ-11:extensions/run-before-push/src/lib.rs:HOOK_SCRIPT'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The capture budget is a named const (e.g. CAPTURE_BUDGET_BYTES) with a doc comment naming the execve per-string cap it is pinned to
-- [ ] #2 A test asserts HOOK_SCRIPT contains the head -c / -gt probe values derived from that const, so script and const cannot drift
-- [ ] #3 MAX_REF_UPDATE_LINES doc (or a test) states the relation to the budget correctly for both SHA-1 and SHA-256 oid lengths
+- [x] #1 The capture budget is a named const (e.g. CAPTURE_BUDGET_BYTES) with a doc comment naming the execve per-string cap it is pinned to
+- [x] #2 A test asserts HOOK_SCRIPT contains the head -c / -gt probe values derived from that const, so script and const cannot drift
+- [x] #3 MAX_REF_UPDATE_LINES doc (or a test) states the relation to the budget correctly for both SHA-1 and SHA-256 oid lengths
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.29 (code-review-rust run, 2026-11-18).
+
+CAPTURE_BUDGET_BYTES now also feeds a compile-time assertion that the forwarded env string stays under EXECVE_MAX_ARG_STRLEN (131072).
+
 <!-- SECTION:NOTES:END -->

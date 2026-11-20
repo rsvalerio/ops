@@ -438,11 +438,16 @@ fn manifest_declares_workspace(path: &Path) -> bool {
     content_declares_workspace(&content)
 }
 
-/// Line-level scan for a top-level `[workspace]` or `[workspace.*]` header.
+/// Line-level scan for a top-level `[workspace]` or `[workspace.*]` header,
+/// or for the workspace table written as a root-table key before the first
+/// table header: `workspace = { ... }` or `workspace.<key> = ...`.
 ///
 /// Skips lines that fall inside triple-quoted multi-line strings (`"""` or
-/// `'''`). A bare `[workspace]` on a line that is not inside such a string is
-/// enough to declare the manifest as workspace-bearing.
+/// `'''`) and lines inside a multi-line array or inline-table value, where a
+/// row such as `[1, 2]` can start with `[` without being a header. A bare `[workspace]` on a line that is not inside such a string is
+/// enough to declare the manifest as workspace-bearing. A `workspace.<key>`
+/// line after any table header belongs to that table (a `[dependencies]`
+/// entry, say), so it does not count.
 ///
 /// The header is located by scanning for the closing `]` that is not
 /// inside a quoted key, so a trailing comment (`[workspace] # the root`)
@@ -453,19 +458,30 @@ fn manifest_declares_workspace(path: &Path) -> bool {
 /// into attacker-plantable ancestors (see the threat model on
 /// [`find_workspace_root`]).
 pub fn content_declares_workspace(content: &str) -> bool {
-    // The delimiter of the multi-line string still open at the start of the
-    // current line, if any.
-    let mut open_multiline: Option<&'static str> = None;
+    // What is still open at the start of the current line: a multi-line
+    // string and any arrays or inline tables of a multi-line value.
+    let mut open = OpenValue::default();
+    // Key lines belong to the root table only until the first table header.
+    let mut in_root_table = true;
 
     for line in content.lines() {
         let trimmed = line.trim();
+        let at_top_level = open.string.is_none() && open.depth == 0;
 
-        if open_multiline.is_some() || !trimmed.starts_with('[') {
-            open_multiline = multiline_string_open_after(trimmed, open_multiline);
+        if !at_top_level || !trimmed.starts_with('[') {
+            if at_top_level && in_root_table && root_key_declares_workspace(trimmed) {
+                return true;
+            }
+            open = open_value_after(trimmed, open);
             continue;
         }
 
         if let Some(inside) = table_header_body(trimmed) {
+            // Only a line with nothing but a comment after the closing
+            // bracket ends the root table.
+            if header_tail_is_blank(trimmed, inside) {
+                in_root_table = false;
+            }
             // `[[array.of.tables]]` — not a plain table header.
             if inside.starts_with('[') {
                 continue;
@@ -478,48 +494,72 @@ pub fn content_declares_workspace(content: &str) -> bool {
     false
 }
 
-/// Scan one line and report which multi-line string, if any, is still open at
-/// its end, as that string's delimiter (`"""` or `'''`).
+/// What a value line leaves open for the lines after it.
+#[derive(Debug, Clone, Copy, Default)]
+struct OpenValue {
+    /// The delimiter (`"""` or `'''`) of the multi-line string still open.
+    string: Option<&'static str>,
+    /// How many `[` and `{` outside strings and comments are still unclosed.
+    depth: usize,
+}
+
+/// Scan one line and report what is still open at its end: the multi-line
+/// string, if any, and the bracket depth of a multi-line array or inline
+/// table.
 ///
-/// `open` is the multi-line string already open at the start of the line.
-/// Outside a string a `#` starts a comment and ends the scan, so triple quotes
-/// in comment text (`# see """docs`, `a = 1 # '''`) open nothing; inside a
-/// single-line string neither `#` nor a triple quote means anything. Counting
-/// delimiter occurrences instead would let such a comment hide every
-/// following line, a real `[workspace]` header included.
-fn multiline_string_open_after(line: &str, open: Option<&'static str>) -> Option<&'static str> {
+/// `open` is what was already open at the start of the line. Outside a
+/// string a `#` starts a comment and ends the scan, so triple quotes or
+/// brackets in comment text (`# see """docs`, `a = 1 # '''`) open nothing;
+/// inside a single-line string neither `#`, a bracket nor a triple quote
+/// means anything. Counting delimiter occurrences instead would let such a
+/// comment hide every following line, a real `[workspace]` header included.
+fn open_value_after(line: &str, open: OpenValue) -> OpenValue {
     const BASIC: &str = "\"\"\"";
     const LITERAL: &str = "'''";
 
     let mut open = open;
     let mut rest = line;
     loop {
-        if let Some(delim) = open {
+        if let Some(delim) = open.string {
             // Only a basic string has escapes: `\"""` does not close it.
             let Some(after) = text_after_string_end(rest, delim, delim == BASIC) else {
-                return Some(delim);
+                return open;
             };
             rest = after;
-            open = None;
+            open.string = None;
         }
-        // Outside any string: find what comes first — a comment, a
-        // multi-line opener, or a single-line string to step over.
-        let start = rest.find(['#', '"', '\''])?;
-        let tail = rest.get(start..)?;
+        // Outside any string: find what comes first — a comment, a bracket,
+        // a multi-line opener, or a single-line string to step over.
+        let Some(tail) =
+            rest.find(['#', '"', '\'', '[', ']', '{', '}']).and_then(|i| rest.get(i..))
+        else {
+            return open;
+        };
         if tail.starts_with('#') {
-            return None;
+            return open;
         }
-        if let Some(after) = tail.strip_prefix(BASIC) {
-            open = Some(BASIC);
+        if let Some(after) = tail.strip_prefix(['[', '{']) {
+            open.depth = open.depth.saturating_add(1);
+            rest = after;
+        } else if let Some(after) = tail.strip_prefix([']', '}']) {
+            open.depth = open.depth.saturating_sub(1);
+            rest = after;
+        } else if let Some(after) = tail.strip_prefix(BASIC) {
+            open.string = Some(BASIC);
             rest = after;
         } else if let Some(after) = tail.strip_prefix(LITERAL) {
-            open = Some(LITERAL);
+            open.string = Some(LITERAL);
             rest = after;
         } else {
             // A single-line string. One left unterminated is invalid TOML and
-            // cannot span lines, so the scan ends with nothing open.
+            // cannot span lines, so the scan ends with no string open.
             let quote = if tail.starts_with('"') { "\"" } else { "'" };
-            rest = text_after_string_end(tail.get(1..)?, quote, quote == "\"")?;
+            let Some(after) =
+                tail.get(1..).and_then(|t| text_after_string_end(t, quote, quote == "\""))
+            else {
+                return open;
+            };
+            rest = after;
         }
     }
 }
@@ -570,28 +610,75 @@ fn table_header_body(trimmed: &str) -> Option<&str> {
 /// True iff the first dotted key of a table header is `workspace`, ignoring
 /// surrounding whitespace and basic/literal quoting.
 fn first_key_is_workspace(inside: &str) -> bool {
-    let s = inside.trim_start();
-    let mut chars = s.chars();
-    let Some(quote) = chars.next().filter(|c| *c == '"' || *c == '\'') else {
-        // Bare key: runs to the first `.` (or the end of the header).
-        let key = s.split('.').next().unwrap_or(s).trim_end();
-        return key == "workspace";
+    let Some((key, rest)) = split_first_key(inside) else {
+        return false;
     };
-    // Quoted key: everything up to the matching close quote. Escapes only
-    // apply to basic (double-quoted) strings. `chars` is already positioned
-    // just past the opening quote.
+    let rest = rest.trim_start();
+    key == "workspace" && (rest.is_empty() || rest.starts_with('.'))
+}
+
+/// True iff a key/value line in the root table declares the workspace table:
+/// a dotted `workspace.<key> = ...` or an inline `workspace = { ... }`.
+fn root_key_declares_workspace(trimmed: &str) -> bool {
+    let Some((key, rest)) = split_first_key(trimmed) else {
+        return false;
+    };
+    if key != "workspace" {
+        return false;
+    }
+    let rest = rest.trim_start();
+    rest.starts_with('.')
+        || rest.strip_prefix('=').is_some_and(|value| value.trim_start().starts_with('{'))
+}
+
+/// True iff the text after a table header's closing bracket (and the second
+/// bracket of a `[[array]]` header) is empty or a comment, so the line is a
+/// real header rather than an array element inside a multi-line value.
+///
+/// `inside` is the slice [`table_header_body`] returned for `trimmed`: it
+/// starts one byte after the opening `[` and is followed by the closing `]`.
+fn header_tail_is_blank(trimmed: &str, inside: &str) -> bool {
+    let Some(tail) = trimmed
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_prefix(inside))
+        .and_then(|rest| rest.strip_prefix(']'))
+    else {
+        return false;
+    };
+    let tail = if inside.starts_with('[') { tail.strip_prefix(']').unwrap_or(tail) } else { tail };
+    let tail = tail.trim_start();
+    tail.is_empty() || tail.starts_with('#')
+}
+
+/// Split the first key segment off `s` (after leading whitespace), returning
+/// the unquoted key and the text after it, or `None` when `s` does not start
+/// with a well-formed bare or quoted key.
+///
+/// A bare key is a run of ASCII letters, digits, `-` and `_`. A quoted key is
+/// a basic string (`"..."`, where `\` escapes the next character) or a
+/// literal string (`'...'`).
+fn split_first_key(s: &str) -> Option<(String, &str)> {
+    let s = s.trim_start();
+    let Some(quote) = s.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+        let end = s
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(s.len());
+        if end == 0 {
+            return None;
+        }
+        return Some((s.get(..end)?.to_owned(), s.get(end..)?));
+    };
+    // Skip the opening quote (one byte: both quote characters are ASCII).
+    let mut chars = s.char_indices().skip(1);
     let mut key = String::new();
-    while let Some(c) = chars.next() {
+    while let Some((i, c)) = chars.next() {
         if c == '\\' && quote == '"' {
-            match chars.next() {
-                Some(escaped) => key.push(escaped),
-                None => return false,
-            }
+            key.push(chars.next()?.1);
         } else if c == quote {
-            return key == "workspace";
+            return Some((key, s.get(i..)?.strip_prefix(quote)?));
         } else {
             key.push(c);
         }
     }
-    false
+    None
 }

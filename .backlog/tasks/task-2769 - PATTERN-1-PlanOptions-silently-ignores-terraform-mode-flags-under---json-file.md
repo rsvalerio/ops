@@ -1,10 +1,10 @@
 ---
 id: TASK-2769
 title: 'PATTERN-1: PlanOptions silently ignores terraform-mode flags under --json-file'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:43'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:54'
 labels:
   - code-review-rust
   - PATTERN
@@ -29,8 +29,9 @@ dedup_key: 'PATTERN-1:extensions-terraform/plan/src/lib.rs:PlanOptions'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Passing --out, --json-out, --keep-plan or passthrough args together with --json-file is rejected at parse time (clap conflicts_with / ArgGroup) or modelled as a mode enum
-- [ ] #2 A test asserts the rejected combinations produce a clear error
+- [x] #1 Passing --out, --json-out, --keep-plan or passthrough args together with --json-file is rejected at parse time (clap conflicts_with / ArgGroup) or modelled as a mode enum
+- [x] #2 A test asserts the rejected combinations produce a clear error
+
 <!-- AC:END -->
 
 ## Implementation Notes

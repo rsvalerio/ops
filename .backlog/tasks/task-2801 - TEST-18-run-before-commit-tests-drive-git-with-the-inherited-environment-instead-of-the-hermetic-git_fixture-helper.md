@@ -1,10 +1,10 @@
 ---
 id: TASK-2801
 title: 'TEST-18: run-before-commit tests drive git with the inherited environment instead of the hermetic git_fixture helper'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:46'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:30'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-18:extensions/run-before-commit/src/lib.rs:tests::init_repo'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 init_repo, commit_file and the inline git add/rm fixture calls go through ops_core::test_utils::git_fixture (or an equivalent hermetic wrapper)
-- [ ] #2 The run-before-commit test suite passes when run with GIT_INDEX_FILE/GIT_DIR pointing at another repository and with a global config setting commit.gpgsign=true
+- [x] #1 init_repo, commit_file and the inline git add/rm fixture calls go through ops_core::test_utils::git_fixture (or an equivalent hermetic wrapper)
+- [x] #2 The run-before-commit test suite passes when run with GIT_INDEX_FILE/GIT_DIR pointing at another repository and with a global config setting commit.gpgsign=true
+
 <!-- AC:END -->
 
 ## Implementation Notes

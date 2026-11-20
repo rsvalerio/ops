@@ -1,10 +1,10 @@
 ---
 id: TASK-2755
 title: 'READ-1: hand-rolled UTF-8 boundary walks duplicate str::floor_char_boundary / ceil_char_boundary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:41'
 labels:
   - code-review-rust
   - READ
@@ -30,9 +30,10 @@ dedup_key: 'READ-1:extensions-rust/deps/src/parse/mod.rs:truncate_for_log'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 truncate_for_log uses str::floor_char_boundary instead of the manual walk-back loop
-- [ ] #2 clamp_to_char_boundaries uses ceil_char_boundary / floor_char_boundary and keeps its clamp-warning behaviour
-- [ ] #3 The existing multi-byte truncation and column-clamp tests pass unchanged
+- [x] #1 truncate_for_log uses str::floor_char_boundary instead of the manual walk-back loop
+- [x] #2 clamp_to_char_boundaries uses ceil_char_boundary / floor_char_boundary and keeps its clamp-warning behaviour
+- [x] #3 The existing multi-byte truncation and column-clamp tests pass unchanged
+
 <!-- AC:END -->
 
 ## Implementation Notes

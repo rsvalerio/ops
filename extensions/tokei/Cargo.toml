@@ -9,6 +9,7 @@ license.workspace = true
 ops-extension = { workspace = true, features = ["sqlite"] }
 ops-sqlite = { workspace = true }
 tokei = { workspace = true }
+encoding_rs_io = { workspace = true }
 ignore = { workspace = true }
 tracing = { workspace = true }
 serde_json = { workspace = true }

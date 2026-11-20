@@ -192,6 +192,40 @@ fn waiver_prefix_matching_respects_segment_boundaries() {
 }
 
 #[test]
+fn a_file_name_dot_is_not_a_waiver_boundary() {
+    for waiver in ["Cargo", "deny", "clippy", ".config/nextest", ""] {
+        for location in [
+            "Cargo.toml:workspace.lints.clippy.panic",
+            "deny.toml",
+            "clippy.toml:allow-unwrap-in-tests",
+            ".config/nextest.toml",
+            ".ops.toml:cargo.workspaces.fuzz",
+        ] {
+            assert!(!waiver_covers(waiver, location), "{waiver:?} covers {location:?}");
+        }
+    }
+    assert!(!waiver_covers("Cargo.toml:", "Cargo.toml:workspace.lints"));
+    assert!(waiver_covers(".config/nextest.toml", ".config/nextest.toml:profile.ci"));
+}
+
+#[test]
+fn a_dotted_workspace_dir_is_one_segment() {
+    let dir = workspace();
+    let tools = dir.path().join("tools.x");
+    std::fs::create_dir_all(&tools).expect("tools dir");
+    std::fs::write(tools.join("Cargo.toml"), "[package]\nname = \"t\"\n[workspace]\n")
+        .expect("tools manifest");
+    let location = ".ops.toml:cargo.workspaces.\"tools.x\"";
+    let report = check(dir.path(), &no_waivers(), &[]).expect("check");
+    assert_eq!(workspace_drift(&report).first().map(|(l, _)| *l), Some(location));
+    assert!(!waiver_covers(".ops.toml:cargo.workspaces.tools", location));
+    let waivers = IndexMap::from([(location.to_owned(), "held back".to_owned())]);
+    let report = check(dir.path(), &waivers, &[]).expect("check");
+    assert!(workspace_drift(&report).is_empty());
+    assert!(report.unused_waivers.is_empty());
+}
+
+#[test]
 fn single_package_gets_lints_directly() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
@@ -234,6 +268,50 @@ fn a_symlinked_config_dir_is_refused() {
     let err = scaffold(dir.path(), false).expect_err("symlinked .config");
     assert!(format!("{err:#}").contains("symlink"));
     assert!(!outside.path().join("nextest.toml").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_member_dir_symlinked_out_of_the_repo_is_left_alone() {
+    let dir = workspace();
+    let outside = tempfile::tempdir().expect("outside");
+    let manifest = "[package]\nname = \"elsewhere\"\nversion = \"0.1.0\"\n";
+    std::fs::write(outside.path().join("Cargo.toml"), manifest).expect("outside manifest");
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("crates").join("x"))
+        .expect("symlink");
+    let root = WORKSPACE.replace("[\"crates/*\"]", "[\"crates/a\", \"crates/x\"]");
+    std::fs::write(dir.path().join("Cargo.toml"), root).expect("literal members");
+    let written = scaffold(dir.path(), false).expect("scaffold");
+    assert!(written.iter().all(|w| !w.target.starts_with("crates/x")), "{written:?}");
+    assert_eq!(std::fs::read_to_string(outside.path().join("Cargo.toml")).expect("read"), manifest);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_member_manifest_symlinked_out_of_the_repo_is_refused() {
+    let dir = workspace();
+    let outside = tempfile::tempdir().expect("outside");
+    let manifest = "[package]\nname = \"elsewhere\"\nversion = \"0.1.0\"\n";
+    let target = outside.path().join("Cargo.toml");
+    std::fs::write(&target, manifest).expect("outside manifest");
+    let member = dir.path().join("crates/a/Cargo.toml");
+    std::fs::remove_file(&member).expect("rm member manifest");
+    std::os::unix::fs::symlink(&target, &member).expect("symlink");
+    let err = scaffold(dir.path(), false).expect_err("member manifest outside the repo");
+    assert!(format!("{err:#}").contains("outside the repo"), "{err:#}");
+    assert_eq!(std::fs::read_to_string(&target).expect("read"), manifest);
+    assert!(!dir.path().join("clippy.toml").exists(), "refused before any write");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_member_symlinked_inside_the_repo_is_written() {
+    let dir = workspace();
+    std::fs::rename(dir.path().join("crates/b"), dir.path().join("b-real")).expect("move");
+    std::os::unix::fs::symlink(dir.path().join("b-real"), dir.path().join("crates/b"))
+        .expect("symlink");
+    scaffold(dir.path(), false).expect("scaffold");
+    assert!(read(&dir, "b-real/Cargo.toml").contains("[lints]\nworkspace = true\n"));
 }
 
 fn mise_template() -> Value {
@@ -579,4 +657,31 @@ fn leaving_a_nested_workspace_out_is_a_waiver() {
     let report = check(dir.path(), &waivers, &[]).expect("check");
     assert!(workspace_drift(&report).is_empty());
     assert_eq!(report.waived.len(), 1);
+}
+
+fn workspace_location(dir: &str) -> String {
+    format!("{WORKSPACES_LOCATION}.{}", compare::key_segment(dir))
+}
+
+/// A directory whose name holds a quote stays one segment, so a waiver
+/// for a sibling whose name is its prefix does not cover it.
+#[test]
+fn a_quote_in_a_directory_name_does_not_widen_a_waiver() {
+    let waiver = workspace_location("tools.x");
+    let other = workspace_location("tools.x\".extra");
+    assert!(waiver_covers(&waiver, &waiver));
+    assert!(!waiver_covers(&waiver, &other), "{waiver} must not cover {other}");
+    assert!(waiver_covers(&other, &other));
+}
+
+#[test]
+fn quotes_and_backslashes_are_escaped_and_split_as_one_segment() {
+    assert_eq!(compare::key_segment("plain"), "plain");
+    assert_eq!(compare::key_segment("a.b"), "\"a.b\"");
+    assert_eq!(compare::key_segment("a\"b"), "\"a\\\"b\"");
+    assert_eq!(compare::key_segment("a\\b"), "\"a\\\\b\"");
+    let path = format!("x.{}.y", compare::key_segment("tools.x\".extra"));
+    assert_eq!(compare::key_segments(&path), ["x", "\"tools.x\\\".extra\"", "y"]);
+    let path = format!("x.{}.y", compare::key_segment("end\\"));
+    assert_eq!(compare::key_segments(&path), ["x", "\"end\\\\\"", "y"]);
 }

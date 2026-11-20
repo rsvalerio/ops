@@ -22,6 +22,9 @@ wait-timeout = { workspace = true }
 # `ops_core::test_utils::is_root_euid` gates the DAC-permission
 # tests, which are silent no-ops under root.
 ops-core = { workspace = true, features = ["test-support"] }
+# Self dev-dependency: turns `test-helpers` on for the integration tests in
+# `tests/`, which link the library built without `cfg(test)`.
+ops-hook-common = { path = ".", features = ["test-helpers"] }
 serial_test = { workspace = true }
 tracing-subscriber = { workspace = true }
 

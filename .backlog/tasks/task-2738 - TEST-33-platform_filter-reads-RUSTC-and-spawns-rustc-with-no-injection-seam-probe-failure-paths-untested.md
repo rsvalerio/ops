@@ -1,10 +1,10 @@
 ---
 id: TASK-2738
 title: 'TEST-33: platform_filter reads $RUSTC and spawns rustc with no injection seam; probe-failure paths untested'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:38'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:28'
 labels:
   - code-review-rust
   - TEST
@@ -29,8 +29,9 @@ dedup_key: 'TEST-33:extensions-rust/about/src/deps_provider.rs:platform_filter'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The rustc probe is injectable (e.g. a probe closure or a rustc path parameter resolved once in provide), with RUSTC read only at the boundary
-- [ ] #2 Tests cover a failing probe (error returned, no PlatformFilter::All fallback), a missing host triple, and a requested triple equal to the host
+- [x] #1 The rustc probe is injectable (e.g. a probe closure or a rustc path parameter resolved once in provide), with RUSTC read only at the boundary
+- [x] #2 Tests cover a failing probe (error returned, no PlatformFilter::All fallback), a missing host triple, and a requested triple equal to the host
+
 <!-- AC:END -->
 
 ## Implementation Notes

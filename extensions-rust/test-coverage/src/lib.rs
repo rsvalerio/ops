@@ -102,14 +102,14 @@ ops_extension::impl_extension! {
 /// the type system: a caller writing `let _ = load_coverage(...)` lights up
 /// a lint.
 ///
+/// Takes the verified [`IngestDir`] anchor the ingestor trait takes, so
+/// this public entry point cannot re-introduce a by-name resolution of the
+/// staging directory that `provide_via_ingestor` verified.
+///
 /// # Errors
 ///
 /// If the schema cannot be initialised, or the coverage sidecar staged in
 /// `dir` cannot be read or loaded into the database.
-///
-/// Takes the verified [`IngestDir`] anchor the ingestor trait takes, so
-/// this public entry point cannot re-introduce a by-name resolution of the
-/// staging directory that `provide_via_ingestor` verified.
 #[must_use = "load report carries the record_count health signal"]
 pub fn load_coverage(dir: &IngestDir, db: &Sqlite) -> Result<LoadResult, anyhow::Error> {
     init_schema(db)?;

@@ -159,15 +159,52 @@ pub const REF_UPDATES_ENV_VAR: &str = "OPS_PRE_PUSH_REFS";
 /// the fail-safe direction for a verification gate.
 pub const REFS_TRUNCATED_ENV_VAR: &str = "OPS_PRE_PUSH_REFS_TRUNCATED";
 
+/// The installed hook's capture budget: the most bytes of git's ref-update
+/// stream it forwards through [`REF_UPDATES_ENV_VAR`].
+///
+/// Pinned to `execve`'s per-string cap ([`EXECVE_MAX_ARG_STRLEN`]), which
+/// bounds one `NAME=value` environment string: the budget stays well under
+/// it so the `exec ops` line can never fail with `E2BIG`, and a compile-time
+/// assertion below refuses a budget that would not.
+/// Raising it toward that cap reintroduces the exec failure on large
+/// pushes; lowering it truncates (and therefore runs every check) on
+/// smaller ones.
+///
+/// [`HOOK_SCRIPT`] is a literal string, so it spells this value out — as
+/// `head -c` / `-gt` probes of the budget plus one byte, and in its
+/// truncation message. A unit test pins those spellings to this const.
+const CAPTURE_BUDGET_BYTES: usize = 96_000;
+
+/// `execve`'s cap on one argument or environment string, including its
+/// `NAME=` prefix and terminating NUL (`MAX_ARG_STRLEN`, 32 pages on Linux).
+const EXECVE_MAX_ARG_STRLEN: usize = 131_072;
+
+// The forwarded `OPS_PRE_PUSH_REFS=<capture>` string — the capture budget
+// plus its probe byte — must fit under the exec cap, or the hook's
+// `exec ops` dies with `E2BIG` on exactly the pushes the budget exists for.
+const _: () = assert!(
+    REF_UPDATES_ENV_VAR.len() + 1 + CAPTURE_BUDGET_BYTES + 1 + 1 < EXECVE_MAX_ARG_STRLEN,
+    "the capture budget must leave the forwarded env string under execve's cap"
+);
+
 /// Upper bound on the ref-update lines parsed from the stream (external
 /// input, so it is bounded). A push above this is not worth classifying —
 /// run the checks.
 ///
-/// Sized to stay within reach of the hook's byte budget. At `1_000`, a
-/// stream of short ref lines (~90 bytes each) fits the hook's 96000-byte
-/// capture budget and still trips this line bound, so both bounds are
-/// live; a larger line bound could never be reached, because a stream
-/// long enough to hit it would already exceed the capture budget.
+/// Relation to [`CAPTURE_BUDGET_BYTES`], per object-id format — a ref line
+/// is two refnames plus two object ids, three separators and a newline:
+///
+/// - **SHA-1** (40-hex ids): at least 84 bytes plus the refnames, so 1000
+///   lines fit the budget only when the two refnames average under 12 bytes
+///   combined per line. The line bound is reachable, but only by such
+///   short-named streams.
+/// - **SHA-256** (64-hex ids): at least 132 bytes per line, so 1000 lines
+///   need at least 132000 bytes — over the budget. The hook truncates
+///   first and the line bound is never reached.
+///
+/// Either bound trips into [`PushRefs::Run`], so whichever fires first
+/// keeps the gate fail-safe. A larger line bound would be unreachable for
+/// both formats.
 const MAX_REF_UPDATE_LINES: usize = 1_000;
 
 /// What git's pre-push ref-update stream says about this push.
@@ -194,6 +231,10 @@ impl PushRefs {
     }
 }
 
+/// The local-ref field git's pre-push stream carries for a ref deletion,
+/// always paired with an all-zero local object id (githooks(5), pre-push).
+const DELETE_MARKER: &str = "(delete)";
+
 /// True for a git object id: 40 (SHA-1) or 64 (SHA-256) hex digits.
 fn is_object_id(field: &str) -> bool {
     matches!(field.len(), 40 | 64) && field.bytes().all(|b| b.is_ascii_hexdigit())
@@ -210,7 +251,8 @@ fn is_zero_object_id(field: &str) -> bool {
 /// `ops run-before-push`, where there is no push to reason about.
 ///
 /// Every line must be four whitespace-separated fields with well-formed
-/// object ids (shape is validated before acting on it). Anything else — a
+/// object ids (shape is validated before acting on it), and a deletion must
+/// carry git's `(delete)` local ref together with an all-zero local oid. Anything else — a
 /// malformed line, or more than [`MAX_REF_UPDATE_LINES`] of them — yields
 /// [`PushRefs::Run`]: the classifier only ever *skips* work on input it
 /// fully understood, so a parser gap can never silently disable the gate.
@@ -231,21 +273,19 @@ pub fn classify_ref_updates(stream: Option<&str>) -> PushRefs {
             return PushRefs::Run;
         }
         let fields: Vec<&str> = line.split_whitespace().collect();
-        let [local_ref, local_oid, remote_ref, remote_oid] = fields[..] else {
+        let [local_ref, local_oid, _remote_ref, remote_oid] = fields[..] else {
             return PushRefs::Run;
         };
-        if local_ref.is_empty()
-            || remote_ref.is_empty()
-            || !is_object_id(local_oid)
-            || !is_object_id(remote_oid)
-        {
+        if !is_object_id(local_oid) || !is_object_id(remote_oid) {
             return PushRefs::Run;
         }
-        // git sends an all-zero *local* oid for a ref being deleted.
-        if is_zero_object_id(local_oid) {
-            deletions = deletions.saturating_add(1);
-        } else {
-            updates = updates.saturating_add(1);
+        // git marks a ref deletion with *both* the `(delete)` local ref and
+        // an all-zero local oid. Either one without the other is a stream
+        // this classifier does not understand, so it runs the checks.
+        match (local_ref == DELETE_MARKER, is_zero_object_id(local_oid)) {
+            (true, true) => deletions = deletions.saturating_add(1),
+            (false, false) => updates = updates.saturating_add(1),
+            _ => return PushRefs::Run,
         }
     }
 
@@ -336,13 +376,14 @@ mod tests {
     ///   unconditionally, on every machine, and the fall-through can never
     ///   exec a real `ops`.
     /// - The dispatch tests need `head` (the hook's bounded capture) and
-    ///   `cat` (their fake `ops` bodies), so they pass their tempdir *plus*
-    ///   the system bin directories — tempdir first, so the fake `ops`
-    ///   shadows any real one and the `exec` line resolves only the fake.
+    ///   `cat` (their fake `ops` bodies), so they pass [`dispatch_path`]:
+    ///   their tempdir followed by the inherited `PATH` — tempdir first, so
+    ///   the fake `ops` shadows any real one and the `exec` line resolves
+    ///   only the fake.
     #[cfg(unix)]
     fn run_hook_script(
         path: &std::path::Path,
-        path_value: &str,
+        path_value: &std::ffi::OsStr,
         stdin: &str,
         envs: &[(&str, &str)],
     ) -> (std::process::ExitStatus, String, String) {
@@ -382,6 +423,17 @@ mod tests {
         )
     }
 
+    /// The child `PATH` for a dispatch test: `dir` first, so its fake `ops`
+    /// shadows any real one, then the test runner's own `PATH`, so `head`
+    /// and `cat` resolve wherever this host keeps them (not only in the FHS
+    /// `/usr/bin` and `/bin`).
+    #[cfg(unix)]
+    fn dispatch_path(dir: &std::path::Path) -> std::ffi::OsString {
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let entries = std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&inherited));
+        std::env::join_paths(entries).expect("tempdir path joins into PATH")
+    }
+
     // -- HOOK_SCRIPT --
 
     #[test]
@@ -414,6 +466,20 @@ mod tests {
         assert!(HOOK_SCRIPT.contains(REF_UPDATES_ENV_VAR));
     }
 
+    /// `HOOK_SCRIPT` is a literal, so it spells [`CAPTURE_BUDGET_BYTES`]
+    /// out; pin every spelling to the const so the two cannot drift.
+    #[test]
+    fn hook_script_capture_probes_derive_from_the_capture_budget() {
+        let probe = CAPTURE_BUDGET_BYTES + 1;
+        for needle in [
+            format!("head -c {probe};"),
+            format!("-gt {probe} ]"),
+            format!("the {CAPTURE_BUDGET_BYTES}-byte capture budget"),
+        ] {
+            assert!(HOOK_SCRIPT.contains(&needle), "HOOK_SCRIPT must contain {needle:?}");
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -439,8 +505,8 @@ mod tests {
 
         let line = format!("refs/heads/main {SHA1_A} refs/heads/main {SHA1_B}");
         // The fake ops shadows any real one (tempdir first); `head` and `cat`
-        // come from the system bin dirs behind it.
-        let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
+        // come from the inherited PATH behind it.
+        let path_value = dispatch_path(dir.path());
         let (status, stdout, stderr) =
             run_hook_script(dir.path(), &path_value, &format!("{line}\n"), &[]);
 
@@ -472,8 +538,8 @@ mod tests {
     #[serial_test::serial]
     fn hook_script_fails_closed_with_diagnostic_when_ops_is_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path_value = dir.path().display().to_string();
-        let (status, _stdout, stderr) = run_hook_script(dir.path(), &path_value, "", &[]);
+        let path_value = dir.path().as_os_str();
+        let (status, _stdout, stderr) = run_hook_script(dir.path(), path_value, "", &[]);
 
         assert!(!status.success(), "a hook that cannot verify must not pass");
         assert!(stderr.contains("ops"), "stderr must name ops: {stderr}");
@@ -502,7 +568,7 @@ mod tests {
         // capture before the parent's stdin write lands.
         let (status, stdout, stderr) = run_hook_script(
             dir.path(),
-            &dir.path().display().to_string(),
+            dir.path().as_os_str(),
             "refs/heads/main 1111 refs/heads/main 2222\n",
             &[],
         );
@@ -547,8 +613,8 @@ mod tests {
         let stream = format!("{line}\n").repeat(2000);
 
         // The fake ops (printf only) shadows any real one; `head` for the
-        // hook's bounded capture comes from the system bin dirs behind it.
-        let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
+        // hook's bounded capture comes from the inherited PATH behind it.
+        let path_value = dispatch_path(dir.path());
         let (status, stdout, stderr) = run_hook_script(dir.path(), &path_value, &stream, &[]);
 
         assert_eq!(
@@ -571,7 +637,8 @@ mod tests {
             .and_then(|n| n.parse::<usize>().ok())
             .unwrap_or_default();
         assert_eq!(
-            captured_len, 96_001,
+            captured_len,
+            CAPTURE_BUDGET_BYTES + 1,
             "the capture must stop at the budget plus the sentinel byte, stdout was: {stdout}"
         );
     }
@@ -595,9 +662,13 @@ mod tests {
 
         // 96000 non-newline bytes, a newline at byte 96001, then more stream
         // — head stops at 96001 bytes, holding exactly one trailing newline.
-        let stream = format!("{}\n{}", "a".repeat(96_000), "refs/heads/x 1111 refs/heads/x 2222\n");
+        let stream = format!(
+            "{}\n{}",
+            "a".repeat(CAPTURE_BUDGET_BYTES),
+            "refs/heads/x 1111 refs/heads/x 2222\n"
+        );
 
-        let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
+        let path_value = dispatch_path(dir.path());
         let (status, stdout, stderr) = run_hook_script(dir.path(), &path_value, &stream, &[]);
 
         assert_eq!(
@@ -619,7 +690,8 @@ mod tests {
             .and_then(|n| n.parse::<usize>().ok())
             .unwrap_or_default();
         assert_eq!(
-            captured_len, 96_001,
+            captured_len,
+            CAPTURE_BUDGET_BYTES + 1,
             "the newline at byte 96001 must survive into the env var, stdout was: {stdout}"
         );
     }
@@ -634,17 +706,17 @@ mod tests {
     #[serial_test::serial]
     fn hook_script_honours_the_bypass_when_ops_is_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path_value = dir.path().display().to_string();
+        let path_value = dir.path().as_os_str();
 
         for value in ["1", "true", "TRUE", "Yes", "on"] {
             let (status, _stdout, stderr) =
-                run_hook_script(dir.path(), &path_value, "", &[(SKIP_ENV_VAR, value)]);
+                run_hook_script(dir.path(), path_value, "", &[(SKIP_ENV_VAR, value)]);
             assert_eq!(status.code(), Some(0), "{value:?} must skip cleanly, stderr was: {stderr}");
         }
 
         // A value `should_skip` rejects must still reach the probe and fail.
         let (status, _stdout, _stderr) =
-            run_hook_script(dir.path(), &path_value, "", &[(SKIP_ENV_VAR, "maybe")]);
+            run_hook_script(dir.path(), path_value, "", &[(SKIP_ENV_VAR, "maybe")]);
         assert_eq!(status.code(), Some(1));
     }
 
@@ -655,10 +727,33 @@ mod tests {
     /// than classify a prefix. The public-API classify cases live in
     /// `tests/classify_ref_updates.rs`.
     #[test]
+    fn classify_reports_delete_only_at_exactly_the_line_bound() {
+        let line = format!("(delete) {ZERO} refs/heads/old {SHA1_A}\n");
+        let stream = line.repeat(MAX_REF_UPDATE_LINES);
+        assert_eq!(classify_ref_updates(Some(&stream)), PushRefs::DeleteOnly);
+    }
+
+    #[test]
     fn classify_runs_when_the_stream_exceeds_the_line_bound() {
         let line = format!("(delete) {ZERO} refs/heads/old {SHA1_A}\n");
         let stream = line.repeat(MAX_REF_UPDATE_LINES.saturating_add(1));
         assert_eq!(classify_ref_updates(Some(&stream)), PushRefs::Run);
+    }
+
+    /// Pins the [`MAX_REF_UPDATE_LINES`] doc's arithmetic: with 40-hex ids a
+    /// stream of short-named ref lines reaches the line bound within the
+    /// capture budget, while with 64-hex ids the bare minimum line already
+    /// puts the line bound past it.
+    #[test]
+    fn line_bound_relation_to_capture_budget_per_oid_format() {
+        // Two oids, three separators, a newline, no refname bytes.
+        let min_line = |oid_len: usize| 2 * oid_len + 4;
+        assert!(MAX_REF_UPDATE_LINES * min_line(40) < CAPTURE_BUDGET_BYTES);
+        assert!(MAX_REF_UPDATE_LINES * min_line(64) > CAPTURE_BUDGET_BYTES);
+
+        // A concrete SHA-1 stream that hits the line bound inside the budget.
+        let line = format!("(delete) {ZERO} a {SHA1_A}\n");
+        assert!(line.len() * (MAX_REF_UPDATE_LINES + 1) <= CAPTURE_BUDGET_BYTES);
     }
 
     // -- install_hook: wrapper-specific legacy markers --

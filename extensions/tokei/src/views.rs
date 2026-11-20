@@ -70,16 +70,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tokei_languages_view_sql_contains_aggregation() {
-        let sql = tokei_languages_view_sql().to_string();
-        assert!(sql.contains("tokei_languages"));
-        assert!(sql.contains("GROUP BY language"));
-        assert!(sql.contains("SUM(code)"));
-        assert!(sql.contains("COUNT(*)"));
-        assert!(sql.contains("ORDER BY code DESC"));
-    }
-
     /// Identifiers must be double-quoted, matching the parity policy
     /// of the load spec's DDL.
     #[test]

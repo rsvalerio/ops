@@ -67,6 +67,9 @@ sha2 = "0.11"
 hex = "0.4"
 signal-hook = "0.4"
 tokei = "14.0"
+# BOM-sniffing decode tokei applies to each file; the tokei crate reads
+# through it so its byte cap is enforced on the bytes actually read.
+encoding_rs_io = "0.1"
 toml = "1"
 toml_edit = "0.25"
 clap = { version = "4", features = ["derive"] }

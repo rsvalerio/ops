@@ -1,10 +1,10 @@
 ---
 id: TASK-2735
 title: 'READ-6: Attacker-controlled member/path fields logged with Display, bypassing the Debug-escape policy'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:37'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:27'
 labels:
   - code-review-rust
   - READ
@@ -30,8 +30,9 @@ dedup_key: 'READ-6:extensions-rust/about/src/members.rs:resolved_workspace_membe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 members.rs unsupported-glob warn and units.rs resolve_dep_count breadcrumb Debug-format the member/path fields
-- [ ] #2 A capture_tracing test feeds an unsupported member glob containing a newline and ESC and asserts the raw control characters never reach the log line
+- [x] #1 members.rs unsupported-glob warn and units.rs resolve_dep_count breadcrumb Debug-format the member/path fields
+- [x] #2 A capture_tracing test feeds an unsupported member glob containing a newline and ESC and asserts the raw control characters never reach the log line
+
 <!-- AC:END -->
 
 ## Implementation Notes

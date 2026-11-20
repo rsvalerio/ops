@@ -1,10 +1,10 @@
 ---
 id: TASK-2723
 title: 'TEST-6: Single-line <project> opener drops glued elements or the whole POM'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:34'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:24'
 labels:
   - code-review-rust
   - test
@@ -35,13 +35,17 @@ The edge case is untested, and the crate-level test in `lib.rs:169` writes exact
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single-line opener (bare <project> or one with attributes) followed on the same line by elements dispatches the remainder, matching the multi-line opener path
-- [ ] #2 A compact one-line POM <project><artifactId>x</artifactId>...</project> yields artifact_id x, or at minimum emits a tracing::warn instead of silently returning an empty PomData
-- [ ] #3 Unit tests in pom.rs pin both single-line shapes; the lib.rs registration test asserts the parsed name, not only the constant stack_detail
+- [x] #1 A single-line opener (bare <project> or one with attributes) followed on the same line by elements dispatches the remainder, matching the multi-line opener path
+- [x] #2 A compact one-line POM <project><artifactId>x</artifactId>...</project> yields artifact_id x, or at minimum emits a tracing::warn instead of silently returning an empty PomData
+- [x] #3 Unit tests in pom.rs pin both single-line shapes; the lib.rs registration test asserts the parsed name, not only the constant stack_detail
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.08 (code-review-rust run, 2026-11-18).
+
+Compact one-line POM now yields its scalars. Containers glued to the opener on that line are a documented limit; follow-up filed as TASK-2874.
+
 <!-- SECTION:NOTES:END -->

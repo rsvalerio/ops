@@ -1,10 +1,10 @@
 ---
 id: TASK-2753
 title: 'READ-6: interpret_deny_result breaks the interpret_*_output signature and naming its siblings share'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 18:41'
-updated_date: '2026-11-18 20:32'
+updated_date: '2026-11-18 22:41'
 labels:
   - code-review-rust
   - READ
@@ -30,13 +30,17 @@ dedup_key: 'READ-6:extensions-rust/deps/src/parse/deny.rs:interpret_deny_result'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cargo-deny guarded entry point is named and shaped like its siblings (interpret_deny_output taking exit code plus raw stdout/stderr bytes), or the doc comment states why it must differ
-- [ ] #2 The lossy UTF-8 decode happens in the same layer for all three tools
-- [ ] #3 The ops-deps tests pass
+- [x] #1 The cargo-deny guarded entry point is named and shaped like its siblings (interpret_deny_output taking exit code plus raw stdout/stderr bytes), or the doc comment states why it must differ
+- [x] #2 The lossy UTF-8 decode happens in the same layer for all three tools
+- [x] #3 The ops-deps tests pass
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Filed by review TASK-2667.15 (code-review-rust run, 2026-11-18).
+
+Renamed to interpret_deny_output(exit_code, stdout: &[u8], stderr: &[u8]); lossy decode moved inside; stdout documented as signature parity only. Tests drive it via a local interpret_stderr helper.
+
 <!-- SECTION:NOTES:END -->
