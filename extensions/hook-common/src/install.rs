@@ -940,8 +940,10 @@ mod tests {
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         let hook_path = git_dir.join("hooks/pre-commit");
-        let status =
-            std::process::Command::new("mkfifo").arg(&hook_path).status().expect("run mkfifo");
+        let status = ops_core::subprocess::status_locked(
+            std::process::Command::new("mkfifo").arg(&hook_path),
+        )
+        .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let (tx, rx) = std::sync::mpsc::channel();

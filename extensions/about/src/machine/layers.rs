@@ -409,10 +409,10 @@ mod tests {
         std::fs::write(cargo.join("config.toml"), "include = [\"hang.toml\", \"ok.toml\"]\n")
             .expect("write");
         std::fs::write(cargo.join("ok.toml"), "[build]\njobs = 2\n").expect("write");
-        let status = std::process::Command::new("mkfifo")
-            .arg(cargo.join("hang.toml"))
-            .status()
-            .expect("run mkfifo");
+        let status = ops_core::subprocess::status_locked(
+            std::process::Command::new("mkfifo").arg(cargo.join("hang.toml")),
+        )
+        .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let (tx, rx) = std::sync::mpsc::channel();

@@ -39,11 +39,12 @@ fn every_member_resolves_the_workspace_rust_version() {
     let root = workspace_root();
     let expected = root_rust_version(&root);
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let output = Command::new(cargo)
-        .args(["metadata", "--no-deps", "--format-version", "1", "--offline"])
-        .current_dir(&root)
-        .output()
-        .expect("spawn cargo metadata");
+    let output = ops_core::subprocess::output_locked(
+        Command::new(cargo)
+            .args(["metadata", "--no-deps", "--format-version", "1", "--offline"])
+            .current_dir(&root),
+    )
+    .expect("spawn cargo metadata");
     assert!(
         output.status.success(),
         "cargo metadata failed: {}",

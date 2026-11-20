@@ -158,15 +158,16 @@ mod tests {
     use std::process::Command;
 
     fn git_ok(dir: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .args(args)
-            .output()
-            .expect("spawn git");
+        let out = ops_core::subprocess::output_locked(
+            Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_INDEX_FILE")
+                .args(args),
+        )
+        .expect("spawn git");
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).into_owned()
     }

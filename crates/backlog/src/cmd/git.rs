@@ -26,21 +26,22 @@ where
     let args: Vec<std::ffi::OsString> =
         args.into_iter().map(|a| a.as_ref().to_os_string()).collect();
     let subcommand = args.first().map_or_else(String::new, |a| a.to_string_lossy().into_owned());
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        // Task file names are data, not globs: a `*` or `[` in a slug must
-        // match only itself.
-        .env("GIT_LITERAL_PATHSPECS", "1")
-        // `-C <dir>` must decide the repository: a GIT_DIR / GIT_WORK_TREE /
-        // GIT_INDEX_FILE inherited from an enclosing git hook would silently
-        // redirect every step to another repository's index.
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .args(&args)
-        .output()
-        .with_context(|| format!("running git {subcommand} in {}", dir.display()))?;
+    let output = ops_core::subprocess::output_locked(
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            // Task file names are data, not globs: a `*` or `[` in a slug must
+            // match only itself.
+            .env("GIT_LITERAL_PATHSPECS", "1")
+            // `-C <dir>` must decide the repository: a GIT_DIR / GIT_WORK_TREE /
+            // GIT_INDEX_FILE inherited from an enclosing git hook would silently
+            // redirect every step to another repository's index.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .args(&args),
+    )
+    .with_context(|| format!("running git {subcommand} in {}", dir.display()))?;
     if !output.status.success() {
         anyhow::bail!(
             "git {subcommand} failed in {}: {}",
@@ -83,16 +84,17 @@ pub fn staged_paths(dir: &Path) -> anyhow::Result<Vec<String>> {
 ///
 /// `git` cannot be spawned.
 pub fn branch_exists(dir: &Path, name: &str) -> anyhow::Result<bool> {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .args(["show-ref", "--verify", "--quiet"])
-        .arg(format!("refs/heads/{name}"))
-        .status()
-        .with_context(|| format!("running git show-ref in {}", dir.display()))?;
+    let status = ops_core::subprocess::status_locked(
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .args(["show-ref", "--verify", "--quiet"])
+            .arg(format!("refs/heads/{name}")),
+    )
+    .with_context(|| format!("running git show-ref in {}", dir.display()))?;
     Ok(status.success())
 }
 
@@ -105,15 +107,16 @@ pub(crate) mod test_support {
     /// Run `git -C <dir> <args…>` with any hook-inherited repository
     /// environment removed, asserting success; returns stdout.
     pub fn git(dir: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .args(args)
-            .output()
-            .expect("spawn git");
+        let out = ops_core::subprocess::output_locked(
+            Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_INDEX_FILE")
+                .args(args),
+        )
+        .expect("spawn git");
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).into_owned()
     }

@@ -303,31 +303,29 @@ fn missing_drain() -> std::io::Error {
 }
 
 /// Spawn `cmd` under the process-wide spawn lock
-/// ([`ops_core::subprocess::spawn_locked`]) on the blocking pool and arm its
-/// [`ChildGroup`].
+/// ([`ops_core::subprocess::spawn_locked`]) on the blocking pool and hand the
+/// child to `then` on that same thread.
 ///
 /// Waiting for the lock, and the spawn itself (which can stall on a slow
 /// filesystem), happen on a blocking-pool thread, so steps queued behind a
 /// slow spawn never occupy a runtime worker that other steps need for pipe
-/// reads, timeouts and cancellation. The group is armed on that thread
-/// before the result is handed back: if this future is dropped while the
-/// spawn is in flight, the returned guard is dropped with the task output
-/// and still tears the new group down. `cmd` is moved onto the blocking
-/// thread for the call and put back afterwards, so callers keep their
-/// configured command. A poisoned lock panics there under the shared
+/// reads, timeouts and cancellation. `then` runs before the result is
+/// handed back, so whatever it builds around the child (a [`ChildGroup`]
+/// guard) is dropped with the task output, and still takes effect, if this
+/// future is dropped while the spawn is in flight. `cmd` is moved onto the
+/// blocking thread for the call and put back afterwards, so callers keep
+/// their configured command. A poisoned lock panics there under the shared
 /// `ops_core::sync` policy and comes back as an `io::Error`, failing this
 /// step rather than the runner.
-async fn spawn_serialized(
+async fn spawn_locked_on_pool<T: Send + 'static>(
     cmd: &mut tokio::process::Command,
-) -> std::io::Result<(tokio::process::Child, ChildGroup)> {
+    then: impl FnOnce(tokio::process::Child) -> T + Send + 'static,
+) -> std::io::Result<T> {
     let mut owned = std::mem::replace(cmd, tokio::process::Command::new(""));
     let joined = tokio::task::spawn_blocking(move || {
+        #[expect(clippy::disallowed_methods, reason = "the spawn runs under spawn_locked")]
         let spawned = ops_core::subprocess::spawn_locked(|| owned.spawn());
-        let armed = spawned.map(|child| {
-            let group = ChildGroup::new(&child);
-            (child, group)
-        });
-        (owned, armed)
+        (owned, spawned.map(then))
     })
     .await;
     match joined {
@@ -343,6 +341,28 @@ async fn spawn_serialized(
             Err(std::io::Error::other("spawn task failed"))
         }
     }
+}
+
+/// [`spawn_locked_on_pool`] that arms the child's [`ChildGroup`] on the
+/// blocking thread, so a future dropped mid-spawn still tears the new group
+/// down.
+async fn spawn_serialized(
+    cmd: &mut tokio::process::Command,
+) -> std::io::Result<(tokio::process::Child, ChildGroup)> {
+    spawn_locked_on_pool(cmd, |child| {
+        let group = ChildGroup::new(&child);
+        (child, group)
+    })
+    .await
+}
+
+/// Spawn a raw step's `cmd` under the spawn lock and wait for it. Dropping
+/// the future drops the child, and `kill_on_drop` kills it.
+async fn spawn_raw_and_wait(
+    cmd: &mut tokio::process::Command,
+) -> std::io::Result<std::process::ExitStatus> {
+    let mut child = spawn_locked_on_pool(cmd, std::convert::identity).await?;
+    child.wait().await
 }
 
 /// Spawn `cmd` with piped stdio, stream both pipes through
@@ -529,7 +549,9 @@ pub async fn execute_with_timeout(
     mut cmd: Command,
     timeout: Option<Duration>,
 ) -> Result<std::process::Output, std::io::Error> {
-    await_with_timeout(cmd.output(), timeout).await
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = spawn_locked_on_pool(&mut cmd, std::convert::identity).await?;
+    await_with_timeout(child.wait_with_output(), timeout).await
 }
 
 /// Render a build or spawn failure without leaking the resolved absolute path.
@@ -807,7 +829,7 @@ pub async fn exec_command(
 ///
 /// # Timeouts reach only the direct child
 ///
-/// When `timeout_secs` elapses, the `status()` future is dropped and
+/// When `timeout_secs` elapses, the wait is dropped and
 /// `kill_on_drop` sends `SIGKILL` to the **direct child only**. Its
 /// descendants (`cargo` under `sh -c`, `node` under `npm run`) keep running
 /// on the terminal after the step is reported failed. This is a deliberate
@@ -845,7 +867,8 @@ pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecE
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
 
-    let (status_result, duration) = run_with_timeout(cmd.status(), spec.timeout()).await;
+    let (status_result, duration) =
+        run_with_timeout(spawn_raw_and_wait(&mut cmd), spec.timeout()).await;
 
     match status_result {
         Ok(status) => {

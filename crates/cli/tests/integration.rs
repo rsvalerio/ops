@@ -1253,12 +1253,10 @@ fn coderabbit_fixture(review_exit: u8) -> TempDir {
 
 /// `git -C <dir> <args>`, asserting success; returns stdout.
 fn git_in(dir: &Path, args: &[&str]) -> String {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("spawn git");
+    let out = ops_core::subprocess::output_locked(
+        std::process::Command::new("git").arg("-C").arg(dir).args(args),
+    )
+    .expect("spawn git");
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
@@ -1742,18 +1740,19 @@ fn cli_backlog_create_list_view_edit_flow() {
         "path names the task file: {path}"
     );
     // The sed extraction the run-wave skill performs.
-    let extracted = std::process::Command::new("sed")
-        .arg("-n")
-        .arg("1s/^File: //p")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write as _;
-            child.stdin.take().expect("stdin").write_all(text.as_bytes()).ok();
-            child.wait_with_output()
-        })
-        .expect("sed run");
+    let extracted = ops_core::subprocess::spawn_child_locked(
+        std::process::Command::new("sed")
+            .arg("-n")
+            .arg("1s/^File: //p")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped()),
+    )
+    .and_then(|mut child| {
+        use std::io::Write as _;
+        child.stdin.take().expect("stdin").write_all(text.as_bytes()).ok();
+        child.wait_with_output()
+    })
+    .expect("sed run");
     assert_eq!(
         String::from_utf8_lossy(&extracted.stdout).trim_end(),
         path,

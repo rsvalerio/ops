@@ -45,16 +45,17 @@ pub fn run_msrv(root: &Path, install: bool, dry_run: bool) -> anyhow::Result<Exi
             continue;
         }
         out.flush()?;
-        let status = Command::new(&rustup)
-            .args(&args)
-            .current_dir(root)
-            // A parent `cargo run` / cargo-subcommand context would point the
-            // nested cargo at the parent toolchain's binaries, silently
-            // building on the wrong compiler.
-            .env_remove("CARGO")
-            .env_remove("RUSTC")
-            .status()
-            .with_context(|| format!("failed to spawn {}", render(&rustup, &args)))?;
+        let status = ops_core::subprocess::status_locked(
+            Command::new(&rustup)
+                .args(&args)
+                .current_dir(root)
+                // A parent `cargo run` / cargo-subcommand context would point the
+                // nested cargo at the parent toolchain's binaries, silently
+                // building on the wrong compiler.
+                .env_remove("CARGO")
+                .env_remove("RUSTC"),
+        )
+        .with_context(|| format!("failed to spawn {}", render(&rustup, &args)))?;
         if !status.success() {
             writeln!(out, "{} failed ({status})", render(&rustup, &args))?;
             return Ok(ExitCode::FAILURE);

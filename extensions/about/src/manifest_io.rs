@@ -208,7 +208,9 @@ mod tests {
     fn fifo_returns_none_without_blocking() {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = dir.path().join("package.json");
-        let status = std::process::Command::new("mkfifo").arg(&p).status().expect("run mkfifo");
+        let status =
+            ops_core::subprocess::status_locked(std::process::Command::new("mkfifo").arg(&p))
+                .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let root = dir.path().to_path_buf();

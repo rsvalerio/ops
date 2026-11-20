@@ -952,10 +952,10 @@ mod tests {
         let canonical_gitdir = std::fs::canonicalize(&gitdir).unwrap();
         std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", canonical_gitdir.display()))
             .unwrap();
-        let status = std::process::Command::new("mkfifo")
-            .arg(gitdir.join("gitdir"))
-            .status()
-            .expect("run mkfifo");
+        let status = ops_core::subprocess::status_locked(
+            std::process::Command::new("mkfifo").arg(gitdir.join("gitdir")),
+        )
+        .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -979,7 +979,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let pointer = dir.path().join(".git");
         let status =
-            std::process::Command::new("mkfifo").arg(&pointer).status().expect("run mkfifo");
+            ops_core::subprocess::status_locked(std::process::Command::new("mkfifo").arg(&pointer))
+                .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed");
 
         let (tx, rx) = std::sync::mpsc::channel();

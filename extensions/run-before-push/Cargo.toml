@@ -17,6 +17,7 @@ ops-hook-common = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
+ops-core = { workspace = true }
 ops-hook-common = { workspace = true, features = ["test-helpers"] }
 tempfile = { workspace = true }
 serial_test = { workspace = true }

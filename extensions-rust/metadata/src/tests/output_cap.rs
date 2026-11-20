@@ -79,15 +79,16 @@ fn metadata_output_cap_defaults_to_the_subprocess_cap() {
 #[test]
 fn metadata_output_cap_honours_a_fixed_env_override() {
     let exe = std::env::current_exe().expect("test binary path");
-    let out = std::process::Command::new(exe)
-        .args([
-            "--exact",
-            "--ignored",
-            "tests::output_cap::metadata_output_cap_resolves_the_env_override_child",
-        ])
-        .env(ops_core::subprocess::OUTPUT_CAP_ENV, "1234567")
-        .output()
-        .expect("re-exec the test binary with the override set");
+    let out = ops_core::subprocess::output_locked(
+        std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "--ignored",
+                "tests::output_cap::metadata_output_cap_resolves_the_env_override_child",
+            ])
+            .env(ops_core::subprocess::OUTPUT_CAP_ENV, "1234567"),
+    )
+    .expect("re-exec the test binary with the override set");
     assert!(
         out.status.success(),
         "child override test failed:\nstdout: {}\nstderr: {}",
