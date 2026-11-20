@@ -351,6 +351,7 @@ struct PendingWrite {
 }
 
 /// What one wave's migration changes.
+#[derive(PartialEq, Eq)]
 struct WavePlan {
     id: String,
     title: String,
@@ -371,9 +372,13 @@ struct WavePlan {
 /// already carries a *different* `parent_task_id`, names a wave that does not
 /// exist, or is claimed by two waves at once. Those three abort before
 /// anything is written, naming the tasks involved. Also when the clock is
-/// unreadable, the confirmation answer cannot be read, or a write failed —
-/// the error names the failing path and every path already written before
-/// it.
+/// unreadable, the confirmation answer cannot be read, the allocation lock
+/// cannot be taken, the plan changed between the preview and the locked
+/// re-read (nothing is written then), or a write failed — the error names
+/// the failing path and every path already written before it.
+///
+/// The writes run under the store's allocation lock, the one `task edit`
+/// holds, re-planned from the tasks as they are once it is held.
 pub fn run_wave_migrate<W: Write>(
     store: &Store,
     opts: &WaveMigrateOptions,
@@ -401,19 +406,7 @@ fn migrate_with<W: Write>(
     input: &mut dyn std::io::BufRead,
     out: &mut W,
 ) -> anyhow::Result<()> {
-    let entries = store.scan_tasks()?;
-    let wave_ids: Vec<String> = entries
-        .iter()
-        .filter(|entry| is_wave(entry, &opts.marker))
-        .map(|entry| entry.doc.frontmatter.id.clone())
-        .collect();
-
-    // Preflight every failure mode over the whole tree before planning any
-    // write: a half-applied migration would leave membership split across
-    // two conventions with no record of which tasks were done.
-    preflight(&entries, &wave_ids, &opts.marker)?;
-
-    let (plans, mut writes) = plan_migration(&entries, &wave_ids, &opts.marker);
+    let (plans, _) = scan_and_plan(store, &opts.marker)?;
 
     if plans.is_empty() {
         writeln!(out, "Nothing to migrate: no wave carries the assignee overload.")
@@ -427,11 +420,45 @@ fn migrate_with<W: Write>(
         return Ok(());
     }
 
+    // The plan above was read without the lock so the prompt never blocks
+    // other writers. Re-plan under the lock `task edit` holds, from the
+    // tasks' current content, and write only if it is still the confirmed
+    // plan: a member edited meanwhile is rewritten with that edit, never
+    // from the stale copy.
+    let _lock = store.lock_allocation()?;
+    let (locked_plans, mut writes) = scan_and_plan(store, &opts.marker)?;
+    anyhow::ensure!(
+        locked_plans == plans,
+        "the waves to migrate changed while confirming; nothing was written, rerun wave migrate"
+    );
     let updated = format!("{} {}", stamp.date, stamp.minutes);
     write_migrations(&mut writes, &updated)?;
     writeln!(out, "Migrated {} waves and {member_count} members.", plans.len())
         .context("printing the migrated summary")?;
     Ok(())
+}
+
+/// Scan `tasks/`, preflight it and plan the migration.
+///
+/// # Errors
+///
+/// A task file does not parse, or [`preflight`] refuses the tree.
+fn scan_and_plan(
+    store: &Store,
+    marker: &str,
+) -> anyhow::Result<(Vec<WavePlan>, Vec<PendingWrite>)> {
+    let entries = store.scan_tasks()?;
+    let wave_ids: Vec<String> = entries
+        .iter()
+        .filter(|entry| is_wave(entry, marker))
+        .map(|entry| entry.doc.frontmatter.id.clone())
+        .collect();
+
+    // Preflight every failure mode over the whole tree before planning any
+    // write: a half-applied migration would leave membership split across
+    // two conventions with no record of which tasks were done.
+    preflight(&entries, &wave_ids, marker)?;
+    Ok(plan_migration(&entries, &wave_ids, marker))
 }
 
 /// Gate the migration on its preview modes: a dry run reports the plan and
@@ -1188,5 +1215,100 @@ mod tests {
     fn id_order_is_numeric() {
         assert_eq!(id_order("TASK-999", "TASK-1000"), std::cmp::Ordering::Less);
         assert_eq!(id_order("task-2", "TASK-2"), std::cmp::Ordering::Equal);
+    }
+
+    /// Appends `note` to the old-shape member.
+    fn append_member_note(store: &Store, note: &str) {
+        let edit = crate::cmd::edit::EditOptions {
+            task_id: "TASK-0120".to_string(),
+            append_notes: vec![note.to_string()],
+            ..crate::cmd::edit::EditOptions::default()
+        };
+        crate::cmd::edit::edit_with(store, &edit, &fixed_stamp(), &mut std::io::sink())
+            .expect("edit");
+    }
+
+    /// A confirmation answer that runs `edit` before answering yes: an edit
+    /// landing between the migration's preview and its writes.
+    struct EditThenYes<F: FnMut()> {
+        edit: Option<F>,
+        answer: &'static [u8],
+    }
+
+    impl<F: FnMut()> std::io::Read for EditThenYes<F> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(mut edit) = self.edit.take() {
+                edit();
+            }
+            std::io::Read::read(&mut self.answer, buf)
+        }
+    }
+
+    fn migrate_with_edit(store: &Store, edit: impl FnMut()) -> anyhow::Result<()> {
+        let mut input = std::io::BufReader::new(EditThenYes { edit: Some(edit), answer: b"y\n" });
+        migrate_with(
+            store,
+            &WaveMigrateOptions { marker: DEFAULT_WAVE_MARKER.to_string(), dry_run: false },
+            &fixed_stamp(),
+            &mut input,
+            &mut std::io::sink(),
+        )
+    }
+
+    fn assert_member_migrated_with_note(dir: &tempfile::TempDir, note: &str) {
+        let member = doc_of(dir, "task-0120 - member.md");
+        assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
+        assert!(member.frontmatter.assignees.is_empty());
+        let notes = member.body.notes().unwrap_or_default();
+        assert!(notes.contains(note), "the edit was lost: {notes}");
+    }
+
+    /// A member edited after the preview is rewritten from its current
+    /// content: the migration and the edit both survive.
+    #[test]
+    fn edit_between_preview_and_write_survives_the_migration() {
+        let (dir, store) = scratch(&old_shape());
+        migrate_with_edit(&store, || append_member_note(&store, "late note")).expect("migrate");
+        assert_member_migrated_with_note(&dir, "late note");
+    }
+
+    /// A plan that changed while confirming writes nothing.
+    #[test]
+    fn plan_changed_while_confirming_writes_nothing() {
+        let (dir, store) = scratch(&old_shape());
+        let before = doc_of(&dir, "task-0119 - wave.md");
+        let unlink = || {
+            let edit = crate::cmd::edit::EditOptions {
+                task_id: "TASK-0121".to_string(),
+                assignees: Some(vec![String::new()]),
+                ..crate::cmd::edit::EditOptions::default()
+            };
+            crate::cmd::edit::edit_with(&store, &edit, &fixed_stamp(), &mut std::io::sink())
+                .expect("edit");
+        };
+        let err = migrate_with_edit(&store, unlink).expect_err("plan changed");
+        assert!(err.to_string().contains("nothing was written"), "{err:#}");
+        assert_eq!(doc_of(&dir, "task-0119 - wave.md"), before);
+        let member = doc_of(&dir, "task-0120 - member.md");
+        assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), None);
+    }
+
+    /// The migration and a member edit racing: whichever goes first, both
+    /// changes land.
+    #[test]
+    fn racing_member_edit_and_migration_both_survive() {
+        for _ in 0..20 {
+            let (dir, store) = scratch(&old_shape());
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    append_member_note(&store, "raced note");
+                });
+                barrier.wait();
+                migrate(&store, false, "y\n").expect("migrate");
+            });
+            assert_member_migrated_with_note(&dir, "raced note");
+        }
     }
 }

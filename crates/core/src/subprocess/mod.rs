@@ -14,6 +14,7 @@
 //!
 //! - [`cap`] — env-knob parsers for the timeout and per-stream byte cap.
 //! - [`drain`] — bounded pipe-drain primitives and the post-timeout reaper.
+//! - [`spawn`] — the process-wide spawn lock every pipe-creating spawn takes.
 //! - this `mod.rs` — error types, the public `run_with_timeout` and
 //!   `run_cargo` shells, and the cargo/rustup binary resolvers.
 //!
@@ -48,6 +49,7 @@
 
 mod cap;
 mod drain;
+mod spawn;
 
 use std::io;
 use std::path::Path;
@@ -59,6 +61,8 @@ pub use cap::{
     default_timeout, DEFAULT_OUTPUT_BYTE_CAP, FALLBACK_TIMEOUT, MAX_TIMEOUT_SECS, OUTPUT_CAP_ENV,
     TIMEOUT_ENV,
 };
+
+pub use spawn::{output_locked, spawn_locked};
 
 use cap::output_byte_cap;
 use drain::{
@@ -242,20 +246,18 @@ fn run_with_timeout_inner(
     cap: usize,
 ) -> Result<Output, RunError> {
     let deadline = instant_after(timeout);
-    let mut child =
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).spawn().map_err(
-            |e| {
-                // Name the failing operation and program in
-                // the rendered error so a missing binary surfaces as
-                // "cargo metadata: failed to spawn cargo: …" instead of a bare
-                // OS error string.
-                RunError::Spawn(SpawnError {
-                    label: label.to_string(),
-                    program: cmd.get_program().to_string_lossy().into_owned(),
-                    source: e,
-                })
-            },
-        )?;
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    let mut child = spawn_locked(|| cmd.spawn()).map_err(|e| {
+        // Name the failing operation and program in
+        // the rendered error so a missing binary surfaces as
+        // "cargo metadata: failed to spawn cargo: …" instead of a bare
+        // OS error string.
+        RunError::Spawn(SpawnError {
+            label: label.to_string(),
+            program: cmd.get_program().to_string_lossy().into_owned(),
+            source: e,
+        })
+    })?;
 
     // Drain threads return both the bytes read so far
     // and any IO error encountered. We surface drain failures via

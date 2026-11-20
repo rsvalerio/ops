@@ -225,13 +225,13 @@ fn spawn_diff_cached(
 ) -> Result<std::process::Child, HasStagedFilesError> {
     use std::process::{Command, Stdio};
 
-    Command::new(program)
-        .current_dir(dir)
+    let mut cmd = Command::new(program);
+    cmd.current_dir(dir)
         .args(["diff", "--cached", "--quiet"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    ops_core::subprocess::spawn_locked(|| cmd.spawn())
         .map_err(|e| HasStagedFilesError::Spawn { program: program.to_string(), source: e })
 }
 

@@ -764,10 +764,15 @@ pub fn git_fixture_os(
 ///
 /// # Mutex poisoning recovery
 ///
-/// If a test panics while holding this lock the mutex becomes poisoned. We
-/// deliberately recover rather than propagate: the panic has already been
-/// reported by the test framework, later tests should still run, and a failed
-/// CWD restoration is non-critical (test isolation is best-effort).
+/// If a test panics while holding this lock the mutex becomes poisoned. This
+/// is the workspace's one deliberate exception to the propagate-on-poison
+/// policy of [`crate::sync::lock`], and it is confined to test
+/// infrastructure: under `cargo test` every cwd test shares one process, so
+/// propagating would turn a single failing test into a failure of every
+/// later cwd test, burying the real one. Recovery is sound here because the
+/// lock guards `()` — the only state it serializes is the process cwd, and
+/// [`CwdGuard`] restores that on the unwind path before the guard is
+/// released, so a poisoned lock never hands the next holder a torn state.
 #[cfg(any(test, feature = "test-support"))]
 pub static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -811,6 +816,9 @@ impl CwdGuard {
     ///
     /// If the current directory cannot be read or `target` cannot be entered.
     pub fn new(target: &std::path::Path) -> std::io::Result<Self> {
+        // Deliberate poison recovery, scoped to test infrastructure: see the
+        // "Mutex poisoning recovery" section on `CWD_MUTEX` for why this
+        // lock alone does not propagate through `crate::sync::lock`.
         let lock = CWD_MUTEX.lock().unwrap_or_else(|poisoned| {
             tracing::warn!("CWD_MUTEX poisoned by previous test panic, recovering");
             poisoned.into_inner()
@@ -869,14 +877,14 @@ mod tracing_capture {
         /// splits a multi-byte char by going through `from_utf8_lossy`.
         #[must_use]
         pub fn captured(&self) -> String {
-            let guard = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let guard = crate::sync::lock(&self.0, "tracing capture buffer");
             String::from_utf8_lossy(&guard).into_owned()
         }
     }
 
     impl Write for TracingBuf {
         fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend_from_slice(b);
+            crate::sync::lock(&self.0, "tracing capture buffer").extend_from_slice(b);
             Ok(b.len())
         }
 

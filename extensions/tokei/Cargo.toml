@@ -4,8 +4,10 @@ publish = false
 version.workspace = true
 edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
+ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["sqlite"] }
 ops-sqlite = { workspace = true }
 tokei = { workspace = true }

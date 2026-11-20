@@ -446,6 +446,9 @@ fn run_with_store(
         }
         BacklogAction::Wave { action } => run_wave_action(store, cfg, cwd, action),
         BacklogAction::Commit { task_ids, message } => {
+            let command: Vec<std::ffi::OsString> = std::env::args_os().collect();
+            let _merge =
+                crate::lock_cmd::hold_unless_inherited(cwd, COMMIT_SERIALIZES_WITH, &command)?;
             let opts = cmd::CommitOptions { task_ids, message };
             cmd::run_commit(store, cwd, &opts, &mut std::io::stdout())
         }
@@ -455,6 +458,14 @@ fn run_with_store(
         }
     }
 }
+
+/// The `ops lock` name `backlog commit` holds while it commits: the lock a
+/// code-review wave holds across rebase, integration verify and its
+/// `--ff-only` merge onto the landing branch. A bookkeeping commit landing
+/// on that branch in between would make the fast-forward fail, so it waits
+/// for the merge instead. Skipped when an enclosing `ops lock` already
+/// holds it (see [`crate::lock_cmd::HELD_ENV`]).
+const COMMIT_SERIALIZES_WITH: &str = "code-review-merge";
 
 /// Map the two `init` flags (clap keeps them exclusive) onto the mode.
 const fn init_config(ops_toml: bool, backlog_md: bool) -> InitConfig {

@@ -58,6 +58,86 @@ pub struct Deadline {
     provider: String,
     budget: Duration,
     expires_at: Instant,
+    /// Where [`Deadline::is_expired`] and [`Deadline::check`] read "now".
+    /// Carried by the deadline itself so a detached handle keeps reading
+    /// the same clock as the context that installed it.
+    clock: Clock,
+}
+
+/// The source of "now" for deadline arithmetic.
+///
+/// Production always reads the monotonic system clock. Under the
+/// `test-support` feature a `ManualClock` can stand in, so dispatch-level
+/// budget tests advance time explicitly instead of sleeping past it.
+#[derive(Debug, Clone, Default)]
+pub enum Clock {
+    /// [`Instant::now`].
+    #[default]
+    System,
+    /// A test clock that only moves when advanced.
+    #[cfg(feature = "test-support")]
+    Manual(ManualClock),
+}
+
+impl Clock {
+    /// The current instant according to this clock.
+    pub fn now(&self) -> Instant {
+        match self {
+            Self::System => Instant::now(),
+            #[cfg(feature = "test-support")]
+            Self::Manual(clock) => clock.now(),
+        }
+    }
+}
+
+/// A shareable test clock that only moves when [`ManualClock::advance`] is
+/// called.
+///
+/// Install it with [`crate::context::Context::with_clock`]; every deadline
+/// the context installs, and every detached handle cloned from one, then
+/// measures its budget against this clock rather than the wall clock. Clones
+/// share one reading, so a provider holding a clone can advance the time
+/// its own dispatch observes.
+#[cfg(feature = "test-support")]
+#[derive(Debug, Clone)]
+pub struct ManualClock {
+    now: std::sync::Arc<std::sync::Mutex<Instant>>,
+}
+
+#[cfg(feature = "test-support")]
+impl ManualClock {
+    /// A clock frozen at the current wall-clock instant.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { now: std::sync::Arc::new(std::sync::Mutex::new(Instant::now())) }
+    }
+
+    /// The clock's current reading.
+    #[must_use]
+    pub fn now(&self) -> Instant {
+        *ops_core::sync::lock(&self.now, "manual clock")
+    }
+
+    /// Move the clock forward by `by`, for every clone at once.
+    ///
+    /// # Panics
+    ///
+    /// If the advanced instant overflows the monotonic clock's range.
+    #[expect(
+        clippy::expect_used,
+        reason = "test-support clock: overflowing Instant is a broken test, and the panic reports it"
+    )]
+    pub fn advance(&self, by: Duration) {
+        let mut now = ops_core::sync::lock(&self.now, "manual clock");
+        *now = now.checked_add(by).expect("manual clock advanced past the representable range");
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl Default for ManualClock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Deadline {
@@ -68,8 +148,9 @@ impl Deadline {
         provider: String,
         budget: Duration,
         expires_at: Instant,
+        clock: Clock,
     ) -> Self {
-        Self { provider, budget, expires_at }
+        Self { provider, budget, expires_at, clock }
     }
 
     /// When this dispatch's budget runs out.
@@ -83,7 +164,7 @@ impl Deadline {
     /// Reads the clock once and delegates to [`Deadline::is_expired_at`].
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        self.is_expired_at(Instant::now())
+        self.is_expired_at(self.clock.now())
     }
 
     /// Whether the budget has run out as of `now`.
@@ -103,7 +184,7 @@ impl Deadline {
     /// [`DataProviderError::TimedOut`], naming the provider that owns the
     /// budget, once the deadline has passed.
     pub fn check(&self) -> Result<(), DataProviderError> {
-        self.check_at(Instant::now())
+        self.check_at(self.clock.now())
     }
 
     /// [`Deadline::check`] evaluated as of `now` rather than the current
@@ -147,7 +228,7 @@ mod tests {
     const BUDGET: Duration = Duration::from_millis(20);
 
     fn deadline_at(expires_at: Instant) -> Deadline {
-        Deadline::from_parts("slow".to_string(), BUDGET, expires_at)
+        Deadline::from_parts("slow".to_string(), BUDGET, expires_at, Clock::System)
     }
 
     #[test]

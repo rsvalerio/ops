@@ -4,10 +4,11 @@
 //! access (`SharedError::new`, `SharedError::shares_allocation_with`) live
 //! in `#[cfg(test)]` modules beside the code they cover.
 use ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec};
+use ops_core::sync::lock;
 use ops_extension::{
     data_field, impl_extension, sort_compiled_extensions, test_datasource_extension,
     CommandRegistry, Context, DataProvider, DataProviderError, DataProviderSchema, DataRegistry,
-    Extension, ExtensionInfo, ExtensionType, SharedError, DEFAULT_PROVIDER_BUDGET,
+    Extension, ExtensionInfo, ExtensionType, ManualClock, SharedError, DEFAULT_PROVIDER_BUDGET,
     EXTENSION_REGISTRY,
 };
 use std::path::PathBuf;
@@ -1509,27 +1510,35 @@ fn serialization_rendering_flattens_its_chain() {
 // Provider dispatch is bounded in wall-clock time
 // ---------------------------------------------------------------------------
 
-/// A provider that burns wall-clock time in `steps` chunks, optionally polling
-/// the context deadline between them, and records how many chunks it got
-/// through so a test can tell "aborted early" from "ran to completion".
+/// A provider that spends time in `steps` chunks — advancing the shared
+/// manual clock rather than sleeping — optionally polling the context
+/// deadline between them, and records how many chunks it got through so a
+/// test can tell "aborted early" from "ran to completion".
 struct SlowProvider {
     name: &'static str,
     steps: usize,
     step: std::time::Duration,
     poll_deadline: bool,
+    clock: ManualClock,
     completed_steps: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl SlowProvider {
-    fn new(name: &'static str, poll_deadline: bool) -> Self {
+    fn new(name: &'static str, poll_deadline: bool, clock: &ManualClock) -> Self {
         Self {
             name,
             steps: 20,
             step: std::time::Duration::from_millis(10),
             poll_deadline,
+            clock: clock.clone(),
             completed_steps: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
+}
+
+/// A test context whose dispatch budgets are measured against `clock`.
+fn clocked_context(clock: &ManualClock) -> Context {
+    test_context().with_clock(clock.clone())
 }
 
 impl DataProvider for SlowProvider {
@@ -1541,7 +1550,7 @@ impl DataProvider for SlowProvider {
             if self.poll_deadline {
                 ctx.check_deadline()?;
             }
-            std::thread::sleep(self.step);
+            self.clock.advance(self.step);
             self.completed_steps.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         Ok(serde_json::json!({ "finished": true }))
@@ -1590,9 +1599,11 @@ impl DataProvider for DeadlineProbe {
 /// reported as a failure naming it — never as the late value it produced.
 #[test]
 fn over_budget_provider_without_polling_is_reported_as_a_named_failure() {
-    let slow = SlowProvider::new("slow", false);
+    let clock = ManualClock::new();
+    let slow = SlowProvider::new("slow", false, &clock);
     let registry = registry_with("slow", Box::new(slow));
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    let mut ctx =
+        clocked_context(&clock).with_provider_budget(Some(std::time::Duration::from_millis(20)));
 
     match registry.provide("slow", &mut ctx) {
         Err(DataProviderError::TimedOut { provider, budget }) => {
@@ -1611,19 +1622,21 @@ fn over_budget_provider_without_polling_is_reported_as_a_named_failure() {
 #[test]
 fn an_over_budget_provider_keeps_its_own_error() {
     /// Overruns the budget and then fails for an unrelated reason.
-    struct SlowFailing;
+    struct SlowFailing(ManualClock);
     impl DataProvider for SlowFailing {
         fn name(&self) -> &'static str {
             "slow-failing"
         }
         fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-            std::thread::sleep(std::time::Duration::from_millis(60));
+            self.0.advance(std::time::Duration::from_millis(60));
             Err(DataProviderError::computation_failed("cargo not on PATH"))
         }
     }
 
-    let registry = registry_with("slow-failing", Box::new(SlowFailing));
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    let clock = ManualClock::new();
+    let registry = registry_with("slow-failing", Box::new(SlowFailing(clock.clone())));
+    let mut ctx =
+        clocked_context(&clock).with_provider_budget(Some(std::time::Duration::from_millis(20)));
 
     match registry.provide("slow-failing", &mut ctx) {
         Err(DataProviderError::ComputationMessage(msg)) => {
@@ -1638,11 +1651,13 @@ fn an_over_budget_provider_keeps_its_own_error() {
 /// bound shortens the stall rather than merely labelling it afterwards.
 #[test]
 fn polling_provider_aborts_at_the_deadline_instead_of_running_to_completion() {
-    let slow = SlowProvider::new("polling", true);
+    let clock = ManualClock::new();
+    let slow = SlowProvider::new("polling", true, &clock);
     let completed = Arc::clone(&slow.completed_steps);
     let total_steps = slow.steps;
     let registry = registry_with("polling", Box::new(slow));
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    let mut ctx =
+        clocked_context(&clock).with_provider_budget(Some(std::time::Duration::from_millis(20)));
 
     let err = registry
         .provide("polling", &mut ctx)
@@ -1677,10 +1692,7 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
             "inner"
         }
         fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-            self.seen
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(ctx.deadline());
+            lock(&self.seen, "seen deadlines").push(ctx.deadline());
             Ok(serde_json::json!({ "inner": true }))
         }
     }
@@ -1692,58 +1704,53 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
     struct Composing {
         seen: Arc<std::sync::Mutex<Vec<Option<std::time::Instant>>>>,
         registry: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>>,
+        clock: ManualClock,
     }
     impl DataProvider for Composing {
         fn name(&self) -> &'static str {
             "outer"
         }
         fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-            self.seen
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(ctx.deadline());
-            let reg = self
-                .registry
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            lock(&self.seen, "seen deadlines").push(ctx.deadline());
+            let reg = lock(&self.registry, "composing registry")
                 .as_ref()
                 .expect("registry wired")
                 .clone();
             let _ = reg.provide("inner", ctx)?;
-            self.seen
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(ctx.deadline());
-            std::thread::sleep(std::time::Duration::from_millis(120));
+            lock(&self.seen, "seen deadlines").push(ctx.deadline());
+            self.clock.advance(std::time::Duration::from_millis(120));
             let result = ctx.check_deadline();
-            self.seen
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(ctx.deadline());
+            lock(&self.seen, "seen deadlines").push(ctx.deadline());
             result?;
             Ok(serde_json::json!({ "finished": true }))
         }
     }
 
+    let clock = ManualClock::new();
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let shared: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>> =
         Arc::new(std::sync::Mutex::new(None));
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "outer",
-        Box::new(Composing { seen: Arc::clone(&seen), registry: Arc::clone(&shared) }),
+        Box::new(Composing {
+            seen: Arc::clone(&seen),
+            registry: Arc::clone(&shared),
+            clock: clock.clone(),
+        }),
     );
     let _ = registry.register("inner", Box::new(Inner { seen: Arc::clone(&seen) }));
     let registry = Arc::new(registry);
-    *shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&registry));
+    *lock(&shared, "composing registry") = Some(Arc::clone(&registry));
 
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(60)));
+    let mut ctx =
+        clocked_context(&clock).with_provider_budget(Some(std::time::Duration::from_millis(60)));
     match registry.provide("outer", &mut ctx) {
         Err(DataProviderError::TimedOut { provider, .. }) => assert_eq!(provider, "outer"),
         other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
     }
 
-    let seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let seen = lock(&seen, "seen deadlines");
     // [outer on entry, inner, outer after the nested dispatch, outer after the
     // deadline check].
     assert_eq!(seen.len(), 4, "got {seen:?}");
@@ -1764,10 +1771,12 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
 /// cleared on the failure path, the way the in-flight marker is.
 #[test]
 fn a_timed_out_dispatch_leaves_the_context_usable() {
+    let clock = ManualClock::new();
     let mut registry = DataRegistry::new();
-    let _ = registry.register("slow", Box::new(SlowProvider::new("slow", true)));
+    let _ = registry.register("slow", Box::new(SlowProvider::new("slow", true, &clock)));
     let _ = registry.register("stub", Box::new(StubProvider));
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    let mut ctx =
+        clocked_context(&clock).with_provider_budget(Some(std::time::Duration::from_millis(20)));
 
     assert!(registry.provide("slow", &mut ctx).is_err());
     assert!(ctx.deadline().is_none(), "a failed dispatch must not leave its deadline installed");
@@ -1782,8 +1791,9 @@ fn a_timed_out_dispatch_leaves_the_context_usable() {
 /// nothing is silently converted into a failure.
 #[test]
 fn an_unbounded_context_does_not_time_a_provider_out() {
-    let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true)));
-    let mut ctx = test_context().with_provider_budget(None);
+    let clock = ManualClock::new();
+    let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true, &clock)));
+    let mut ctx = clocked_context(&clock).with_provider_budget(None);
     let v =
         registry.provide("slow", &mut ctx).expect("an unbounded dispatch must run to completion");
     assert_eq!(v, serde_json::json!({ "finished": true }));
@@ -1876,8 +1886,9 @@ fn a_configured_budget_replaces_the_default() {
 /// bound into one that fails every provider.
 #[test]
 fn a_zero_budget_means_unbounded_not_instantly_expired() {
-    let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true)));
-    let mut ctx = context_with_budget_secs(Some(0));
+    let clock = ManualClock::new();
+    let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true, &clock)));
+    let mut ctx = context_with_budget_secs(Some(0)).with_clock(clock);
     assert_eq!(ctx.provider_budget(), None);
     let v = registry
         .provide("slow", &mut ctx)
@@ -1909,12 +1920,12 @@ fn a_detached_deadline_reports_the_same_timeout_as_the_context() {
     #[derive(Debug, Default, Clone, Copy)]
     struct Observed {
         expired_at_entry: bool,
-        expired_after_sleep: bool,
+        expired_after_advance: bool,
         handle_matches_context: bool,
         expires_at_matches: bool,
     }
 
-    struct Detaching(Arc<std::sync::Mutex<Observed>>);
+    struct Detaching(Arc<std::sync::Mutex<Observed>>, ManualClock);
     impl DataProvider for Detaching {
         fn name(&self) -> &'static str {
             "detaching"
@@ -1930,33 +1941,36 @@ fn a_detached_deadline_reports_the_same_timeout_as_the_context() {
                 expires_at_matches: Some(deadline.expires_at()) == ctx.deadline(),
                 ..Observed::default()
             };
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            seen.expired_after_sleep = deadline.is_expired();
+            self.1.advance(std::time::Duration::from_millis(40));
+            seen.expired_after_advance = deadline.is_expired();
             // A worker thread would report through the handle; the error must
             // match what `check_deadline` produces on the context itself.
             let from_handle = deadline.check().expect_err("the budget has been spent");
             let from_ctx = ctx.check_deadline().expect_err("the budget has been spent");
             seen.handle_matches_context = from_handle.to_string() == from_ctx.to_string();
-            *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = seen;
+            *lock(&self.0, "observed deadline") = seen;
             Err(from_handle)
         }
     }
 
+    let clock = ManualClock::new();
     let observed = Arc::new(std::sync::Mutex::new(Observed::default()));
-    let registry = registry_with("detaching", Box::new(Detaching(Arc::clone(&observed))));
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    let registry =
+        registry_with("detaching", Box::new(Detaching(Arc::clone(&observed), clock.clone())));
+    let mut ctx =
+        clocked_context(&clock).with_provider_budget(Some(std::time::Duration::from_millis(20)));
     match registry.provide("detaching", &mut ctx) {
         Err(DataProviderError::TimedOut { provider, .. }) => assert_eq!(provider, "detaching"),
         other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
     }
 
-    let seen = *observed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let seen = *lock(&observed, "observed deadline");
     assert!(
         !seen.expired_at_entry,
         "a fresh dispatch must not hand the walker an already-spent deadline"
     );
     assert!(seen.expires_at_matches, "the handle must carry the context's own expiry");
-    assert!(seen.expired_after_sleep, "the handle must observe the budget running out");
+    assert!(seen.expired_after_advance, "the handle must observe the budget running out");
     assert!(
         seen.handle_matches_context,
         "a detached deadline must report the same failure the context would"

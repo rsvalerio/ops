@@ -183,20 +183,6 @@ impl tokio::io::AsyncWrite for CountingSink {
     }
 }
 
-/// Serializes captured spawns within this process.
-///
-/// On targets without `pipe2` (macOS among them) `std` creates the capture
-/// pipes with `pipe()` and only then sets `FD_CLOEXEC` on them. A step
-/// spawned on another thread inside that window inherits this step's
-/// write end, and so do all of *its* descendants. That holder sits in the
-/// other step's process group, so neither this step's exit nor the
-/// `SIGKILL` of this step's group closes the pipe: a 0.02 s `ops
-/// check-json` stayed "open" for as long as a concurrently spawned `cargo
-/// build` ran. Holding one lock across pipe creation and spawn
-/// closes the window between this runner's own parallel steps; on `pipe2`
-/// targets it costs one uncontended lock per spawn.
-static SPAWN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Outcome of one drain task: the join result wrapping the read result.
 type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
 
@@ -316,7 +302,8 @@ fn missing_drain() -> std::io::Error {
     std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
 }
 
-/// Spawn `cmd` under [`SPAWN_LOCK`] on the blocking pool and arm its
+/// Spawn `cmd` under the process-wide spawn lock
+/// ([`ops_core::subprocess::spawn_locked`]) on the blocking pool and arm its
 /// [`ChildGroup`].
 ///
 /// Waiting for the lock, and the spawn itself (which can stall on a slow
@@ -335,10 +322,7 @@ async fn spawn_serialized(
 ) -> std::io::Result<(tokio::process::Child, ChildGroup)> {
     let mut owned = std::mem::replace(cmd, tokio::process::Command::new(""));
     let joined = tokio::task::spawn_blocking(move || {
-        let spawned = {
-            let _serialized = ops_core::sync::lock(&SPAWN_LOCK, "spawn serialization lock");
-            owned.spawn()
-        };
+        let spawned = ops_core::subprocess::spawn_locked(|| owned.spawn());
         let armed = spawned.map(|child| {
             let group = ChildGroup::new(&child);
             (child, group)
@@ -480,10 +464,10 @@ async fn spawn_capped_with_graces(
         .is_err()
         {
             // Still open with the whole group dead: the holder is outside
-            // the step's process group (see `SPAWN_LOCK`) and is not the
-            // step's to kill. The step's own command already finished, so
-            // report its real exit status with the output captured so far
-            // rather than failing a command that succeeded.
+            // the step's process group (see `ops_core::subprocess::spawn_locked`)
+            // and is not the step's to kill. The step's own command already
+            // finished, so report its real exit status with the output
+            // captured so far rather than failing a command that succeeded.
             tracing::warn!(
                 grace_secs = post_kill_grace.as_secs(),
                 "captured output still open after killing the step's process group; \

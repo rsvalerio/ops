@@ -46,6 +46,16 @@
 //! providers in parallel against many distinct roots would contend on it, and
 //! a long-lived host also meets the member-set freeze above.
 //!
+//! Such hosts are outside this cache's contract. Before one calls these
+//! providers, two things must change: the map moves to a sharded shape (a
+//! concurrent map keyed by root, keeping a small mutex only for the LRU
+//! cap-evict scan, in the per-key `OnceLock` style of
+//! [`ops_about::manifest_cache`]), and the member-set freeze is closed, either
+//! by a freshness key that covers the resolved member set or by the host
+//! driving `ctx.refresh` on workspace-modification events. Without the first
+//! every provider serialises on one mutex; without the second the host serves
+//! a member list that has diverged from `cargo metadata`, with no warning.
+//!
 //! The lock is acquired exclusively through [`lock_typed_manifest_cache`],
 //! which propagates a poisoned lock as a panic naming the cache
 //! (`ops_core::sync::lock`): a panic in a sibling provider while it held the

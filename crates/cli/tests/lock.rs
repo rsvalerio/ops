@@ -22,7 +22,8 @@ fn ops(dir: &Path) -> Command {
         .env("XDG_CONFIG_HOME", dir)
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE");
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("OPS_LOCKS_HELD");
     cmd
 }
 
@@ -324,4 +325,164 @@ while [ ! -e "$4" ]; do :; done"#;
     holder.wait().expect("holder exit");
     assert_eq!(read_count(&terms), 1, "SIGTERM to ops is forwarded once");
     assert_eq!(read_count(&ints), 1, "no SIGINT arrives late");
+}
+
+/// `ops backlog commit` waits while a wave holds `code-review-merge`, so a
+/// bookkeeping commit cannot land between a wave's integration verify and
+/// its fast-forward merge.
+#[test]
+fn backlog_commit_waits_for_the_merge_lock() {
+    let (_dir, repo, wt) = repo_with_worktree();
+    let mut holder = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn holder");
+    wait_until("the holder to take the lock", || {
+        status(&wt, "code-review-merge").contains("held (alive)")
+    });
+
+    let mut commit = ops(&wt)
+        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn commit");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(commit.try_wait().expect("poll").is_none(), "commit must wait for the merge lock");
+
+    signal(&holder, libc::SIGTERM);
+    holder.wait().expect("holder exit");
+    let out = commit.wait_with_output().expect("commit exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
+}
+
+/// Under an enclosing `ops lock code-review-merge`, `ops backlog commit`
+/// does not wait on its own parent.
+#[test]
+fn backlog_commit_inside_the_merge_lock_does_not_deadlock() {
+    let (_dir, repo, _wt) = repo_with_worktree();
+    let mut nested = ops(&repo)
+        .args(["lock", "code-review-merge", "--", ops_bin().to_str().expect("utf8")])
+        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nested");
+    wait_until("the nested commit to finish", || nested.try_wait().expect("poll").is_some());
+    let out = nested.wait_with_output().expect("nested exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("waiting for"), "got: {stderr}");
+}
+
+/// The held lock is matched by its lock file, not by how the path to it is
+/// spelled: a lock taken from the main checkout (where git reports the
+/// common dir as a relative `.git`) still covers a nested commit run from a
+/// linked worktree (where it is absolute).
+#[test]
+fn backlog_commit_in_a_linked_worktree_inside_the_merge_lock_does_not_deadlock() {
+    let (_dir, repo, wt) = repo_with_worktree();
+    let script = format!(
+        "cd \"$1\" && exec {} backlog commit TASK-1 -m 'chore(backlog): x'",
+        ops_bin().to_str().expect("utf8")
+    );
+    let mut nested = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
+        .arg(&wt)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nested");
+    wait_until("the nested commit to finish", || nested.try_wait().expect("poll").is_some());
+    let out = nested.wait_with_output().expect("nested exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("waiting for"), "got: {stderr}");
+}
+
+/// Holding `code-review-merge` in one repository does not exempt a commit
+/// in another: that repository's own merge lock is still taken, so the
+/// commit waits for its holder.
+#[test]
+fn a_merge_lock_held_in_one_repository_does_not_cover_another() {
+    let (_dir_a, repo_a, _wt_a) = repo_with_worktree();
+    let (_dir_b, repo_b, wt_b) = repo_with_worktree();
+    let mut holder_b = ops(&repo_b)
+        .args(["lock", "code-review-merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn holder");
+    wait_until("the holder to take repository B's lock", || {
+        status(&wt_b, "code-review-merge").contains("held (alive)")
+    });
+
+    let script = format!(
+        "cd \"$1\" && exec {} backlog commit TASK-1 -m 'chore(backlog): x'",
+        ops_bin().to_str().expect("utf8")
+    );
+    let mut nested = ops(&repo_a)
+        .args(["lock", "code-review-merge", "--", "sh", "-c", &script, "sh"])
+        .arg(&repo_b)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nested");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        nested.try_wait().expect("poll").is_none(),
+        "the commit in repository B must wait for B's merge lock"
+    );
+
+    signal(&holder_b, libc::SIGTERM);
+    holder_b.wait().expect("holder exit");
+    let out = nested.wait_with_output().expect("nested exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
+}
+
+/// A job started under `ops lock` that outlives it (a background job) keeps
+/// the holder's `OPS_LOCKS_HELD`. Once that holder has exited and another
+/// process holds the lock, the inherited entry no longer covers the job:
+/// its `ops backlog commit` waits like any other.
+#[test]
+fn an_inherited_lock_does_not_cover_a_job_that_outlives_its_holder() {
+    let (_dir, repo, wt) = repo_with_worktree();
+    let out = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "printenv", "OPS_LOCKS_HELD"])
+        .output()
+        .expect("run first holder");
+    assert!(out.status.success(), "first holder: {out:?}");
+    let leaked = String::from_utf8(out.stdout).expect("utf8").trim_end().to_string();
+    assert!(!leaked.is_empty(), "the locked command sees OPS_LOCKS_HELD");
+
+    let mut holder = ops(&repo)
+        .args(["lock", "code-review-merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn second holder");
+    wait_until("the second holder to take the lock", || {
+        status(&wt, "code-review-merge").contains("held (alive)")
+    });
+
+    let mut commit = ops(&wt)
+        .env("OPS_LOCKS_HELD", &leaked)
+        .args(["backlog", "commit", "TASK-1", "-m", "chore(backlog): x"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn commit");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        commit.try_wait().expect("poll").is_none(),
+        "a stale inherited entry must not skip the merge lock"
+    );
+
+    signal(&holder, libc::SIGTERM);
+    holder.wait().expect("holder exit");
+    let out = commit.wait_with_output().expect("commit exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("waiting for code-review-merge"), "got: {stderr}");
 }

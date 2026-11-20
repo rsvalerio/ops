@@ -46,6 +46,23 @@ A member that omits `[lints] workspace = true` silently drops out of the
 policy — its code compiles under default lint levels and the gate still passes.
 Adding it is the first step when creating a crate; see the checklist at the end.
 
+### `missing_docs` is opt-in per crate
+
+`missing_docs` is not in `[workspace.lints]`: most crates were never held to
+it, and turning it on workspace-wide would mean documenting every public item
+in about thirty crates at once. A crate cannot opt in from its own manifest
+either — Cargo rejects a member `[lints]` table that sets `workspace = true`
+and adds a lint — and a crate-root `#![warn(missing_docs)]` would move policy
+out of the files listed above.
+
+So doc-complete crates opt in through `.ops.toml` instead. Each has a
+`missing-docs-<crate>` command running
+`cargo rustdoc -p <crate> --lib --all-features -- -D missing_docs`, which
+applies the lint to that crate alone, and `ops verify` runs them all through
+the `missing-docs` composite. Currently opted in: `ops-text-fixers` and
+`ops-config-checkers`. Once a crate builds clean under the lint, add its
+command and list it in `missing-docs`.
+
 ## The three layers
 
 Exceptions are granted at the narrowest layer that works.

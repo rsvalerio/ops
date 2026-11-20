@@ -1,13 +1,15 @@
 ---
 id: TASK-2876
 title: 'foundation workspace_members can list the root member twice when the manifest names it'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-18 22:30'
+updated_date: '2026-11-19 17:27'
 labels:
   - code-review-rust
   - correctness
 dependencies: []
+parent_task_id: 'TASK-2883'
 modified_files:
   - extensions-rust/foundation/src/lib.rs
 priority: low
@@ -28,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 workspace_members inserts the root only when the resolved list does not already contain ops_about_rust::ROOT_MEMBER, covered by a test listing the root as "./"
+- [x] #1 workspace_members inserts the root only when the resolved list does not already contain ops_about_rust::ROOT_MEMBER, covered by a test listing the root as "./"
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+workspace_members inserts ROOT_MEMBER only when absent; test a_root_package_that_lists_itself_is_one_member lists the root as "./".
+<!-- SECTION:NOTES:END -->

@@ -1,13 +1,15 @@
 ---
 id: TASK-2871
 title: 'CONC-16: test-support helpers still recover through poisoned mutexes'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-18 21:53'
+updated_date: '2026-11-19 17:38'
 labels:
   - code-review-rust
   - CONC
 dependencies: []
+parent_task_id: 'TASK-2884'
 modified_files:
   - crates/core/src/test_utils.rs
   - crates/cli/src/test_utils.rs
@@ -31,5 +33,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed test-support/test-only site either propagates poison via ops_core::sync::lock (or .expect) or carries a comment recording the test-infrastructure exemption
+- [x] #1 Each listed test-support/test-only site either propagates poison via ops_core::sync::lock (or .expect) or carries a comment recording the test-infrastructure exemption
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decided per site: TracingBuf capture buffer (core test_utils), public_api.rs nested-dispatch/detached-handle mutexes and the loc deadline-capture slot now propagate via ops_core::sync::lock. CWD_MUTEX/CwdGuard keep recovery as a documented test-infrastructure exemption (guards (), CwdGuard restores cwd on unwind, prevents cascade under cargo test); the cli cwd_guard_mutex_is_recoverable test now actually poisons the mutex and pins that recovery.
+<!-- SECTION:NOTES:END -->

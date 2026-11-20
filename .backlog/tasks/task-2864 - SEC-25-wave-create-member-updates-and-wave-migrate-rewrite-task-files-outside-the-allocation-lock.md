@@ -1,14 +1,15 @@
 ---
 id: TASK-2864
 title: 'SEC-25: wave create member updates and wave migrate rewrite task files outside the allocation lock'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-18 21:21'
-updated_date: '2026-11-18 21:41'
+updated_date: '2026-11-19 17:28'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2879'
 modified_files:
   - crates/backlog/src/cmd/wave_create.rs
   - crates/backlog/src/cmd/wave.rs
@@ -30,12 +31,16 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 wave create's member updates and wave migrate's rewrites hold Store::lock_allocation() across each task's read, modify and write (without deadlocking against create_task, which takes the same lock)
-- [ ] #2 A concurrency test races a member rewrite against task edit --append-notes and asserts both changes survive
+- [x] #1 wave create's member updates and wave migrate's rewrites hold Store::lock_allocation() across each task's read, modify and write (without deadlocking against create_task, which takes the same lock)
+- [x] #2 A concurrency test races a member rewrite against task edit --append-notes and asserts both changes survive
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 TASK-2838 (via TASK-2687) moved wave create's check, parent creation and member rewrites under the allocation lock; only the wave migrate half of this finding remains.
+
+wave create already held lock_allocation across check/create/link; wave migrate now re-plans under lock_allocation after confirmation and refuses if the plan changed. Race tests: wave_create racing_member_edit_and_wave_create_both_survive, wave migrate racing_member_edit_and_migration_both_survive / edit_between_preview_and_write_survives_the_migration.
+
 <!-- SECTION:NOTES:END -->

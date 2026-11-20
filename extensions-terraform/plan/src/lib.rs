@@ -969,12 +969,9 @@ fn plan_status_result(detailed_exitcode: bool, exit: ChildExit) -> anyhow::Resul
 /// and never writes cannot wedge the read itself, and an over-cap read
 /// closing the pipe makes the child's next write fail instead of blocking.
 fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<String> {
-    let mut child = std::process::Command::new(&env.terraform_program)
-        .args(["show", "-json"])
-        .arg(binary_path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut cmd = std::process::Command::new(&env.terraform_program);
+    cmd.args(["show", "-json"]).arg(binary_path).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = ops_core::subprocess::spawn_locked(|| cmd.spawn())
         .context("failed to run `terraform show -json`")?;
 
     let mut stderr =

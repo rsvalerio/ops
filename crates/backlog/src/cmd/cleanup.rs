@@ -45,7 +45,11 @@ struct CleanupEnv<'a> {
 ///
 /// A task file in `tasks/` does not parse (the error names the file), or
 /// writing `out` failed, or the confirmation answer could not be read from
-/// stdin.
+/// stdin, or the allocation lock cannot be taken, or the selection changed
+/// between the preview and the locked re-read (nothing is moved then).
+///
+/// The moves run under the store's allocation lock, the one `task edit`
+/// holds, after re-reading the selection under it.
 pub fn run_cleanup<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
@@ -107,10 +111,40 @@ fn cleanup_with<W: Write>(
         return Ok(());
     }
 
-    move_aged_tasks(&aged, store)?;
-    writeln!(out, "Moved {} tasks to completed folder.", aged.len())
+    // The selection above was read without the lock so the prompt never
+    // blocks other writers. Re-read it under the lock `task edit` holds and
+    // move only if it is still the confirmed one: an edit that resolved a
+    // task before the move then finishes first, and one that comes after
+    // finds the task in `completed/` — never two files with one id.
+    let _lock = store.lock_allocation()?;
+    let locked_entries = store.scan_tasks()?;
+    let locked_aged = select_aged_tasks(&locked_entries, terminal, cutoff);
+    anyhow::ensure!(
+        same_selection(&aged, &locked_aged),
+        "the tasks to clean up changed while confirming; nothing was moved, rerun cleanup"
+    );
+    move_aged_tasks(&locked_aged, store)?;
+    writeln!(out, "Moved {} tasks to completed folder.", locked_aged.len())
         .context("printing the moved summary")?;
     Ok(())
+}
+
+/// The terminal-status tasks older than `cutoff`, in scan order.
+fn select_aged_tasks<'a>(
+    entries: &'a [TaskEntry],
+    terminal: &str,
+    cutoff: Timestamp,
+) -> Vec<&'a TaskEntry> {
+    entries
+        .iter()
+        .filter(|e| e.doc.frontmatter.status.eq_ignore_ascii_case(terminal))
+        .filter(|e| is_older_than(e, cutoff))
+        .collect()
+}
+
+/// Whether two selections name the same files, in the same order.
+fn same_selection(confirmed: &[&TaskEntry], locked: &[&TaskEntry]) -> bool {
+    confirmed.len() == locked.len() && confirmed.iter().zip(locked).all(|(a, b)| a.path == b.path)
 }
 
 /// Narrate the selection and return the tasks cleanup would move: the
@@ -140,8 +174,7 @@ fn preview_aged_tasks<'a, W: Write>(
     writeln!(out, "Found {} tasks marked as {terminal}.", terminal_tasks.len())
         .context("printing the terminal-status count")?;
 
-    let aged: Vec<&TaskEntry> =
-        terminal_tasks.into_iter().filter(|e| is_older_than(e, cutoff)).collect();
+    let aged = select_aged_tasks(entries, terminal, cutoff);
     if aged.is_empty() {
         writeln!(out, "No tasks found that are older than {older_than_days} days.")
             .context("printing the no-aged-tasks notice")?;
@@ -581,5 +614,117 @@ mod tests {
         let text = run(&store, &cfg, 30, false, "yeah\n");
         assert!(text.contains("Cleanup cancelled."));
         assert!(dir.path().join(".backlog/tasks/task-0002 - old.md").exists());
+    }
+
+    /// 2025-01-01 00:00 UTC: old enough for every 30-day cutoff here.
+    fn old_stamp() -> crate::clock::UtcStamp {
+        crate::clock::UtcStamp::from_unix_secs(1_735_689_600).expect("stamp")
+    }
+
+    /// Appends `note` to the first task, stamped `stamp`.
+    fn append_note(store: &Store, note: &str, stamp: &crate::clock::UtcStamp) {
+        let edit = crate::cmd::edit::EditOptions {
+            task_id: "TASK-0001".to_string(),
+            append_notes: vec![note.to_string()],
+            ..crate::cmd::edit::EditOptions::default()
+        };
+        crate::cmd::edit::edit_with(store, &edit, stamp, &mut std::io::sink()).expect("edit");
+    }
+
+    /// Every file under `tasks/` or `completed/` that carries the first task.
+    fn copies_of_task_one(dir: &tempfile::TempDir) -> Vec<std::path::PathBuf> {
+        ["tasks", "completed"]
+            .iter()
+            .map(|sub| dir.path().join(".backlog").join(sub))
+            .filter(|d| d.is_dir())
+            .flat_map(|d| std::fs::read_dir(d).expect("read dir").map(|e| e.expect("entry").path()))
+            .filter(|p| std::fs::read_to_string(p).is_ok_and(|s| s.contains("id: TASK-0001")))
+            .collect()
+    }
+
+    /// A confirmation answer that runs `edit` before answering yes: an edit
+    /// landing between the preview and the move.
+    struct EditThenYes<F: FnMut()> {
+        edit: Option<F>,
+        answer: &'static [u8],
+    }
+
+    impl<F: FnMut()> std::io::Read for EditThenYes<F> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(mut edit) = self.edit.take() {
+                edit();
+            }
+            std::io::Read::read(&mut self.answer, buf)
+        }
+    }
+
+    fn run_with_edit(store: &Store, cfg: &BacklogConfig, edit: impl FnMut()) -> anyhow::Result<()> {
+        let mut input = std::io::BufReader::new(EditThenYes { edit: Some(edit), answer: b"y\n" });
+        let mut env = CleanupEnv { now: now(), input: &mut input };
+        cleanup_with(
+            store,
+            cfg,
+            &CleanupOptions { older_than_days: 30, dry_run: false },
+            &mut env,
+            &mut std::io::sink(),
+        )
+    }
+
+    /// An edit that keeps the task aged lands before the move: the moved
+    /// file carries it, and only one file holds the id.
+    #[test]
+    fn edit_before_the_move_rides_into_completed() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", None, Some("2026-01-01 00:00")),
+        )]);
+        run_with_edit(&store, &cfg, || append_note(&store, "late note", &old_stamp()))
+            .expect("cleanup");
+        let copies = copies_of_task_one(&dir);
+        assert_eq!(copies.len(), 1, "one file per id: {copies:?}");
+        assert!(copies[0].starts_with(dir.path().join(".backlog/completed")));
+        assert!(std::fs::read_to_string(&copies[0]).expect("read").contains("late note"));
+    }
+
+    /// An edit that makes the task fresh changes the selection: cleanup
+    /// refuses, moves nothing, and the edit stays in `tasks/`.
+    #[test]
+    fn edit_that_changes_the_selection_moves_nothing() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", None, Some("2026-01-01 00:00")),
+        )]);
+        let fresh = crate::clock::UtcStamp::from_unix_secs(1_788_696_000).expect("stamp");
+        let err = run_with_edit(&store, &cfg, || append_note(&store, "fresh note", &fresh))
+            .expect_err("selection changed");
+        assert!(err.to_string().contains("nothing was moved"), "{err:#}");
+        let copies = copies_of_task_one(&dir);
+        assert_eq!(copies.len(), 1, "one file per id: {copies:?}");
+        assert!(copies[0].starts_with(dir.path().join(".backlog/tasks")));
+        assert!(std::fs::read_to_string(&copies[0]).expect("read").contains("fresh note"));
+    }
+
+    /// Cleanup and an edit racing on one task: whichever goes first, one
+    /// file carries the id and it holds the note.
+    #[test]
+    fn racing_edit_and_cleanup_leave_one_file_with_the_note() {
+        for _ in 0..20 {
+            let (dir, store, cfg) = scratch_with(&[(
+                "task-0001 - old.md",
+                &fm("TASK-0001", "Done", None, Some("2026-01-01 00:00")),
+            )]);
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    append_note(&store, "raced note", &old_stamp());
+                });
+                barrier.wait();
+                let _ = run(&store, &cfg, 30, false, "y\n");
+            });
+            let copies = copies_of_task_one(&dir);
+            assert_eq!(copies.len(), 1, "one file per id: {copies:?}");
+            assert!(std::fs::read_to_string(&copies[0]).expect("read").contains("raced note"));
+        }
     }
 }

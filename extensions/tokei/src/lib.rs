@@ -144,9 +144,9 @@ pub(crate) struct ScanLimits {
     /// file is never opened, and again on the bytes actually read, through a
     /// reader limited to one byte past the cap. A file that grows between the
     /// walk and the read is therefore skipped as oversize rather than read
-    /// whole. The one residual: a regular file replaced by a FIFO after the
-    /// walk blocks its `open` until a writer appears, which no deadline check
-    /// can interrupt.
+    /// whole. The open is non-blocking with a regular-file check on the
+    /// handle, so a file replaced by a FIFO after the walk is skipped as
+    /// unreadable instead of blocking until a writer appears.
     pub file_bytes: u64,
     /// Upper bound on the number of files **scanned** — that is, opened,
     /// counted, and materialised as records.
@@ -292,6 +292,14 @@ pub(crate) fn scan_tokei(
 /// during the walk. Returns `Ok(None)` when the file is over the cap by the
 /// time it is read.
 ///
+/// The open is [`ops_core::text::open_regular_following`]: `O_NONBLOCK` plus
+/// a regular-file check on the handle, so an entry swapped for a FIFO after
+/// the walk is refused instead of blocking `open(2)` where no deadline check
+/// can reach it. It follows symlinks, as tokei's own `File::open` does: the
+/// scan root is the caller's unresolved working directory, which may sit
+/// under a symlinked ancestor, and only line counts leave this function, so
+/// the strict no-symlink walk would refuse ordinary trees for no gain.
+///
 /// # Errors
 ///
 /// The open, the handle's metadata, or the read failed, or the path no
@@ -302,14 +310,8 @@ fn count_capped(
     config: &TokeiConfig,
     cap: u64,
 ) -> std::io::Result<Option<CodeStats>> {
-    let file = std::fs::File::open(path)?;
+    let file = ops_core::text::open_regular_following(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "no longer a regular file",
-        ));
-    }
     if metadata.len() > cap {
         return Ok(None);
     }

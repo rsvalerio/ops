@@ -47,6 +47,122 @@ use anyhow::Context as _;
 /// How often a lock wait with a timeout re-polls.
 const POLL: Duration = Duration::from_millis(100);
 
+/// The environment variable `ops lock <name> -- <cmd…>` sets for its
+/// command: every lock held by it and its `ops lock` ancestors, one per
+/// line, each `<pid> <path>` — the holding `ops lock` process and the lock
+/// file's canonical path (see [`held_entry`]). A nested `ops` that would
+/// take one of them itself (see [`hold_unless_inherited`]) reads it to skip
+/// the lock instead of waiting forever on its own parent.
+///
+/// A path rather than a bare name, because a lock belongs to one
+/// repository's common git dir: a command that holds `code-review-merge` in
+/// one repository and changes into another must still take that other
+/// repository's `code-review-merge`.
+///
+/// The pid, because the variable outlives the lock: a background job
+/// started under `ops lock` keeps it after the holder exits. An entry only
+/// counts while that same process still holds the lock (see
+/// [`still_held_by`]); otherwise the lock is taken as usual.
+pub const HELD_ENV: &str = "OPS_LOCKS_HELD";
+
+/// The [`HELD_ENV`] entry for lock `name` under the lock directory `dir`
+/// (already canonical, see [`locks_under`]).
+fn held_key(dir: &Path, name: &str) -> String {
+    dir.join(format!("{name}.lock")).to_string_lossy().into_owned()
+}
+
+/// The [`HELD_ENV`] line recording that process `pid` holds the lock whose
+/// [`held_key`] is `key`.
+fn held_entry(pid: u32, key: &str) -> String {
+    format!("{pid} {key}")
+}
+
+/// `inherited` (the current [`HELD_ENV`] value, if any) with `key`
+/// appended.
+fn held_with(inherited: Option<&std::ffi::OsStr>, key: &str) -> OsString {
+    inherited.filter(|value| !value.is_empty()).map_or_else(
+        || OsString::from(key),
+        |value| {
+            let mut held = value.to_os_string();
+            held.push("\n");
+            held.push(key);
+            held
+        },
+    )
+}
+
+/// The pids `inherited` (a [`HELD_ENV`] value) names as holders of the
+/// lock `key`. Malformed lines name nobody.
+fn inherited_holders(inherited: Option<&std::ffi::OsStr>, key: &str) -> Vec<u32> {
+    inherited.map_or_else(Vec::new, |value| {
+        value
+            .to_string_lossy()
+            .split('\n')
+            .filter_map(|line| line.split_once(' '))
+            .filter(|(_, path)| *path == key)
+            .filter_map(|(pid, _)| pid.parse().ok())
+            .collect()
+    })
+}
+
+/// Whether process `pid` on this host is the live holder of lock `name`
+/// in `dir` right now. A holder that exited released the lock (its record
+/// reads as stale), and a lock since taken by another process records that
+/// process: either way the inherited entry no longer covers the caller.
+///
+/// # Errors
+///
+/// The lock cannot be probed (see [`probe`]).
+fn still_held_by(dir: &Path, name: &str, pid: u32) -> anyhow::Result<bool> {
+    Ok(matches!(
+        probe(dir, name)?,
+        LockState::Held(Some(holder)) if holder.pid == pid && holder.host == hostname()
+    ))
+}
+
+/// Take the lock `name` for the rest of the caller's work, waiting for it
+/// without a timeout, unless an enclosing `ops lock` already holds it (see
+/// [`HELD_ENV`]): then `None`, since the work already runs serialized and
+/// waiting would deadlock on the parent.
+///
+/// The wait catches no signal: a Ctrl-C ends the process, and the kernel
+/// releases the lock with it (its record then reads as stale).
+///
+/// # Errors
+///
+/// `cwd` is not inside a git repository, the runtime cannot be built, or
+/// the lock cannot be taken (see [`acquire`]).
+pub fn hold_unless_inherited(
+    cwd: &Path,
+    name: &str,
+    command: &[OsString],
+) -> anyhow::Result<Option<Guard>> {
+    let (common, toplevel) = git_anchors(cwd)?;
+    let dir = locks_under(&common)?;
+    for pid in inherited_holders(std::env::var_os(HELD_ENV).as_deref(), &held_key(&dir, name)) {
+        if still_held_by(&dir, name, pid)? {
+            return Ok(None);
+        }
+    }
+    let worktree = if toplevel.as_os_str().is_empty() { cwd.to_path_buf() } else { toplevel };
+    let holder = Holder::current(&worktree, command);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("building the lock runtime")?;
+    runtime.block_on(async {
+        let mut signals = Signals::none();
+        let wait = Wait { timeout: None, notice: &mut std::io::stderr(), signals: &mut signals };
+        match acquire(&dir, name, &holder, wait).await? {
+            Acquired::Held(guard) => Ok(Some(guard)),
+            // No signal stream is installed, so the wait cannot end this way.
+            Acquired::Signalled(signo) => {
+                anyhow::bail!("waiting for lock {name} ended by signal {signo}")
+            }
+        }
+    })
+}
+
 /// One `git rev-parse` answering both repository anchors `ops lock` needs:
 /// the common dir (where `<common>/ops/locks` lives) and the working-tree
 /// toplevel (holder provenance) — one process instead of two. Spawned via
@@ -67,11 +183,12 @@ fn git_anchors(cwd: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     Ok((common, toplevel))
 }
 
-/// `<git-common-dir>/ops/locks`, created on demand.
+/// `<git-common-dir>/ops/locks`, created on demand and canonicalized, so
+/// every worktree of one repository names it by the same path.
 fn locks_under(common: &Path) -> anyhow::Result<PathBuf> {
     let dir = common.join("ops").join("locks");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    Ok(dir)
+    std::fs::canonicalize(&dir).with_context(|| format!("resolving {}", dir.display()))
 }
 
 /// The lock directory for the repository containing `cwd`:
@@ -358,7 +475,6 @@ impl Signals {
     }
 
     /// Catch nothing: [`Self::recv`] never resolves.
-    #[cfg(test)]
     #[must_use]
     pub const fn none() -> Self {
         Self {
@@ -573,7 +689,9 @@ pub fn run_locked(
             drop(guard);
             return Ok(crate::shell_exit_code_for_signal(signo));
         }
-        let code = run_child(program, args, &mut signals).await?;
+        let entry = held_entry(holder.pid, &held_key(&dir, name));
+        let held = held_with(std::env::var_os(HELD_ENV).as_deref(), &entry);
+        let code = run_child(program, args, &held, &mut signals).await?;
         drop(guard);
         anyhow::Ok(code)
     })?;
@@ -583,7 +701,7 @@ pub fn run_locked(
 /// Run the child to completion, forwarding caught signals to it (except a
 /// SIGINT the terminal already delivered, see [`tty_already_delivered`]), and map
 /// its end to an exit code: its own code, or `128 + signo` when it (or
-/// `ops`) was signalled.
+/// `ops`) was signalled. The child sees `held` as [`HELD_ENV`].
 ///
 /// # Errors
 ///
@@ -591,10 +709,12 @@ pub fn run_locked(
 async fn run_child(
     program: &OsString,
     args: &[OsString],
+    held: &std::ffi::OsStr,
     signals: &mut Signals,
 ) -> anyhow::Result<u8> {
     let mut child = tokio::process::Command::new(program)
         .args(args)
+        .env(HELD_ENV, held)
         .spawn()
         .with_context(|| format!("spawning {}", program.to_string_lossy()))?;
     let mut received: Option<i32> = None;
@@ -696,10 +816,53 @@ fn exit_code(status: std::process::ExitStatus, received: Option<i32>) -> u8 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn held_locks_accumulate_and_match_whole_keys() {
+        let dir = Path::new("/repo/.git/ops/locks");
+        let backlog = held_key(dir, "code-review-backlog");
+        let merge = held_key(dir, "code-review-merge");
+        let outer = held_with(None, &held_entry(10, &backlog));
+        assert_eq!(outer, format!("10 {backlog}").as_str());
+        let inner = held_with(Some(&outer), &held_entry(11, &merge));
+        assert_eq!(inner, format!("10 {backlog}\n11 {merge}").as_str());
+        assert_eq!(held_with(Some(std::ffi::OsStr::new("")), "x"), "x");
+
+        assert_eq!(inherited_holders(Some(&inner), &merge), [11]);
+        assert_eq!(inherited_holders(Some(&inner), &backlog), [10]);
+        let partial = held_key(dir, "code-review");
+        assert!(inherited_holders(Some(&inner), &partial).is_empty(), "whole keys only");
+        assert!(inherited_holders(None, &merge).is_empty());
+        let bare = held_with(None, &merge);
+        assert!(inherited_holders(Some(&bare), &merge).is_empty(), "a line without a pid");
+    }
+
+    #[test]
+    fn a_held_lock_does_not_cover_the_same_name_in_another_repository() {
+        let ours = held_key(Path::new("/a/.git/ops/locks"), "code-review-merge");
+        let held = held_with(None, &held_entry(10, &ours));
+        let other = held_key(Path::new("/b/.git/ops/locks"), "code-review-merge");
+        assert!(inherited_holders(Some(&held), &other).is_empty());
+    }
+
+    #[test]
+    fn an_inherited_entry_covers_only_while_its_process_holds_the_lock() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        let me = std::process::id();
+        let held_by = |pid| still_held_by(dir, "merge", pid).expect("probe");
+        assert!(!held_by(me), "never taken");
+
+        let guard = take(dir, "merge").expect("take");
+        assert!(held_by(me));
+        assert!(!held_by(me + 1), "held by another process");
+        drop(guard);
+        assert!(!held_by(me), "its holder released it");
+    }
+
     fn holder(pid: u32) -> Holder {
         Holder {
             pid,
-            host: "h".to_string(),
+            host: hostname(),
             worktree: "/wt".to_string(),
             command: "ops verify".to_string(),
             acquired: now_secs(),

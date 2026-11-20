@@ -120,7 +120,8 @@ struct Root {
     text: String,
     shape: Shape,
     rust_version: Option<String>,
-    /// Workspace members relative to the root, excluding the root itself.
+    /// Workspace members relative to the root, including the root itself
+    /// (once) when it is also a package.
     members: Vec<String>,
 }
 
@@ -151,7 +152,8 @@ impl Root {
 
 /// Resolve members through the same glob expander the about providers use,
 /// dropping any entry that would escape the workspace. A root that
-/// is also a package is its own member and opts in like any other.
+/// is also a package is its own member and opts in like any other; it is
+/// listed once even when the manifest names it too.
 ///
 /// # Errors
 ///
@@ -168,8 +170,8 @@ fn workspace_members(
         .into_iter()
         .filter(|m| ops_about_rust::member_path_is_workspace_safe_or_warn(m, "rust-foundation"))
         .collect();
-    if root_is_package {
-        members.insert(0, ".".to_owned());
+    if root_is_package && !members.iter().any(|m| m == ops_about_rust::ROOT_MEMBER) {
+        members.insert(0, ops_about_rust::ROOT_MEMBER.to_owned());
     }
     Ok(members)
 }

@@ -32,7 +32,9 @@
 //!
 //! One `Mutex<HashMap>`, held for the probe or the insert and never across the
 //! ancestor walk. Like [`crate::manifest_cache`], it assumes a single-threaded
-//! host that runs providers in turn.
+//! host that runs providers in turn. A parallel host is outside that contract
+//! and must first move this map to the same sharded shape the
+//! [`crate::manifest_cache`] contract requires.
 
 use ops_about::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};

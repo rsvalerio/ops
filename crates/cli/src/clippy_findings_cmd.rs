@@ -539,13 +539,13 @@ pub fn run_clippy_findings(
     }
 
     let ws = load_workspace(cwd)?;
-    let mut child = Command::new(&cargo)
-        .args(&args)
+    let mut cmd = Command::new(&cargo);
+    cmd.args(&args)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
+        .stderr(Stdio::inherit());
+    let mut child = ops_core::subprocess::spawn_locked(|| cmd.spawn())
         .with_context(|| format!("failed to spawn {}", cargo.to_string_lossy()))?;
     let stdout = child.stdout.take().context("cargo clippy stdout was not captured")?;
 
