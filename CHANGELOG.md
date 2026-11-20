@@ -2,6 +2,78 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.2](https://github.com/rsvalerio/ops/compare/84dd848ee6d78cf845229654f94ff4b92a502dcd..v0.94.2) - 2026-11-20
+#### 🐛 Bug Fixes
+- (**about-java**) parse elements glued to the project opener and contain module pom reads - ([7a5e5d9](https://github.com/rsvalerio/ops/commit/7a5e5d9ae9331c9feccdbce87b9ea3ee8e8b99fe)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-node**) keep repository URL queries and fragments verbatim when scrubbing dot segments - ([f8a1761](https://github.com/rsvalerio/ops/commit/f8a1761d8648a64c225d787ac62e75b26b5d3247)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-node**) accept column-0 pnpm sequences and scrub traversal on every repo URL branch - ([2436a9d](https://github.com/rsvalerio/ops/commit/2436a9dfba82f2a796d9fa39f1a3efe63fd0f152)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) report the resolved workspace root as the identity project_root - ([8b57808](https://github.com/rsvalerio/ops/commit/8b57808736bd577a494a640a4eb0f913ccf0f6b0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) contain symlinked literal members and emit one root-member spelling - ([3089102](https://github.com/rsvalerio/ops/commit/308910220312c78a7f758d2350e63fbd4b27cd4e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) treat a doubled marker as an escape only when a brace follows it - ([73e5452](https://github.com/rsvalerio/ops/commit/73e545240b1daf7e66f65d5310bc0ab8d01bda21)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) skip comments inside template interpolations when tracking braces - ([57edaba](https://github.com/rsvalerio/ops/commit/57edaba5a9b50d99885c81e7070dd6bf83f4c1cd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) drop over-cap required_version instead of truncating, and track template interpolations inside quoted strings - ([f10dabf](https://github.com/rsvalerio/ops/commit/f10dabf6b315b9e861bf11067777b130f780c341)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) track multi-line array depth so array rows never end the root table or read as headers - ([037b2dc](https://github.com/rsvalerio/ops/commit/037b2dc47d5e11e06a7fe9e3e3e88ce90491b7c2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) detect a workspace declared as a root-table key and pin the symlink-loop error variant - ([97c8cb9](https://github.com/rsvalerio/ops/commit/97c8cb92de1d25ed711d9acf1c6b09d34398fd55)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) follow cargo's default-features inheritance, keep undeclared authors inherited, serialise kebab-case keys - ([d5252ce](https://github.com/rsvalerio/ops/commit/d5252ce4a01214e79372822f59aefb814b7c1071)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-update**) accept cargo's latest-version and MSRV notes on every action line - ([6876c95](https://github.com/rsvalerio/ops/commit/6876c95b6065dbb445888885c8bc924008ab8c69)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-coderabbit-tasks**) keep a closed stdout after a landed commit from reading as a failed commit - ([baf3939](https://github.com/rsvalerio/ops/commit/baf3939a057db3f70bebde409664213da368156a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-coderabbit-tasks**) record a filed task id before reporting it so a closed stdout cannot strand it - ([87672a9](https://github.com/rsvalerio/ops/commit/87672a95332f1a9be3026e898d8c55a6a2f7494f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-coderabbit-tasks**) commit filed findings on failure, release signal handlers, validate paths by component - ([1a1d6d1](https://github.com/rsvalerio/ops/commit/1a1d6d176741dbb160d274f31acf6e7fd9eecd57)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) cap the git diff stderr drain and document HasStagedFilesError - ([dc41d3b](https://github.com/rsvalerio/ops/commit/dc41d3b5b7104f76eddd0f7c4262374fdece5727)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) stop find_git_dir at a refused .git entry and cap the pointer read - ([c07172b](https://github.com/rsvalerio/ops/commit/c07172b72b3511d8667463586ae6b1bf88b66f01)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run-before-push**) require the (delete) marker for deletions and pin the capture budget - ([627e811](https://github.com/rsvalerio/ops/commit/627e81114c5578d632ad860547d757fa665b1bda)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-foundation**) escape quotes and backslashes in quoted key segments so a waiver never spans directories - ([6ff65f9](https://github.com/rsvalerio/ops/commit/6ff65f99d9c67d124fd9719e2a219b9446362442)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-foundation**) match waivers by whole file and key segment, refuse members outside the repo - ([3945821](https://github.com/rsvalerio/ops/commit/39458213864a8ef90990de45b03dd247eac69cef)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) warn when the partial llvm-cov report fails to parse - ([20898e6](https://github.com/rsvalerio/ops/commit/20898e67bd6f7619c2bb533935bb8c69b46a2f7b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tfplan**) fail closed on empty resource actions, reject terraform-mode flags under --json-file, report signal kills, validate env overrides, and type the table knobs - ([9b833b3](https://github.com/rsvalerio/ops/commit/9b833b353e2e2cb1d9d3350c1a2dd09d81bec5fa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei**) enforce the byte cap on the opened file and drop tests that cover nothing of tokei - ([b2f8d74](https://github.com/rsvalerio/ops/commit/b2f8d74c1aa3ee0c5a5d0552ec81205bef2335ae)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**rust-loc**) size the capped source buffer from the measured file length - ([a877cd2](https://github.com/rsvalerio/ops/commit/a877cd2bf9f3d7a70e08ff6d35aa33e48a701c71)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**about-rust**) keep cache docs to the end-state contract and fix the coverage locking doc - ([92bda89](https://github.com/rsvalerio/ops/commit/92bda893dc4a7487fdab3be26a88a564218236d3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) move the load_coverage IngestDir rationale out of its Errors section - ([c1acb6e](https://github.com/rsvalerio/ops/commit/c1acb6ebe98092421889aa1f163ec5345099fd74)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**about-node**) share identity setup and drop stale cast-lint allows - ([35353ce](https://github.com/rsvalerio/ops/commit/35353ced0242e2ce80c99f37fa4c49525b59b06b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) inline the marker in the three-marker format string - ([dd85da5](https://github.com/rsvalerio/ops/commit/dd85da5cdd4c14206043083a593a4fdbad7af511)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) drop find_git_dir tests duplicated from ops-hook-common - ([51702ab](https://github.com/rsvalerio/ops/commit/51702abd4e07a0052c0a19a7739f60f5de3c95ca)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) require every concurrent legacy-hook upgrade to succeed - ([c1867a5](https://github.com/rsvalerio/ops/commit/c1867a58891a43684ad04e0d1dccdf66b5cdfd2c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) move staged-files probe tests next to the probe and run git hermetically - ([7f87d59](https://github.com/rsvalerio/ops/commit/7f87d59b360fa2e224964ea666d1cf802722757e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hooks**) isolate sibling hook-crate shell tests from inherited bypass (#148) - ([1d178d1](https://github.com/rsvalerio/ops/commit/1d178d12adfb08cb0a612b7a69980bda1d007e21)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-foundation**) cover the scaffold guard with a symlinked member manifest - ([9cd1539](https://github.com/rsvalerio/ops/commit/9cd15394f6f839b4b069c80472534df3007f4d1c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) compare coverage_files readback values column by column - ([24acb9a](https://github.com/rsvalerio/ops/commit/24acb9a73b59372e9fe36d3cc1d080450fc502a5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei**) drop the view test that asserts the SQL literal back to itself - ([57dce17](https://github.com/rsvalerio/ops/commit/57dce178290a2e696c6515424e2b1068ead4c144)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**deny**) ignore unmaintained chrono advisories, drop unused licenses - ([400629b](https://github.com/rsvalerio/ops/commit/400629b8c63121115426bd65587c32274895d0d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump syn from 2.0.119 to 3.0.3 (#153) - ([3f1626e](https://github.com/rsvalerio/ops/commit/3f1626ef6d32c625088c926aad0c455cc38d1467)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump toml_edit (#151) - ([efa5bb9](https://github.com/rsvalerio/ops/commit/efa5bb96f923cee090ea37940b04f90cdd37a8fb)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump linkme from 0.3.37 to 0.3.38 (#152) - ([c0b86d0](https://github.com/rsvalerio/ops/commit/c0b86d03cd5616177c851cf46ccf7aab5caf4321)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump tokio from 1.53.3 to 1.54.1 (#154) - ([342e8af](https://github.com/rsvalerio/ops/commit/342e8af35f85fa7db1804fe897e728bd8a2ec6e1)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump jdx/mise-action from 5.2.7 to 5.2.8 (#150) - ([be3c504](https://github.com/rsvalerio/ops/commit/be3c5047564633d8ed94c64b66aea39ec27f40a1)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump clap from 4.6.5 to 4.6.7 (#155) - ([cf7a4c9](https://github.com/rsvalerio/ops/commit/cf7a4c94f58552a24839bf1180e8afe59c61bb04)) - dependabot[bot], dependabot[bot]
+- (**deps**) drop unused ops-sqlite and silence cargo-machete false positives - ([d951e82](https://github.com/rsvalerio/ops/commit/d951e823e5bdeafe8ee3407f1019e7d034b4a7f5)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about-python**) drop tautological provider_name test and restate normalize_urls doc - ([957fc70](https://github.com/rsvalerio/ops/commit/957fc70c8a6fd41dc4d3113200e09dac98d87b28)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) key the metadata cache on the producer's constant and inject the rustc probe - ([099b718](https://github.com/rsvalerio/ops/commit/099b71844bfc7636b1f3de247d24d6f62cc2fd35)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) split the HCL scanner and filesystem discovery out of lib.rs - ([ab54109](https://github.com/rsvalerio/ops/commit/ab54109979baeb73b538051705255fe82bd7ad79)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) move date handling from chrono to jiff (#149) - ([0709550](https://github.com/rsvalerio/ops/commit/0709550969d55dd3e1f9ce0b8d458be2f476008a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) move date handling from chrono to jiff - ([32937c5](https://github.com/rsvalerio/ops/commit/32937c5c7e1e751656bed94256a60bc11389b8d8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) shape interpret_deny_output like its siblings and keep parsers crate-private - ([278625f](https://github.com/rsvalerio/ops/commit/278625f262125c25db514b61483eca0187804dff)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) file tokei FIFO-open residual found during code-review run - ([d84905f](https://github.com/rsvalerio/ops/commit/d84905fbfd3a18afb531a7e001c3893eb1a743e5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 24 - ([7c5e74e](https://github.com/rsvalerio/ops/commit/7c5e74e0c6c5d38604268427e9614fc4b2159273)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 20 - ([5b2362d](https://github.com/rsvalerio/ops/commit/5b2362d5cbbce78645a290e98aa4cda467b45d20)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 26 - ([6f29828](https://github.com/rsvalerio/ops/commit/6f29828285da02f223e3e82c3911206410fd0764)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 19 - ([e62f450](https://github.com/rsvalerio/ops/commit/e62f450c619935e50d35b2fc2bc490beeac8f25d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 18 - ([36b4dfa](https://github.com/rsvalerio/ops/commit/36b4dfa88457a33322fd6be469138042291776b0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 16 - ([4df841a](https://github.com/rsvalerio/ops/commit/4df841ac3f18b3760a47c200d1454b12458a55e9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 14 - ([45e0b42](https://github.com/rsvalerio/ops/commit/45e0b420759a314f6ca6ef8cf269152326324a59)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 15 - ([3d43d0f](https://github.com/rsvalerio/ops/commit/3d43d0f1d4a9c435d7151fea8837ac41340a5b1e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 13 - ([6f485a6](https://github.com/rsvalerio/ops/commit/6f485a62f907d05e9909152fc8b6ce363a9db786)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 25 - ([2ba6a10](https://github.com/rsvalerio/ops/commit/2ba6a1044be26da33f4d6edb5aba41dac00d7938)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 12 - ([26f4868](https://github.com/rsvalerio/ops/commit/26f4868ec24226545cb06f0996fd96950cb3de3a)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.1](https://github.com/rsvalerio/ops/compare/aef89ef058cd6e481a17e453a52483b8411c7c1a..v0.94.1) - 2026-11-14
 #### 🐛 Bug Fixes
 - (**backlog**) bound the staging name to NAME_MAX for long task file names (#146) - ([b09f6a5](https://github.com/rsvalerio/ops/commit/b09f6a577336311aabce02c9aec3c0a4060dcd8e)) - [@rsvalerio](https://github.com/rsvalerio)
