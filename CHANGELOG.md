@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.4](https://github.com/rsvalerio/ops/compare/4c84dc64c0ff4bcfe7ac463261880685467a7049..v0.94.4) - 2026-11-21
+#### 🐛 Bug Fixes
+- (**runner**) close the raw foreground hand-off's timeout and job-control gaps - ([ee81fd4](https://github.com/rsvalerio/ops/commit/ee81fd4b48ffe9fe62ffdfbc4a23955ea6493877)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) tear down raw steps' process trees via a foreground hand-off - ([0455a24](https://github.com/rsvalerio/ops/commit/0455a24fa7ab2af323dcb364a3052ddd8fb86d0c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- (**verify**) add public-only rustdoc gates for ops-about, ops-extension and ops-rust-foundation - ([4c84dc6](https://github.com/rsvalerio/ops/commit/4c84dc64c0ff4bcfe7ac463261880685467a7049)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) record wave-28 re-triage of TASK-2866 into wave 39 - ([799705c](https://github.com/rsvalerio/ops/commit/799705c783ee35f8061ac83b6dcc00210caa684e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 39 - ([090c838](https://github.com/rsvalerio/ops/commit/090c8385d48e29ec70170d1614148f5504e5b966)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 38 - ([87ac86f](https://github.com/rsvalerio/ops/commit/87ac86f05d6409296503a24ffd63f65062a2a0d6)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.3](https://github.com/rsvalerio/ops/compare/f00cdd0f0537b98dcd65d944e4701c0825f5e9bc..v0.94.3) - 2026-11-20
 #### 🐛 Bug Fixes
 - (**about-java**) split elements glued to the pom project opener so containers never fill project scalars - ([727f7ae](https://github.com/rsvalerio/ops/commit/727f7ae9f23153acdf136bb9b3d6ef4eeaff231a)) - [@rsvalerio](https://github.com/rsvalerio)
