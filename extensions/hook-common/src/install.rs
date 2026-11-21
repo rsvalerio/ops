@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn install_hook_creates_executable_file_commit() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn install_hook_creates_executable_file_push() {
         let cfg = push_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn install_failure_names_offending_path() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -566,7 +566,7 @@ mod tests {
         }
 
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         let hooks = git_dir.join("hooks");
         std::fs::create_dir_all(&hooks).unwrap();
@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn install_hook_after_interrupted_stage_installs_cleanly() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         let hooks = git_dir.join("hooks");
         std::fs::create_dir_all(&hooks).unwrap();
@@ -621,7 +621,7 @@ mod tests {
     fn install_hook_replaces_truncated_hook_rather_than_calling_it_foreign() {
         let cfg = commit_config();
         for partial in ["", "   \n", truncated_hook_script(&cfg)] {
-            let dir = tempfile::tempdir().expect("tempdir");
+            let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
             let git_dir = dir.path().join(".git");
             std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
             std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -664,7 +664,7 @@ mod tests {
     #[test]
     fn install_hook_refuses_non_utf8_hook_as_foreign_and_leaves_it_intact() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn install_hook_refuses_over_cap_hook_as_foreign_and_leaves_it_intact() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn install_hook_idempotent_when_ops_hook_exists() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn install_hook_updates_outdated_ops_hook() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -769,7 +769,7 @@ mod tests {
     #[test]
     fn install_hook_updates_legacy_hook() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn install_hook_refuses_foreign_hook_with_marker_in_comment() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -860,7 +860,7 @@ mod tests {
     #[test]
     fn install_hook_refuses_user_hook_with_marker_in_echo_argument() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -897,7 +897,7 @@ mod tests {
     #[test]
     fn install_hook_refuses_foreign_hook() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -913,7 +913,7 @@ mod tests {
     #[test]
     fn install_hook_rejects_symlinked_hooks_dir() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -935,7 +935,7 @@ mod tests {
     #[test]
     fn install_hook_refuses_fifo_hook_without_blocking() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -972,7 +972,7 @@ mod tests {
     #[test]
     fn install_hook_rejects_symlinked_hook_matching_ops_script() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -1001,7 +1001,7 @@ mod tests {
     #[test]
     fn install_hook_does_not_replace_symlinked_legacy_hook() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -1029,7 +1029,7 @@ mod tests {
     #[test]
     fn install_hook_rejects_symlinked_head() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         let real_head = dir.path().join("real_head");
@@ -1047,7 +1047,7 @@ mod tests {
     #[test]
     fn install_hook_rejects_bogus_dot_git_without_head() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         // Deliberately no HEAD file — looks like .git only by name.
@@ -1060,7 +1060,7 @@ mod tests {
     #[test]
     fn install_hook_rejects_non_git_directory() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let bogus = dir.path().join("not_dot_git");
         std::fs::create_dir(&bogus).unwrap();
 
@@ -1075,7 +1075,7 @@ mod tests {
     #[test]
     fn upgrade_legacy_hook_bails_if_file_replaced_after_initial_check() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let hooks = dir.path().join("hooks");
         std::fs::create_dir(&hooks).unwrap();
         let hook_path = hooks.join("pre-commit");
@@ -1114,7 +1114,7 @@ mod tests {
     #[test]
     fn upgrade_legacy_hook_ignores_legacy_fixed_name_orphan() {
         let cfg = commit_config();
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let hooks = dir.path().join("hooks");
         std::fs::create_dir(&hooks).unwrap();
         let hook_path = hooks.join("pre-commit");
@@ -1167,7 +1167,7 @@ mod tests {
         use std::thread;
 
         let cfg = Arc::new(commit_config());
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let hooks = dir.path().join("hooks");
         std::fs::create_dir(&hooks).unwrap();
         let hook_path = hooks.join("pre-commit");

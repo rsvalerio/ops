@@ -255,7 +255,7 @@ mod tests {
     #[cfg(feature = "stack-rust")]
     #[test]
     fn run_init_writes_detected_cargo_workspaces() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[workspace]\nmembers = []\nexclude = [\"fuzz\"]\n",
@@ -287,7 +287,7 @@ mod tests {
     #[cfg(feature = "stack-rust")]
     #[test]
     fn run_init_with_commands_still_fans_out_over_workspaces() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[workspace]\nmembers = []\nexclude = [\"fuzz\"]\n",
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn run_init_creates_minimal_ops_toml() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         run_init(false, &default_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn run_init_all_sections_includes_themes() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         run_init(false, &all_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -387,12 +387,12 @@ mod tests {
     /// of the success path instead.
     #[test]
     fn write_init_force_and_no_force_produce_identical_bytes() {
-        let dir_a = tempfile::tempdir().expect("tempdir a");
+        let dir_a = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let path_a = dir_a.path().join(".ops.toml");
         let bytes = b"[output]\ntheme = \"compact\"\n";
         write_init(&path_a, bytes, false).expect("no-force write");
 
-        let dir_b = tempfile::tempdir().expect("tempdir b");
+        let dir_b = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let path_b = dir_b.path().join(".ops.toml");
         // Pre-existing file so the --force branch actually clobbers.
         std::fs::write(&path_b, b"old content").expect("seed");
@@ -406,7 +406,7 @@ mod tests {
 
     #[test]
     fn run_init_to_output_message_no_flags() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
         run_init_to(false, &default_sections(), &mut buf).expect("run_init_to");
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn run_init_force_overwrite_message() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".ops.toml"), "existing").unwrap();
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn run_init_to_output_message_commands_no_stack() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         // No Cargo.toml, no package.json — no stack detected
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
@@ -483,7 +483,7 @@ mod tests {
     /// `.ops.toml` is created elsewhere.
     #[test]
     fn run_init_writes_to_captured_cwd_absolute_path() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let sub = dir.path().join("sub");
         std::fs::create_dir(&sub).expect("mkdir sub");
         let _guard = CwdGuard::new(&sub).expect("CwdGuard sub");
@@ -556,7 +556,7 @@ mod tests {
     /// `write_init_force_and_no_force_produce_identical_bytes`.
     #[test]
     fn parent_fsync_after_create_runs_for_existing_parent() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let file = dir.path().join(".ops.toml");
         std::fs::write(&file, b"x").expect("seed");
         // Must not panic and must not return — the helper swallows errors as
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn run_init_to_output_message_with_commands_and_rust_stack() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         // Write a Cargo.toml so Stack::detect returns Some(Rust)
         std::fs::write(
             dir.path().join("Cargo.toml"),

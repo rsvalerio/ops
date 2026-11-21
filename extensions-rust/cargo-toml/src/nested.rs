@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn finds_own_and_excluded_workspaces() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let root = dir.path();
         write(
             root,
@@ -241,7 +241,7 @@ mod tests {
     /// not to a workspace of its own.
     #[test]
     fn members_of_a_nested_workspace_are_not_workspaces() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let root = dir.path();
         write(root, "Cargo.toml", "[workspace]\nexclude = [\"tools\"]\n");
         write(root, "tools/Cargo.toml", "[workspace]\nmembers = [\"a\"]\n");
@@ -259,7 +259,7 @@ mod tests {
     /// A package the nested workspace itself excludes is a standalone root.
     #[test]
     fn a_package_a_nested_workspace_excludes_is_a_workspace() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let root = dir.path();
         write(root, "Cargo.toml", "[workspace]\nexclude = [\"tools\"]\n");
         write(root, "tools/Cargo.toml", "[workspace]\nmembers = [\"a\"]\nexclude = [\"b\"]\n");
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn skips_build_output_vendored_ignored_and_broken_manifests() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let root = dir.path();
         let ws = "[workspace]\nmembers = [\".\"]\n";
         write(root, "Cargo.toml", "[package]\nname = \"r\"\n");
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn root_without_a_manifest_still_finds_declared_workspaces() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         write(dir.path(), "fuzz/Cargo.toml", "[workspace]\n");
         assert_eq!(dirs(&nested_workspaces(dir.path())), ["fuzz: own [workspace]"]);
     }
