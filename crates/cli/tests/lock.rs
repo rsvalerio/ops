@@ -255,9 +255,11 @@ fn openpty() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
         libc::openpty(
             &raw mut master,
             &raw mut slave,
+            // `null_mut` for `termp`/`winp`: macOS declares them `*mut`,
+            // Linux `*const`, and `*mut` coerces to `*const`.
             std::ptr::null_mut(),
-            std::ptr::null(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
         )
     };
     assert_eq!(rc, 0, "openpty: {}", std::io::Error::last_os_error());
@@ -271,12 +273,18 @@ fn openpty() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
 #[expect(unsafe_code, reason = "setsid/ioctl in pre_exec to take the pty as controlling tty")]
 fn as_terminal_session(cmd: &mut Command) {
     use std::os::unix::process::CommandExt as _;
+    // macOS types `TIOCSCTTY` as `c_uint` while `ioctl` takes a `c_ulong`
+    // request; on Linux the two already match.
+    #[cfg(target_vendor = "apple")]
+    let request = libc::c_ulong::from(libc::TIOCSCTTY);
+    #[cfg(not(target_vendor = "apple"))]
+    let request = libc::TIOCSCTTY;
     // SAFETY: the closure runs in the forked child before exec and calls
     // only async-signal-safe functions (`setsid`, `ioctl`) on plain
     // integers; stdin is already the pty slave by then.
     unsafe {
-        cmd.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
+        cmd.pre_exec(move || {
+            if libc::setsid() < 0 || libc::ioctl(0, request, 0) < 0 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
