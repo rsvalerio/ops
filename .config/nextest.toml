@@ -17,6 +17,10 @@
 # when its output pipes have not reached EOF this long after it reports a
 # result. The 100ms default flags exits that merely lost the race for a core.
 leak-timeout = "2s"
+# A hung test is flagged SLOW every 30s and killed (TIMEOUT) after 2 min
+# instead of stalling the run forever with no name attached. The whole
+# suite takes ~15s, so no healthy test comes near this.
+slow-timeout = { period = "30s", terminate-after = 4 }
 
 [profile.default.junit]
 # Relative paths resolve against target/nextest/<profile>/ — this produces
