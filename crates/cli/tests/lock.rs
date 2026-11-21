@@ -341,6 +341,15 @@ while [ ! -e "$4" ]; do :; done"#;
     wait_until("the locked command to start", || ready.exists());
 
     let mut tty = std::fs::File::from(master);
+    // Drain the master like a terminal emulator would. On macOS a session
+    // leader's exit blocks until its tty's output queue (here the `^C` echo)
+    // is read, so an unread master parks `ops` in exit and `holder.wait()`
+    // never returns. Linux discards the queue instead. The reader ends with
+    // EIO/EOF once the last slave closes.
+    let mut drain = tty.try_clone().expect("dup master");
+    let drainer = std::thread::spawn(move || {
+        let _ = std::io::copy(&mut drain, &mut std::io::sink());
+    });
     tty.write_all(&[0x03]).expect("type Ctrl-C");
     wait_until("the SIGINT to arrive", || read_count(&ints) > 0);
     // Leave room for a forwarded duplicate to land before counting.
@@ -351,6 +360,7 @@ while [ ! -e "$4" ]; do :; done"#;
     wait_until("the forwarded SIGTERM to arrive", || read_count(&terms) > 0);
     std::fs::write(&stop, "").expect("stop");
     holder.wait().expect("holder exit");
+    drainer.join().expect("drain master");
     assert_eq!(read_count(&terms), 1, "SIGTERM to ops is forwarded once");
     assert_eq!(read_count(&ints), 1, "no SIGINT arrives late");
 }
