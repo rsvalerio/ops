@@ -22,8 +22,9 @@ use crate::{atomic, binary, discovery, eof, trailing};
 ///
 /// If the candidate file set cannot be discovered (including a failing
 /// `git ls-files` under [`Scope::Tracked`](discovery::Scope::Tracked)), or if the writer fails.
-/// Per-file read and write failures are recorded in the report, not returned;
-/// see [`run_fixer`].
+/// Per-file read and write failures are not returned: each is recorded in
+/// [`FixerReport::files_failed`] and the run continues, and
+/// [`FixerReport::failed`] tells the caller whether any occurred.
 pub fn run_trailing_whitespace(
     opts: &FixerOptions,
     writer: &mut dyn Write,
@@ -40,8 +41,9 @@ pub fn run_trailing_whitespace(
 ///
 /// If the candidate file set cannot be discovered (including a failing
 /// `git ls-files` under [`Scope::Tracked`](discovery::Scope::Tracked)), or if the writer fails.
-/// Per-file read and write failures are recorded in the report, not returned;
-/// see [`run_fixer`].
+/// Per-file read and write failures are not returned: each is recorded in
+/// [`FixerReport::files_failed`] and the run continues, and
+/// [`FixerReport::failed`] tells the caller whether any occurred.
 pub fn run_end_of_file_fixer(
     opts: &FixerOptions,
     writer: &mut dyn Write,
