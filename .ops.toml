@@ -33,70 +33,31 @@ category = "Code Quality"
 # `[workspace.lints]` because most crates were never held to it, and Cargo
 # rejects a member `[lints]` table that both inherits the workspace and adds
 # a lint, so a crate cannot opt in from its manifest. Each crate listed here
-# is instead documented by `cargo rustdoc` with `-D missing_docs` applied to
-# that crate alone (dependencies are untouched), reusing the `doc` gate's
-# build. To opt a crate in, add a `missing-docs-<crate>` leaf and list it in
-# `missing-docs`. See docs/clippy.md, "missing_docs is opt-in per crate".
-[commands.missing-docs-text-fixers]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-text-fixers", "--lib", "--all-features", "--", "-D", "missing_docs"]
-help = "Fail on undocumented public items in ops-text-fixers"
-category = "Code Quality"
-
-[commands.missing-docs-config-checkers]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-config-checkers", "--lib", "--all-features", "--", "-D", "missing_docs"]
-help = "Fail on undocumented public items in ops-config-checkers"
-category = "Code Quality"
-
+# is instead documented by one `cargo doc --no-deps` run with
+# `RUSTDOCFLAGS="-D missing_docs"`, which reaches only the `-p` crates
+# (`--no-deps` never runs rustdoc on dependencies), reusing the `doc` gate's
+# build. A doc-complete crate is also held to the public-only check below
+# (`-D warnings`), so it is listed here and not in `public-docs`. To opt a
+# crate in, add a `-p` pair here (and drop it from `public-docs`).
+# See docs/clippy.md, "missing_docs is opt-in per crate".
 [commands.missing-docs]
-commands = ["missing-docs-text-fixers", "missing-docs-config-checkers"]
-parallel = true
-fail_fast = true
-help = "Fail on undocumented public items in the crates that opted in to missing_docs"
+program = "cargo"
+args = ["doc", "--no-deps", "--lib", "--all-features", "-p", "ops-text-fixers", "-p", "ops-config-checkers"]
+env = { RUSTDOCFLAGS = "-D warnings -D missing_docs" }
+help = "Fail on undocumented public items or private intra-doc links in the crates that opted in to missing_docs"
 category = "Code Quality"
 
 # Public-only rustdoc for crates whose private intra-doc links were cleared
 # (public docs linking private items render dead links in published docs).
 # The `doc` gate documents the workspace with `--document-private-items`, so
-# it can never see the regression; these leaves build each crate without it,
-# and `-D warnings` turns `rustdoc::private_intra_doc_links` (warn by default)
-# into a failure. To cover another crate, add a `public-docs-<crate>` leaf and
-# list it in `public-docs`.
-[commands.public-docs-about]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-about", "--lib", "--all-features", "--", "-D", "warnings"]
-help = "Build public-only docs for ops-about; private intra-doc links fail"
-category = "Code Quality"
-
-[commands.public-docs-extension]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-extension", "--lib", "--all-features", "--", "-D", "warnings"]
-help = "Build public-only docs for ops-extension; private intra-doc links fail"
-category = "Code Quality"
-
-[commands.public-docs-rust-foundation]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-rust-foundation", "--lib", "--all-features", "--", "-D", "warnings"]
-help = "Build public-only docs for ops-rust-foundation; private intra-doc links fail"
-category = "Code Quality"
-
-[commands.public-docs-text-fixers]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-text-fixers", "--lib", "--all-features", "--", "-D", "warnings"]
-help = "Build public-only docs for ops-text-fixers; private intra-doc links fail"
-category = "Code Quality"
-
-[commands.public-docs-config-checkers]
-program = "cargo"
-args = ["rustdoc", "-p", "ops-config-checkers", "--lib", "--all-features", "--", "-D", "warnings"]
-help = "Build public-only docs for ops-config-checkers; private intra-doc links fail"
-category = "Code Quality"
-
+# it can never see the regression; this run builds the crates without it, and
+# `-D warnings` turns `rustdoc::private_intra_doc_links` (warn by default) into
+# a failure. The `missing-docs` crates get the same check there. To cover
+# another crate, add a `-p` pair.
 [commands.public-docs]
-commands = ["public-docs-about", "public-docs-extension", "public-docs-rust-foundation", "public-docs-text-fixers", "public-docs-config-checkers"]
-parallel = true
-fail_fast = true
+program = "cargo"
+args = ["doc", "--no-deps", "--lib", "--all-features", "-p", "ops-about", "-p", "ops-extension", "-p", "ops-rust-foundation"]
+env = { RUSTDOCFLAGS = "-D warnings" }
 help = "Build public-only docs for the crates whose private intra-doc links were cleared"
 category = "Code Quality"
 
