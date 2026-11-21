@@ -59,6 +59,9 @@
 //! - [`CwdGuard`] / [`CWD_MUTEX`] — the workspace's one
 //!   working-directory guard. It serialises on the mutex itself, so a caller
 //!   that forgets `#[serial]` still cannot race another CWD-dependent test.
+//! - [`canonical_tempdir`] — a tempdir whose path carries no symlinked
+//!   prefix (macOS `/var` → `/private/var`), for fixtures that reach the
+//!   symlink-refusing readers.
 //!
 //! ## Tracing capture (public-under-feature)
 //!
@@ -101,6 +104,26 @@
 #[must_use = "canonicalizing without using the resolved root wastes the syscall"]
 pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
     dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf())
+}
+
+/// A fresh tempdir whose `path()` is already canonical: it is created under
+/// the resolved system temp dir, so on macOS it starts `/private/var/…`, not
+/// the symlinked `/var/…`.
+///
+/// Prefer this over `tempfile::tempdir()` for any fixture whose path reaches
+/// the config readers, `read_capped_*`, or anything else built on
+/// `text::open_refusing_symlinks` — it fixes the root once, so `dir.path()`
+/// can be used everywhere without a separate `canonical_root` step (that
+/// helper is `#[cfg(test)]`-only, so it cannot be an intra-doc link). Linux
+/// CI's `/tmp` is not a symlink, so a raw `tempdir()` there passes and the
+/// mistake only shows on a Mac.
+///
+/// # Errors
+///
+/// If the system temp dir cannot be resolved or the tempdir created.
+#[cfg(any(test, feature = "test-support"))]
+pub fn canonical_tempdir() -> std::io::Result<tempfile::TempDir> {
+    tempfile::tempdir_in(std::env::temp_dir().canonicalize()?)
 }
 
 use indexmap::IndexMap;
