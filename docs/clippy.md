@@ -55,13 +55,16 @@ either — Cargo rejects a member `[lints]` table that sets `workspace = true`
 and adds a lint — and a crate-root `#![warn(missing_docs)]` would move policy
 out of the files listed above.
 
-So doc-complete crates opt in through `.ops.toml` instead. Each has a
-`missing-docs-<crate>` command running
-`cargo rustdoc -p <crate> --lib --all-features -- -D missing_docs`, which
-applies the lint to that crate alone, and `ops verify` runs them all through
-the `missing-docs` composite. Currently opted in: `ops-text-fixers` and
-`ops-config-checkers`. Once a crate builds clean under the lint, add its
-command and list it in `missing-docs`.
+So doc-complete crates opt in through `.ops.toml` instead. The `missing-docs`
+command runs one
+`cargo doc --no-deps --lib --all-features -p <crate> -p <crate> ...` with
+`RUSTDOCFLAGS="-D warnings -D missing_docs"`. `--no-deps` keeps rustdoc off
+dependencies, so the lint reaches only the listed crates. `-D warnings` also
+holds them to the public-only intra-doc check that `public-docs` runs for the
+other crates. `ops verify` runs it. Currently opted in: `ops-text-fixers` and
+`ops-config-checkers`. Once a crate builds clean under the lint, add a `-p`
+pair for it to `missing-docs`, and drop it from `public-docs` if it is listed
+there.
 
 ## The three layers
 
