@@ -56,17 +56,50 @@ fail_fast = true
 help = "Fail on undocumented public items in the crates that opted in to missing_docs"
 category = "Code Quality"
 
-# The rust stack's default `verify` with `doc-ids` and `missing-docs`
-# appended. The `doc-ids` scan is read-only and finishes in milliseconds, so it
-# overlaps the parallel checks without slowing the gate, and the repo that
-# ships the check is held to it. `missing-docs` re-documents only the opted-in
-# crates on top of the `doc` gate's build.
+# Public-only rustdoc for crates whose private intra-doc links were cleared
+# (public docs linking private items render dead links in published docs).
+# The `doc` gate documents the workspace with `--document-private-items`, so
+# it can never see the regression; these leaves build each crate without it,
+# and `-D warnings` turns `rustdoc::private_intra_doc_links` (warn by default)
+# into a failure. To cover another crate, add a `public-docs-<crate>` leaf and
+# list it in `public-docs`.
+[commands.public-docs-about]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-about", "--lib", "--all-features", "--", "-D", "warnings"]
+help = "Build public-only docs for ops-about; private intra-doc links fail"
+category = "Code Quality"
+
+[commands.public-docs-extension]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-extension", "--lib", "--all-features", "--", "-D", "warnings"]
+help = "Build public-only docs for ops-extension; private intra-doc links fail"
+category = "Code Quality"
+
+[commands.public-docs-rust-foundation]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-rust-foundation", "--lib", "--all-features", "--", "-D", "warnings"]
+help = "Build public-only docs for ops-rust-foundation; private intra-doc links fail"
+category = "Code Quality"
+
+[commands.public-docs]
+commands = ["public-docs-about", "public-docs-extension", "public-docs-rust-foundation"]
+parallel = true
+fail_fast = true
+help = "Build public-only docs for the crates whose private intra-doc links were cleared"
+category = "Code Quality"
+
+# The rust stack's default `verify` with `doc-ids`, `missing-docs` and
+# `public-docs` appended. The `doc-ids` scan is read-only and finishes in
+# milliseconds, so it overlaps the parallel checks without slowing the gate,
+# and the repo that ships the check is held to it. `missing-docs` re-documents
+# only the opted-in crates and `public-docs` only the cleared crates, each on
+# top of the `doc` gate's build.
 [commands.verify]
-commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc", "doc-ids", "missing-docs"]
+commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc", "doc-ids", "missing-docs", "public-docs"]
 aliases = ["verify-check"]
 parallel = true
 fail_fast = true
-help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc, doc-ids, missing-docs in parallel; fixes nothing in place"
+help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc, doc-ids, missing-docs, public-docs in parallel; fixes nothing in place"
 category = "Code Quality"
 
 # TASK-2343: `lint-actions` (the workflow SHA-pin / `secrets: inherit` policy,

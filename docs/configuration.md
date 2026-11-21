@@ -425,15 +425,30 @@ mode. `--tap` and `--junit` beside it are ignored with a warning, and
 flag. A group can set `raw = true` itself to promote anything that names it.
 No effect under `--dry-run`, which never executes children.
 
-A raw command's `timeout_secs` stops only the process `ops` started, not
-what it launched: a raw `sh -c "cargo build"` that times out has its shell
-killed while `cargo` and `rustc` keep running on the terminal (and holding
-the cargo lock) after `ops` reports the step failed. Captured commands do
-not leak this way, because each runs in its own process group that a
-timeout tears down whole; a raw command cannot, because it has to share the
-terminal's foreground group for Ctrl-C to reach it. Prefer a captured
-command where a timeout matters, or make the raw command `exec` into its
-final program so there is no tree left behind.
+On Unix, a raw command runs as its own process-group leader, so its
+`timeout_secs` tears down the whole tree it launched, not just the shell
+`ops` started: a raw `sh -c "cargo build"` that times out takes `cargo` and
+its `rustc`s with it, the same guarantee captured commands have. For the
+duration of the step the command also holds the terminal's foreground
+process group, so Ctrl-C still interrupts the step and cancels the run, and
+Ctrl-Z stops the step together with `ops` (resume the job with `fg` and the
+step continues where it stopped; after a `bg`, a step that reads the
+terminal stops the job again until you `fg` it).
+
+Two situations keep the old timeout behaviour, where a timeout kills only
+the process `ops` started and leaves anything it launched running:
+
+- **Non-Unix platforms**, which have no process groups.
+- **`ops` running as a background job** (`ops … &`). The terminal's
+  foreground is not the runner's to hand over, so a raw child stays in the
+  runner's group. Prefer a captured command there, or make the raw command
+  `exec` into its final program so the process `ops` started is the one
+  that matters.
+
+Separately from timeouts, a raw command that catches `SIGINT` and keeps
+running (an interactive REPL) now swallows Ctrl-C entirely: the runner no
+longer shares the group the signal lands on, so the run is not cancelled.
+Cancel it by killing the `ops` process instead.
 
 ## Running one command over a matrix
 

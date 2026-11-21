@@ -1,13 +1,15 @@
 ---
 id: TASK-2896
 title: 'API-14: no verify gate builds public-only rustdoc, so private intra-doc links can regress'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-20 18:24'
+updated_date: '2026-11-20 21:30'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2897'
 modified_files:
   - .ops.toml
 priority: low
@@ -28,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops verify fails when a public doc in ops-about, ops-extension or ops-rust-foundation links a private item
+- [x] #1 ops verify fails when a public doc in ops-about, ops-extension or ops-rust-foundation links a private item
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added public-docs-{about,extension,rust-foundation} leaves to .ops.toml (cargo rustdoc -p <crate> --lib --all-features -- -D warnings, no --document-private-items) aggregated by public-docs, appended to verify. Verified the gate fails when a public doc links a private item (temp probe on ops-extension, reverted) and passes clean for all three crates; ops verify 14/14.
+<!-- SECTION:NOTES:END -->

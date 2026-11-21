@@ -1,15 +1,15 @@
 ---
 id: TASK-2866
 title: 'runner: raw-mode timeout should tear down the step''s process tree via a foreground process-group hand-off'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-18 21:22'
-updated_date: '2026-11-19 08:07'
+updated_date: '2026-11-20 22:05'
 labels:
   - code-review-rust
   - PATTERN
 dependencies: []
-parent_task_id: 'TASK-2880'
+parent_task_id: 'TASK-2898'
 modified_files:
   - crates/runner/src/command/exec.rs
   - crates/runner/src/command/process_group.rs
@@ -32,9 +32,10 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A raw step that times out leaves no descendants running (unix test with 'sh -c "sleep 30 & wait"')
-- [ ] #2 A Ctrl-C at the terminal during a raw step still cancels the run as it does today
-- [ ] #3 The documented limitation in exec_command_raw and docs/configuration.md is removed
+- [x] #1 A raw step that times out leaves no descendants running (unix test with 'sh -c "sleep 30 & wait"')
+- [x] #2 A Ctrl-C at the terminal during a raw step still cancels the run as it does today
+- [x] #3 The documented limitation in exec_command_raw and docs/configuration.md is removed
+
 <!-- AC:END -->
 
 ## Implementation Notes
