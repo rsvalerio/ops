@@ -81,8 +81,20 @@ args = ["rustdoc", "-p", "ops-rust-foundation", "--lib", "--all-features", "--",
 help = "Build public-only docs for ops-rust-foundation; private intra-doc links fail"
 category = "Code Quality"
 
+[commands.public-docs-text-fixers]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-text-fixers", "--lib", "--all-features", "--", "-D", "warnings"]
+help = "Build public-only docs for ops-text-fixers; private intra-doc links fail"
+category = "Code Quality"
+
+[commands.public-docs-config-checkers]
+program = "cargo"
+args = ["rustdoc", "-p", "ops-config-checkers", "--lib", "--all-features", "--", "-D", "warnings"]
+help = "Build public-only docs for ops-config-checkers; private intra-doc links fail"
+category = "Code Quality"
+
 [commands.public-docs]
-commands = ["public-docs-about", "public-docs-extension", "public-docs-rust-foundation"]
+commands = ["public-docs-about", "public-docs-extension", "public-docs-rust-foundation", "public-docs-text-fixers", "public-docs-config-checkers"]
 parallel = true
 fail_fast = true
 help = "Build public-only docs for the crates whose private intra-doc links were cleared"

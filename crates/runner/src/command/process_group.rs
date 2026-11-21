@@ -21,8 +21,9 @@
 //! choreography a group of their own requires: a raw child must hold the
 //! terminal's *foreground* process group for Ctrl-C / Ctrl-Z to reach it, so
 //! the runner hands the foreground to the child for the duration of the step
-//! (`tcsetpgrp`, with `SIGTTOU` neutralised), relays a Ctrl-C that killed the
-//! child back onto itself so the run still cancels, implements just enough
+//! (`tcsetpgrp`, with `SIGTTOU` neutralised), relays a Ctrl-C or a closed
+//! terminal that killed the child back onto itself so the run still ends
+//! the way it would have, implements just enough
 //! job control to stop with a stopped child and continue it after the
 //! shell's `fg` or `bg`, and takes the terminal back on every exit path —
 //! a timeout's teardown included, synchronously. When the runner itself is
@@ -236,10 +237,11 @@ pub use raw_foreground::spawn_raw_group_and_wait;
 ///   hand-off". The child claims the terminal itself between fork and exec
 ///   and the parent repeats the claim after the spawn, the way job-control
 ///   shells do, so the step's program never runs a single instruction
-///   without the terminal. A Ctrl-C then reaches only the child's group, so
-///   after a child that died of `SIGINT` the wait re-raises `SIGINT` on the
-///   runner itself, driving the same run-level cancellation the
-///   shared-group design got for free. Whenever the child's group stops —
+///   without the terminal. A Ctrl-C, or the hangup of a terminal that
+///   closed, then reaches only the child's group, so after a child that
+///   died of `SIGINT` or `SIGHUP` the wait re-raises that signal on the
+///   runner itself, ending the run the way the shared-group design did for
+///   free. Whenever the child's group stops —
 ///   a Ctrl-Z, or a terminal read after the user `bg`'d the run — the
 ///   runner stops with it the way a job-control job does, so the user's
 ///   shell sees the whole run stopped, and on resume the child is continued,
@@ -713,7 +715,7 @@ mod raw_foreground {
     /// The blocking side of [`spawn_raw_group_and_wait`]: classify the
     /// terminal, spawn under the process-wide spawn lock, hand the
     /// foreground over, wait with job control, take the terminal back, and
-    /// relay a Ctrl-C that killed the child.
+    /// relay a Ctrl-C or a closed terminal that killed the child.
     #[expect(unsafe_code, reason = "libc FFI for the terminal hand-off; see the SAFETY comments")]
     fn spawn_and_wait_blocking(
         shared: &RawShared,
@@ -808,22 +810,38 @@ mod raw_foreground {
             state.cancelled
         };
         let status = waited?;
-        // The Ctrl-C relay. While the child held the foreground, a terminal
-        // Ctrl-C reached only its group; without this re-raise the runner's
-        // cancellation path would never learn about it and the run would
-        // continue. Re-raising on ourselves reaches exactly the handler the
-        // shared-group design used to hit directly (the run-level signal
-        // race, or the kernel default when no handler is installed).
-        if !cancelled
-            && matches!(handoff, TerminalHandoff::Foreground(_))
-            && status.signal() == Some(libc::SIGINT)
-        {
-            // SAFETY: kill(2) to ourselves; the signal is SIGINT and the
-            // disposition is whatever the process already runs with.
-            unsafe { libc::kill(libc::getpid(), libc::SIGINT) };
+        // The terminal-signal relay. While the child held the foreground,
+        // the signals the terminal sends its foreground group reached only
+        // the child's group: a Ctrl-C's SIGINT, and the SIGHUP of a terminal
+        // that closed. Without this re-raise the runner would never learn of
+        // either: the run would carry on past a Ctrl-C, and survive a closed
+        // terminal headless. Re-raising on ourselves reaches exactly the
+        // handler the shared-group design used to hit directly (the
+        // run-level SIGINT race, or the kernel default, which for SIGHUP
+        // ends the run as the terminal closing always did).
+        //
+        // A step that catches the signal and exits normally is not relayed:
+        // it decided the signal's meaning itself, as it would have under the
+        // shared group. The cost of relaying by exit cause is that a
+        // `kill -INT` / `kill -HUP` aimed at the step's own pid ends the run
+        // too.
+        if let Some(signal) = status.signal().filter(|signal| RELAYED_SIGNALS.contains(signal)) {
+            if !cancelled && matches!(handoff, TerminalHandoff::Foreground(_)) {
+                // SAFETY: kill(2) to ourselves; the signal is one of
+                // RELAYED_SIGNALS and the disposition is whatever the
+                // process already runs with.
+                unsafe { libc::kill(libc::getpid(), signal) };
+            }
         }
         Ok(status)
     }
+
+    /// The signals the terminal delivers to its foreground group that must
+    /// still reach the runner while a raw step holds the foreground: Ctrl-C
+    /// (`SIGINT`) and a closed terminal (`SIGHUP`). Ctrl-Z is handled by
+    /// the job-control stop instead, and the `SIGCONT` that accompanies a
+    /// closed terminal's `SIGHUP` needs no relay.
+    const RELAYED_SIGNALS: [libc::c_int; 2] = [libc::SIGINT, libc::SIGHUP];
 
     /// Spawn a raw step's `cmd` and wait for it, owning the child's whole
     /// process group.
@@ -842,7 +860,7 @@ mod raw_foreground {
     ///
     /// Returns the spawn error when the child cannot be spawned, or the
     /// `waitpid` error when the wait itself fails. A step killed by a signal
-    /// (including a Ctrl-C relayed from the terminal) is *not* an error
+    /// (including a relayed Ctrl-C or terminal hangup) is *not* an error
     /// here; it is reported through the returned `ExitStatus`.
     pub async fn spawn_raw_group_and_wait(
         cmd: &mut tokio::process::Command,

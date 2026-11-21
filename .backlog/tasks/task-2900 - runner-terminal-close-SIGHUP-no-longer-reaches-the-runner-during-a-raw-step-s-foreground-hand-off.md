@@ -1,13 +1,15 @@
 ---
 id: TASK-2900
 title: 'runner: terminal close (SIGHUP) no longer reaches the runner during a raw step''s foreground hand-off'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-11-20 22:05'
+updated_date: '2026-11-21 07:38'
 labels:
   - code-review-rust
   - CONC
 dependencies: []
+parent_task_id: 'TASK-2902'
 modified_files:
   - crates/runner/src/command/process_group.rs
 priority: low
@@ -28,5 +30,15 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded (relay SIGHUP or document surviving) and implemented or noted in docs/configuration.md
+- [x] #1 A decision is recorded (relay SIGHUP or document surviving) and implemented or noted in docs/configuration.md
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision (user, 2026-11-21): relay SIGHUP onto the runner like SIGINT.
+
+Fixed in 8a19921d: the raw-step relay now re-raises SIGHUP as well as SIGINT on the runner when the foreground step died of it, so closing the terminal ends the run as it did before the hand-off. Recorded in docs/configuration.md, including the trade-off (kill -INT/-HUP aimed at the step also ends the run) and that a step catching SIGHUP keeps the run alive. New pty test terminal_hangup_on_the_pty_still_ends_the_run fails on the old code (runner exits 0). Pre-merge and integration ops verify 16/16; nextest ops-runner 309/309.
+
+<!-- SECTION:NOTES:END -->

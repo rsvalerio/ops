@@ -94,7 +94,7 @@ fn scan_line(input: &[u8], start: usize) -> LineSpan {
 
 /// Strip trailing spaces and tabs: scan first, allocate second.
 ///
-/// The check pass walks the lines via [`scan_line`] and returns `None`
+/// The check pass scans the input line by line and returns `None`
 /// without allocating or copying anything when the input is already clean —
 /// which is every file on a passing run, since the fixers walk the whole
 /// repository and the steady state after the first fix is that nothing

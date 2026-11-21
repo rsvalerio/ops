@@ -445,10 +445,17 @@ the process `ops` started and leaves anything it launched running:
   `exec` into its final program so the process `ops` started is the one
   that matters.
 
+Closing the terminal during a raw step ends the run, as it always did: the
+terminal's hangup (`SIGHUP`) lands on the step, and when the step dies of it
+`ops` re-raises it on itself, the same way it relays a Ctrl-C. Because the
+relay follows how the step died, a `kill -INT` or `kill -HUP` sent to the
+step's own process also ends the run.
+
 Separately from timeouts, a raw command that catches `SIGINT` and keeps
 running (an interactive REPL) now swallows Ctrl-C entirely: the runner no
 longer shares the group the signal lands on, so the run is not cancelled.
-Cancel it by killing the `ops` process instead.
+Cancel it by killing the `ops` process instead. The same holds for a raw
+command that catches `SIGHUP` and keeps running when the terminal closes.
 
 ## Running one command over a matrix
 
