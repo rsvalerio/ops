@@ -1,10 +1,10 @@
 ---
 id: TASK-2880
 title: 'code-review-plan-wave28'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-11-19 07:57'
-updated_date: '2026-11-20 21:25'
+updated_date: '2026-11-21 16:11'
 labels:
   - code-review-wave
 dependencies:
@@ -51,5 +51,7 @@ Parked: Code landed on code-review/run-20261119 at 7ffba272 (integration ops ver
 Resume from branch code-review/TASK-2880, worktree /home/rsvalerio/projects/.wave-TASK-2880
 
 Re-triaged 2026-11-20: TASK-2866 moved out to wave 39 (TASK-2898) per its park note. This wave now blocks only on TASK-2867 (AC#2, macOS run); its code already landed in PR #160.
+
+Closed 2026-11-21: the last open member, TASK-2867, is Done (AC#2 confirmed on macOS). Code landed earlier in PR #160. No branch or worktree for this wave exists on the macOS checkout.
 
 <!-- SECTION:NOTES:END -->
