@@ -4,7 +4,7 @@ const WORKSPACE: &str =
     "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nrust-version = \"1.85\"\n";
 
 fn workspace() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     std::fs::write(dir.path().join("Cargo.toml"), WORKSPACE).expect("root manifest");
     for name in ["a", "b"] {
         let member = dir.path().join("crates").join(name);
@@ -227,7 +227,7 @@ fn a_dotted_workspace_dir_is_one_segment() {
 
 #[test]
 fn single_package_gets_lints_directly() {
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join("Cargo.toml"),
         "[package]\nname = \"solo\"\nversion = \"0.1.0\"\nrust-version = \"1.80\"\n",
@@ -267,7 +267,7 @@ fn a_root_package_that_lists_itself_is_one_member() {
 
 #[test]
 fn missing_manifest_is_an_error() {
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     let err = scaffold(dir.path(), false).expect_err("no Cargo.toml");
     assert!(format!("{err:#}").contains("Cargo.toml"));
 }
@@ -276,7 +276,7 @@ fn missing_manifest_is_an_error() {
 #[test]
 fn a_symlinked_config_dir_is_refused() {
     let dir = workspace();
-    let outside = tempfile::tempdir().expect("outside");
+    let outside = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     std::os::unix::fs::symlink(outside.path(), dir.path().join(".config")).expect("symlink");
     let err = scaffold(dir.path(), false).expect_err("symlinked .config");
     assert!(format!("{err:#}").contains("symlink"));
@@ -287,7 +287,7 @@ fn a_symlinked_config_dir_is_refused() {
 #[test]
 fn a_member_dir_symlinked_out_of_the_repo_is_left_alone() {
     let dir = workspace();
-    let outside = tempfile::tempdir().expect("outside");
+    let outside = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     let manifest = "[package]\nname = \"elsewhere\"\nversion = \"0.1.0\"\n";
     std::fs::write(outside.path().join("Cargo.toml"), manifest).expect("outside manifest");
     std::os::unix::fs::symlink(outside.path(), dir.path().join("crates").join("x"))
@@ -303,7 +303,7 @@ fn a_member_dir_symlinked_out_of_the_repo_is_left_alone() {
 #[test]
 fn a_member_manifest_symlinked_out_of_the_repo_is_refused() {
     let dir = workspace();
-    let outside = tempfile::tempdir().expect("outside");
+    let outside = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     let manifest = "[package]\nname = \"elsewhere\"\nversion = \"0.1.0\"\n";
     let target = outside.path().join("Cargo.toml");
     std::fs::write(&target, manifest).expect("outside manifest");
@@ -576,7 +576,7 @@ fn an_unreadable_foundation_file_is_an_error_naming_the_file() {
 
 #[test]
 fn force_replaces_the_lint_table_of_a_single_package() {
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join("Cargo.toml"),
         "[package]\nname = \"solo\"\nversion = \"0.1.0\"\n",

@@ -69,7 +69,7 @@ mod tests {
     use super::*;
 
     fn project(ops_toml: &str, mise: Option<&str>) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".ops.toml"), ops_toml).expect("write");
         if let Some(mise) = mise {
             std::fs::write(dir.path().join("mise.toml"), mise).expect("write");

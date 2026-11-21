@@ -122,7 +122,7 @@ mod tests {
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_simple_package() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             r#"
@@ -163,7 +163,7 @@ authors = ["Alice <alice@example.com>"]
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_manifest_repository_wins_over_git() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             r#"
@@ -193,7 +193,7 @@ repository = "https://example.com/manifest-wins"
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_git_fills_repository_when_manifest_missing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n",
@@ -220,7 +220,7 @@ repository = "https://example.com/manifest-wins"
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_workspace() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("crates/core")).unwrap();
         std::fs::write(
             dir.path().join("crates/core/Cargo.toml"),
@@ -265,7 +265,7 @@ members = ["crates/core", "crates/cli"]
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_project_root_is_the_workspace_root_when_run_from_a_member() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let member = dir.path().join("crates/core");
         std::fs::create_dir_all(&member).unwrap();
         std::fs::write(
@@ -295,7 +295,7 @@ members = ["crates/core", "crates/cli"]
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_workspace_with_globs() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("crates/alpha")).unwrap();
         std::fs::write(
             dir.path().join("crates/alpha/Cargo.toml"),
@@ -337,7 +337,7 @@ members = ["crates/*"]
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_workspace_exclude() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         for name in ["foo", "bar", "experimental"] {
             std::fs::create_dir_all(dir.path().join(format!("crates/{name}"))).unwrap();
             std::fs::write(
@@ -363,7 +363,7 @@ members = ["crates/*"]
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_virtual_workspace() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("crates/lib")).unwrap();
         std::fs::write(
             dir.path().join("crates/lib/Cargo.toml"),
@@ -410,7 +410,7 @@ rust-version = "1.80"
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_minimal_package_has_no_enrichment() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             r#"
@@ -442,7 +442,7 @@ edition = "2021"
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_no_cargo_toml_fails() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         let provider = RustIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         assert!(provider.provide(&mut ctx).is_err());
@@ -451,7 +451,7 @@ edition = "2021"
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_minimal_package_has_empty_optional_fields() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             r#"
@@ -477,7 +477,7 @@ version = "0.1.0"
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_provide_workspace_authors_fallback() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join("crates/lib")).unwrap();
         std::fs::write(
             dir.path().join("crates/lib/Cargo.toml"),
@@ -510,7 +510,7 @@ authors = ["Alice", "Bob"]
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn identity_stack_label_is_always_rust() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",

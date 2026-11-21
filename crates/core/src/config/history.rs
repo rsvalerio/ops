@@ -487,7 +487,7 @@ mod tests {
     }
 
     fn project(ops_toml: &str) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = crate::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".ops.toml"), ops_toml).expect("write");
         dir
     }
@@ -675,7 +675,7 @@ mod tests {
 
     #[test]
     fn no_config_uses_no_fields_and_a_broken_one_is_an_error() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = crate::test_utils::canonical_tempdir().expect("tempdir");
         assert!(fields_used(dir.path()).expect("fields").is_empty());
         let broken = project("not = = toml");
         assert!(fields_used(broken.path()).is_err());
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn mise_pin_reads_a_string_or_a_table_and_absence_is_none() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = crate::test_utils::canonical_tempdir().expect("tempdir");
         let mise = dir.path().join("mise.toml");
         assert_eq!(mise_ops_pin(dir.path()).expect("no file"), None);
         std::fs::write(&mise, "[tools]\nrust = \"1.0.0\"\n").expect("write");
@@ -710,7 +710,7 @@ mod tests {
 
     #[test]
     fn every_committed_mise_location_is_read_in_mise_s_order() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = crate::test_utils::canonical_tempdir().expect("tempdir");
         write_mise(dir.path(), ".config/mise.toml", "[tools]\nops = \"0.85.0\"\n");
         let pin = mise_ops_pin(dir.path()).expect("check").expect("pin");
         assert_eq!((pin.version, pin.file), (version("0.85.0"), ".config/mise.toml"));
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn a_pin_naming_no_release_is_an_error_naming_its_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = crate::test_utils::canonical_tempdir().expect("tempdir");
         write_mise(dir.path(), ".config/mise.toml", "[tools]\nops = \"0.85.0\"\n");
         write_mise(dir.path(), ".mise.toml", "[tools]\nops = \"latest\"\n");
         let err = mise_ops_pin(dir.path()).expect_err("latest names no release");

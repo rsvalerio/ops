@@ -101,7 +101,7 @@ mod tests {
     use super::*;
 
     fn rust_project() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = ops_core::test_utils::canonical_tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[package]\nname = \"p\"\nversion = \"0.1.0\"\n",
