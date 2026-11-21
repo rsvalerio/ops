@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.6](https://github.com/rsvalerio/ops/compare/e16da18ac6d14cbf2ba14ad0d1e955a1e1b5eacc..v0.94.6) - 2026-11-21
+#### 🐛 Bug Fixes
+- (**cli**) build the lock test's pty helpers on macOS - ([6eed649](https://github.com/rsvalerio/ops/commit/6eed64983c1661b802943f928d0e9d449eb2ebbf)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**clippy**) describe the single missing-docs rustdoc run - ([ce623a6](https://github.com/rsvalerio/ops/commit/ce623a667331c355e693978b6247b8eda2b0c547)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- (**verify**) run missing-docs and public-docs as one cargo doc each - ([e16da18](https://github.com/rsvalerio/ops/commit/e16da18ac6d14cbf2ba14ad0d1e955a1e1b5eacc)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.5](https://github.com/rsvalerio/ops/compare/f8e0346a8241b24cac7140221b1bd8c6a574081c..v0.94.5) - 2026-11-21
 #### 🐛 Bug Fixes
 - (**runner**) relay a terminal hangup that killed a raw step so closing the terminal ends the run - ([8a19921](https://github.com/rsvalerio/ops/commit/8a19921d83515dc794e9361c42aedaee694574a7)) - [@rsvalerio](https://github.com/rsvalerio)
