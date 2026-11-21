@@ -230,6 +230,12 @@ mod raw_foreground {
                 let result = run(&script, 120);
                 marker(&format!("STEP-DONE success={}\n", result.success));
             }
+            // A step in the foreground that the terminal's hangup kills:
+            // no `&`, so the sleep shares the step's group and dies with it.
+            "hangup" => {
+                let result = run("echo started; sleep 305", 120);
+                marker(&format!("STEP-DONE success={}\n", result.success));
+            }
             // `ops … &`: another group — standing in for the user's shell
             // running its own foreground job — holds the terminal, so the
             // raw step shares the inner's group. Its 1s timeout must still
@@ -671,6 +677,59 @@ mod raw_foreground {
         assert!(
             read_until(&pty.master, b"STEP-DONE success=true", &mut transcript),
             "the next step must succeed; transcript: {transcript:?}"
+        );
+    }
+
+    /// Closing the terminal must still end the run. A hangup delivers
+    /// `SIGHUP` to the terminal's foreground group, which during a raw step
+    /// is the step's group only; the step dies of it and the runner-side
+    /// relay must re-raise it on the inner process, which — with no handler
+    /// installed — dies of it exactly as the shared-group design did. The
+    /// test sends the hangup's `SIGHUP` to the foreground group the way the
+    /// terminal does, rather than closing the master, because a real hangup
+    /// also signals the session leader (the inner itself) directly and
+    /// could not tell the relay apart from that.
+    #[test]
+    fn terminal_hangup_on_the_pty_still_ends_the_run() {
+        let (pty, _kill, inner, _pid_file, _dir) = spawn_inner("hangup");
+        let mut transcript = Vec::new();
+        assert!(
+            read_until(&pty.master, b"INNER-READY", &mut transcript),
+            "inner never became ready; transcript: {transcript:?}"
+        );
+        assert!(
+            wait_until_foreground_is_not(&pty.master, inner),
+            "the raw step never received the foreground"
+        );
+        assert!(
+            read_until(&pty.master, b"started", &mut transcript),
+            "the step never started; transcript: {transcript:?}"
+        );
+        // SAFETY: tcgetpgrp only inspects the master's terminal.
+        let step_group = unsafe { libc::tcgetpgrp(pty.master.as_raw_fd()) };
+        assert!(step_group > 0 && step_group != inner, "the step must hold the foreground");
+        // SAFETY: killpg to the step group the inner spawned; ESRCH if it
+        // is already gone would fail the assertions below, not memory.
+        unsafe {
+            libc::killpg(step_group, libc::SIGHUP);
+        }
+
+        let mut stops = 0;
+        let status = reap_exited(inner, &mut stops).expect("inner must exit after the hangup");
+        assert_eq!(stops, 0, "the runner must not stop on a hangup");
+        assert!(
+            libc::WIFSIGNALED(status),
+            "the runner must die of the relayed signal, got status {status}"
+        );
+        assert_eq!(
+            libc::WTERMSIG(status),
+            libc::SIGHUP,
+            "the relayed SIGHUP must reach the runner process"
+        );
+        drain_available(&pty.master, &mut transcript);
+        assert!(
+            !subslice(&transcript, b"STEP-DONE"),
+            "the run must not continue after the terminal closed: {transcript:?}"
         );
     }
 }

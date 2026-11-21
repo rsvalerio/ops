@@ -849,8 +849,9 @@ pub async fn exec_command(
 /// exactly like a captured step. Because a group of its own would no longer
 /// receive the terminal's Ctrl-C / Ctrl-Z, the runner hands the terminal's
 /// foreground to the child for the duration of the step, takes it back on
-/// every exit path, re-raises `SIGINT` on itself after a child that died of
-/// one (so a Ctrl-C still cancels the run), and stops with a Ctrl-Z'd child
+/// every exit path, re-raises `SIGINT` or `SIGHUP` on itself after a child
+/// that died of one (so a Ctrl-C still cancels the run and closing the
+/// terminal still ends it), and stops with a Ctrl-Z'd child
 /// until the shell resumes the run — see
 /// [`super::process_group::spawn_raw_group_and_wait`] for the full
 /// choreography. Two situations keep the legacy shared-group behaviour:
