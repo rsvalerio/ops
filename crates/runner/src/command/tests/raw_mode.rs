@@ -221,12 +221,20 @@ mod raw_foreground {
         // attributable to its test in a post-mortem.
         match mode {
             // One raw step: it echoes a start marker, backgrounds a long
-            // sleep (recording its pid for the outer cleanup), and waits.
-            // The timeout is a backstop — nothing under test relies on it.
+            // sleep (recording its pid for the outer cleanup), and then
+            // `exec`s a foreground sleep. The timeout is a backstop —
+            // nothing under test relies on it.
+            //
+            // `exec sleep`, not `wait`: the step must *die of* the SIGINT
+            // for the runner to relay it, and a shell interrupted in `wait`
+            // may instead exit normally — macOS `/bin/sh` (bash 3.2) exits
+            // 129, where dash dies of the signal. A plain `sleep` dies of
+            // it everywhere.
             "ctrlc" | "stop" => {
                 let sleep_secs = if mode == "ctrlc" { 301 } else { 302 };
-                let script =
-                    format!("echo started; sleep {sleep_secs} & echo $! > \"{pid_file}\"; wait");
+                let script = format!(
+                    "echo started; sleep {sleep_secs} & echo $! > \"{pid_file}\"; exec sleep {sleep_secs}"
+                );
                 let result = run(&script, 120);
                 marker(&format!("STEP-DONE success={}\n", result.success));
             }
@@ -476,9 +484,20 @@ mod raw_foreground {
     }
 
     /// Reap the inner process once it exits; counts intervening stops.
-    fn reap_exited(pid: libc::pid_t, stops: &mut u32) -> Option<libc::c_int> {
+    ///
+    /// Drains the master into `transcript` while it waits: on macOS a
+    /// session leader's exit blocks until its tty's output queue (the `^C`
+    /// echo, say) has been read, so an unread master would park the inner
+    /// in exit and the reap would time out. Linux discards the queue.
+    fn reap_exited(
+        pid: libc::pid_t,
+        master: &std::fs::File,
+        transcript: &mut Vec<u8>,
+        stops: &mut u32,
+    ) -> Option<libc::c_int> {
         let started = std::time::Instant::now();
         while started.elapsed() < Duration::from_secs(10) {
+            drain_available(master, transcript);
             let mut raw: libc::c_int = 0;
             // SAFETY: as in wait_until_stopped.
             let reaped =
@@ -539,7 +558,8 @@ mod raw_foreground {
         send_key(&pty.master, 3); // Ctrl-C
 
         let mut stops = 0;
-        let status = reap_exited(inner, &mut stops).expect("inner must exit after the Ctrl-C");
+        let status = reap_exited(inner, &pty.master, &mut transcript, &mut stops)
+            .expect("inner must exit after the Ctrl-C");
         assert_eq!(stops, 0, "the runner must not stop on Ctrl-C");
         assert!(
             libc::WIFSIGNALED(status),
@@ -606,8 +626,8 @@ mod raw_foreground {
         send_key(&pty.master, 3); // Ctrl-C
 
         let mut extra_stops = 0;
-        let status =
-            reap_exited(inner, &mut extra_stops).expect("inner must exit after the Ctrl-C");
+        let status = reap_exited(inner, &pty.master, &mut transcript, &mut extra_stops)
+            .expect("inner must exit after the Ctrl-C");
         assert_eq!(extra_stops, 0, "no stop may happen after the resume");
         assert!(
             libc::WIFSIGNALED(status),
@@ -715,7 +735,8 @@ mod raw_foreground {
         }
 
         let mut stops = 0;
-        let status = reap_exited(inner, &mut stops).expect("inner must exit after the hangup");
+        let status = reap_exited(inner, &pty.master, &mut transcript, &mut stops)
+            .expect("inner must exit after the hangup");
         assert_eq!(stops, 0, "the runner must not stop on a hangup");
         assert!(
             libc::WIFSIGNALED(status),
