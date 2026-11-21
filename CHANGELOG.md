@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.5](https://github.com/rsvalerio/ops/compare/f8e0346a8241b24cac7140221b1bd8c6a574081c..v0.94.5) - 2026-11-21
+#### 🐛 Bug Fixes
+- (**runner**) relay a terminal hangup that killed a raw step so closing the terminal ends the run - ([8a19921](https://github.com/rsvalerio/ops/commit/8a19921d83515dc794e9361c42aedaee694574a7)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**text-fixers**) stop public docs linking private items and gate text-fixers and config-checkers on public-only rustdoc - ([f8e0346](https://github.com/rsvalerio/ops/commit/f8e0346a8241b24cac7140221b1bd8c6a574081c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 41 - ([af2ae49](https://github.com/rsvalerio/ops/commit/af2ae494d35e761117c2e033770f6e0e59e89865)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 40 - ([19e916c](https://github.com/rsvalerio/ops/commit/19e916c6e4f32453812437327bbe620b137dbf7f)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.4](https://github.com/rsvalerio/ops/compare/4c84dc64c0ff4bcfe7ac463261880685467a7049..v0.94.4) - 2026-11-21
 #### 🐛 Bug Fixes
 - (**runner**) close the raw foreground hand-off's timeout and job-control gaps - ([ee81fd4](https://github.com/rsvalerio/ops/commit/ee81fd4b48ffe9fe62ffdfbc4a23955ea6493877)) - [@rsvalerio](https://github.com/rsvalerio)
