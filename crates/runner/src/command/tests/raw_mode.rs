@@ -207,26 +207,69 @@ mod raw_foreground {
         );
         marker("INNER-READY\n");
 
-        // One raw step: it echoes a start marker, backgrounds a long sleep
-        // (recording its pid for the outer assertions), and waits. The mode
-        // only varies the sleep so a leftover process is attributable to its
-        // test in a post-mortem. The timeout is a backstop — nothing under
-        // test relies on it.
-        let sleep_secs = match mode {
-            "ctrlc" => 301,
-            "stop" => 302,
-            other => panic!("unknown inner mode {other}"),
-        };
-        let script = format!("echo started; sleep {sleep_secs} & echo $! > \"{pid_file}\"; wait");
-        let mut spec = exec_spec("sh", &["-c", &script]);
-        spec.timeout_secs = Some(120);
-        let spec = Arc::new(spec);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("inner runtime");
-        let result = runtime.block_on(exec_command_raw("pty_step", &spec, &test_exec_env()));
-        marker(&format!("STEP-DONE success={}\n", result.success));
+        let run = |script: &str, timeout_secs: u64| {
+            let mut spec = exec_spec("sh", &["-c", script]);
+            spec.timeout_secs = Some(timeout_secs);
+            let spec = Arc::new(spec);
+            runtime.block_on(exec_command_raw("pty_step", &spec, &test_exec_env()))
+        };
+        // Each mode's sleep has its own duration so a leftover process is
+        // attributable to its test in a post-mortem.
+        match mode {
+            // One raw step: it echoes a start marker, backgrounds a long
+            // sleep (recording its pid for the outer cleanup), and waits.
+            // The timeout is a backstop — nothing under test relies on it.
+            "ctrlc" | "stop" => {
+                let sleep_secs = if mode == "ctrlc" { 301 } else { 302 };
+                let script =
+                    format!("echo started; sleep {sleep_secs} & echo $! > \"{pid_file}\"; wait");
+                let result = run(&script, 120);
+                marker(&format!("STEP-DONE success={}\n", result.success));
+            }
+            // `ops … &`: another group — standing in for the user's shell
+            // running its own foreground job — holds the terminal, so the
+            // raw step shares the inner's group. Its 1s timeout must still
+            // kill it.
+            "background" => {
+                use std::os::unix::process::CommandExt as _;
+                let mut holder = std::process::Command::new("sleep");
+                holder
+                    .arg("60")
+                    .process_group(0)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+                let mut holder =
+                    ops_core::subprocess::spawn_child_locked(&mut holder).expect("spawn holder");
+                let holder_pid = libc::pid_t::try_from(holder.id()).expect("pid fits pid_t");
+                // SAFETY: SIGTTOU is blocked on this thread (above), so the
+                // inner may give the foreground away; tcsetpgrp only writes
+                // the terminal's foreground-group attribute.
+                unsafe {
+                    libc::tcsetpgrp(0, holder_pid);
+                }
+                let result = run(&format!("echo $$$$ > \"{pid_file}\"; exec sleep 303"), 1);
+                marker(&format!("STEP-DONE success={}\n", result.success));
+                let _ = holder.kill();
+                let _ = holder.wait();
+            }
+            // A timed-out step whose group ignores SIGTERM (so it outlives
+            // its timeout by the whole teardown grace), then a step that
+            // reads the terminal straight away: the second step must hold
+            // the terminal, not stop on SIGTTIN behind the dying group.
+            "timeout-next" => {
+                let first = format!("trap '' TERM; echo $$$$ > \"{pid_file}\"; exec sleep 304");
+                let result = run(&first, 1);
+                marker(&format!("FIRST-DONE success={}\n", result.success));
+                let result = run("read line; echo \"got:$$line\"", 30);
+                marker(&format!("STEP-DONE success={}\n", result.success));
+            }
+            other => panic!("unknown inner mode {other}"),
+        }
     }
 
     /// A pty pair: the master stays with the outer test, the slave path and
@@ -237,17 +280,25 @@ mod raw_foreground {
     }
 
     fn open_pty() -> Pty {
+        // ptsname returns a pointer into one static buffer, and the pty
+        // tests run on parallel threads under the default test harness: the
+        // call and the copy out of that buffer must not interleave with
+        // another test's.
+        static PTSNAME: std::sync::Mutex<()> = std::sync::Mutex::new(());
         // SAFETY: the libc pty calls only use the pointers/values owned by
-        // this frame; ptsname's result is copied out immediately (the static
-        // buffer it returns is only touched from this one thread).
+        // this frame; ptsname's static buffer is read only while PTSNAME is
+        // held, and copied out before it is released.
         unsafe {
             let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
             assert!(master >= 0, "posix_openpt failed");
             assert_eq!(libc::grantpt(master), 0, "grantpt failed");
             assert_eq!(libc::unlockpt(master), 0, "unlockpt failed");
-            let name = libc::ptsname(master);
-            assert!(!name.is_null(), "ptsname failed");
-            let slave_path = std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned();
+            let slave_path = {
+                let _ptsname = PTSNAME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let name = libc::ptsname(master);
+                assert!(!name.is_null(), "ptsname failed");
+                std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned()
+            };
             use std::os::unix::io::FromRawFd;
             Pty { master: std::fs::File::from_raw_fd(master), slave_path: slave_path.into() }
         }
@@ -261,6 +312,24 @@ mod raw_foreground {
             // SAFETY: kill(2) to a process we spawned; ESRCH is ignored.
             unsafe {
                 libc::kill(self.0, libc::SIGKILL);
+            }
+        }
+    }
+
+    /// Best-effort SIGKILL of the process whose pid the inner step recorded,
+    /// on every exit from the test, a failed assertion included. The
+    /// recorded processes outlive the inner by design (a backgrounded sleep
+    /// ignores the SIGINT that kills the inner; a SIGTERM-ignoring step
+    /// outlives its own teardown), so the test must not leave them behind.
+    struct KillRecordedPid(std::path::PathBuf);
+    impl Drop for KillRecordedPid {
+        fn drop(&mut self) {
+            let Ok(text) = std::fs::read_to_string(&self.0) else { return };
+            let Ok(pid) = text.trim().parse::<libc::pid_t>() else { return };
+            // SAFETY: kill(2) to a process this test spawned; ESRCH means
+            // it is already gone.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
             }
         }
     }
@@ -441,6 +510,12 @@ mod raw_foreground {
     #[test]
     fn ctrl_c_on_the_pty_still_cancels_the_run() {
         let (pty, _kill, inner, pid_file, _dir) = spawn_inner("ctrlc");
+        // POSIX makes an asynchronous (`&`) job ignore SIGINT, so the
+        // step's backgrounded sleep survives the Ctrl-C exactly as it would
+        // without the hand-off — the timeout teardown (whose SIGTERM /
+        // SIGKILL cannot be ignored) is what owns that case, and it has its
+        // own test above. Kill it here so it cannot leak into the run.
+        let _sleep = KillRecordedPid(pid_file);
         let mut transcript = Vec::new();
         assert!(
             read_until(&pty.master, b"INNER-READY", &mut transcript),
@@ -474,21 +549,6 @@ mod raw_foreground {
             !subslice(&transcript, b"STEP-DONE"),
             "the step must not complete after cancelling the run: {transcript:?}"
         );
-        // The backgrounded sleep records its pid only so a failure cannot
-        // leak it into the rest of the run: POSIX makes an asynchronous
-        // (`&`) job ignore SIGINT, so it survives the Ctrl-C exactly as it
-        // would without the hand-off — the timeout teardown (whose SIGTERM /
-        // SIGKILL cannot be ignored) is what owns that case, and it has its
-        // own test above.
-        if let Ok(pid) = std::fs::read_to_string(&pid_file)
-            .map(|text| text.trim().parse::<libc::pid_t>().expect("inner sleep pid"))
-        {
-            // SAFETY: kill(2) to a process this test spawned; ESRCH means
-            // it is already gone.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
-            }
-        }
     }
 
     /// A Ctrl-Z at the terminal during a raw step must stop the step and
@@ -499,7 +559,10 @@ mod raw_foreground {
     /// Ctrl-C test.
     #[test]
     fn ctrl_z_stops_the_step_and_fg_resumes_it() {
-        let (pty, _kill, inner, _pid_file, _dir) = spawn_inner("stop");
+        let (pty, _kill, inner, pid_file, _dir) = spawn_inner("stop");
+        // The backgrounded sleep ignores the final Ctrl-C; see the Ctrl-C
+        // test.
+        let _sleep = KillRecordedPid(pid_file);
         let mut transcript = Vec::new();
         assert!(
             read_until(&pty.master, b"INNER-READY", &mut transcript),
@@ -553,6 +616,61 @@ mod raw_foreground {
         assert!(
             !subslice(&transcript, b"STEP-DONE"),
             "the step must not complete after cancelling the run: {transcript:?}"
+        );
+    }
+
+    /// When the runner is a background job (`ops … &`), the raw step stays
+    /// in the runner's group, where `killpg` on the child's pid reaches
+    /// nothing. Its timeout must still kill it — the legacy direct-child
+    /// kill — rather than leave it running behind a returned step.
+    #[test]
+    fn raw_timeout_in_a_background_run_kills_the_step() {
+        let (pty, _kill, _inner, pid_file, _dir) = spawn_inner("background");
+        let _step = KillRecordedPid(pid_file.clone());
+        let mut transcript = Vec::new();
+        assert!(
+            read_until(&pty.master, b"STEP-DONE", &mut transcript),
+            "the timed-out step never returned; transcript: {transcript:?}"
+        );
+        assert!(
+            subslice(&transcript, b"STEP-DONE success=false"),
+            "a timed-out raw step must fail: {transcript:?}"
+        );
+        let recorded = std::fs::read_to_string(&pid_file).unwrap_or_default();
+        let pid: libc::pid_t = recorded.trim().parse().unwrap_or_else(|_| {
+            panic!("step pid file held {recorded:?}; transcript: {transcript:?}")
+        });
+        assert!(
+            wait_until_dead(pid, Duration::from_secs(10)),
+            "the background run's raw step {pid} survived its timeout"
+        );
+    }
+
+    /// A timed-out step whose group ignores SIGTERM keeps running through
+    /// the whole teardown grace. The next raw step starts immediately and
+    /// reads the terminal: the timeout must already have taken the terminal
+    /// back, so the next step is handed it rather than stopping on SIGTTIN
+    /// behind the dying group.
+    #[test]
+    fn timed_out_step_returns_the_terminal_before_the_next_step() {
+        let (pty, _kill, _inner, pid_file, _dir) = spawn_inner("timeout-next");
+        let _first = KillRecordedPid(pid_file);
+        let mut transcript = Vec::new();
+        assert!(
+            read_until(&pty.master, b"FIRST-DONE", &mut transcript),
+            "the first step never timed out; transcript: {transcript:?}"
+        );
+        {
+            use std::io::Write as _;
+            (&pty.master).write_all(b"hello\n").expect("write to the pty");
+        }
+        assert!(
+            read_until(&pty.master, b"got:hello", &mut transcript),
+            "the next step never read the terminal; transcript: {transcript:?}"
+        );
+        assert!(
+            read_until(&pty.master, b"STEP-DONE success=true", &mut transcript),
+            "the next step must succeed; transcript: {transcript:?}"
         );
     }
 }
