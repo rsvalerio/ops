@@ -91,20 +91,89 @@ pub struct RequestScheme {
     pub subtask_labels: &'static [&'static str],
     /// The subtask title for one target, given the provider's `skill`.
     pub subtask_title: fn(skill: &str, target: &ReviewTarget) -> String,
+    /// The main task's Description section, given the provider's `skill`
+    /// and the main task's id; empty writes no body.
+    pub main_description: fn(skill: &str, main_id: &str) -> String,
     /// The subtask's Description section; empty writes no body.
-    pub subtask_description: fn(target: &ReviewTarget) -> String,
+    pub subtask_description: fn(subtask: &SubtaskRef<'_>) -> String,
 }
 
-/// The `create-review-tasks` scheme: a `review-request-<date>-<n>` main task
-/// plus one body-less `REVIEW: Run skill <skill> against <target>` subtask
-/// per target.
+/// Everything a scheme may cite in one subtask's description: the
+/// provider's skill, the target, and the ids the subtask was allocated.
+#[derive(Debug, Clone, Copy)]
+pub struct SubtaskRef<'a> {
+    /// Skill name from the provider payload, e.g. `code-review-rust`.
+    pub skill: &'a str,
+    /// The review target this subtask covers.
+    pub target: &'a ReviewTarget,
+    /// The subtask's own dotted id: the main id plus its position.
+    pub id: &'a str,
+    /// The main task's id.
+    pub parent_id: &'a str,
+}
+
+/// The `create-review-tasks` scheme.
+///
+/// A `review-request-<date>-<n>` main task whose description tells an agent
+/// how to run the whole request (one subagent per subtask), plus one
+/// `REVIEW: Run skill <skill> against <target>` subtask per target
+/// describing that single review.
 pub const SKILL_REVIEW: RequestScheme = RequestScheme {
     stem: "review-request",
     main_labels: &["code-review-request", "code-review", "qa"],
     subtask_labels: &["code-review", "qa"],
     subtask_title: |skill, target| format!("REVIEW: Run skill {skill} against {}", target.name),
-    subtask_description: |_target| String::new(),
+    main_description: skill_review_fan_out,
+    subtask_description: skill_review_steps,
 };
+
+/// Most review subagents the main task's instructions run at once. Each one
+/// reads a whole crate, so an unbounded fan-out over a large workspace costs
+/// more than it saves in wall-clock time.
+const MAX_CONCURRENT_REVIEWS: usize = 4;
+
+/// The main task's body: how an agent told to "execute" the request runs it
+/// — one subagent per open subtask, bounded, then a checked close.
+fn skill_review_fan_out(skill: &str, main_id: &str) -> String {
+    format!(
+        "Execute this review request by running one subagent per open subtask. Each subtask \
+         is one review target; its review is the `{skill}` skill in formal mode, which files \
+         every finding as a Triage task and never as a prose report.\n\n\
+         1. List the subtasks still to run: \
+         `ops backlog task list --parent {main_id} --status \"To Do\" --plain`.\n\
+         2. Mark this task started: \
+         `ops backlog task edit {main_id} -s \"In Progress\" --plain`.\n\
+         3. Spawn one subagent per listed subtask, **at most {MAX_CONCURRENT_REVIEWS} at a \
+         time**; start the next one as soon as one returns. Give each the prompt: \
+         \"Run a formal review with the `{skill}` skill against `<path>` (`<name>`). \
+         Tracking task: `<subtask-id>`.\" — the subtask's description has its name, path and \
+         id. The skill links its findings to the tracking task and marks the subtask Done.\n\
+         4. Wait for every subagent to return. Never end the turn with one still running.\n\
+         5. Check the result: `ops backlog task list --parent {main_id} --plain`. Rerun a \
+         subtask that is not Done once; if it fails again, leave it open and record why.\n\
+         6. Close this task with \
+         `ops backlog task edit {main_id} -s Done --append-notes \"<subtasks run, findings \
+         filed per subtask>\" --plain` — only when every subtask is Done. Otherwise append \
+         the same note and leave it In Progress.\n\
+         7. Print `ops backlog task list --status Triage --plain` and stop. Grouping the \
+         findings into waves (`code-review-triage`) is a separate step."
+    )
+}
+
+/// One subtask's body: the single review it stands for, runnable on its own.
+fn skill_review_steps(subtask: &SubtaskRef<'_>) -> String {
+    let SubtaskRef { skill, target, id, parent_id } = *subtask;
+    let (name, path) = (&target.name, &target.path);
+    format!(
+        "Run a formal review with the `{skill}` skill against `{path}` (`{name}`), with this \
+         task, `{id}`, as its tracking task. The skill files each finding via \
+         `ops backlog task create --plain`, links it here with \
+         `ops backlog task edit <new-id> --parent {id} --plain`, and marks this task Done \
+         with a note on what it filed.\n\n\
+         {parent_id} runs this as one of its subagents. To run this target alone, ask for: \
+         run skill `{skill}` against `{path}`, tracking task `{id}`."
+    )
+}
 
 /// Bound on allocation retries when another writer wins the race to a task
 /// filename. Every retry rescans the backlog tree, so the number it picks
@@ -380,6 +449,8 @@ struct TaskPlan<'a> {
     main_id: String,
     /// Main-task title, `<stem>-<date>-<n>`.
     main_title: String,
+    /// Main-task Description section; empty for none.
+    main_description: String,
     /// The scheme the set is filed under.
     scheme: &'a RequestScheme,
     /// Subtasks, index-aligned with the provider's targets.
@@ -412,6 +483,7 @@ fn plan_task_set<'a>(
 ) -> anyhow::Result<TaskPlan<'a>> {
     let backlog::NextIds { number: main_number, sequence } =
         backlog::next_ids(workspace_root, scheme.stem, &stamp.date)?;
+    let main_id = backlog::main_task_id(main_number);
     let subtasks = targets
         .targets
         .iter()
@@ -420,18 +492,26 @@ fn plan_task_set<'a>(
             // `position` indexes an in-memory slice, so it is at most
             // `len - 1` and `saturating_add(1)` is exact.
             let index = position.saturating_add(1);
+            let id = backlog::subtask_id(main_number, index);
+            let description = (scheme.subtask_description)(&SubtaskRef {
+                skill: &targets.skill,
+                target,
+                id: &id,
+                parent_id: &main_id,
+            });
             PlannedSubtask {
                 index,
-                id: backlog::subtask_id(main_number, index),
+                id,
                 title: (scheme.subtask_title)(&targets.skill, target),
-                description: (scheme.subtask_description)(target),
+                description,
                 path: &target.path,
             }
         })
         .collect();
     let plan = TaskPlan {
         main_number,
-        main_id: backlog::main_task_id(main_number),
+        main_description: (scheme.main_description)(&targets.skill, &main_id),
+        main_id,
         main_title: format!("{}-{}-{sequence}", scheme.stem, stamp.date),
         scheme,
         subtasks,
@@ -496,7 +576,7 @@ fn write_task_set(
         content: backlog::TaskContent {
             subtask_of: None,
             labels: plan.scheme.main_labels,
-            description: "",
+            description: &plan.main_description,
         },
     };
     if !stage_task_file(&mut staged, &tasks_dir, &main, stamp)? {
@@ -743,6 +823,29 @@ mod tests {
         .expect("subtask 2 file");
         assert!(sub2.contains("id: TASK-0001.02\n"));
         assert!(sub2.contains("ordinal: 2002\n"));
+
+        // The main task carries the fan-out instructions an agent follows when
+        // told to execute it: list the open subtasks, run one bounded
+        // subagent per subtask, wait, then close only when all are Done.
+        assert!(main.contains("## Description"), "got: {main}");
+        for needle in [
+            "`ops backlog task list --parent TASK-0001 --status \"To Do\" --plain`",
+            "the `code-review-rust` skill in formal mode",
+            "at most 4 at a time",
+            "Never end the turn with one still running",
+            "`ops backlog task edit TASK-0001 -s Done",
+        ] {
+            assert!(main.contains(needle), "main task must say {needle:?}; got: {main}");
+        }
+        // Each subtask names its own target and is its review's tracking task.
+        for needle in [
+            "`code-review-rust` skill against `crates/core` (`ops-core`)",
+            "`ops backlog task edit <new-id> --parent TASK-0001.01 --plain`",
+            "tracking task `TASK-0001.01`",
+        ] {
+            assert!(sub1.contains(needle), "subtask must say {needle:?}; got: {sub1}");
+        }
+        assert!(sub2.contains("against `crates/cli` (`ops-cli`)"), "got: {sub2}");
 
         assert_eq!(
             out,
@@ -1001,6 +1104,7 @@ mod tests {
             main_number: 1,
             main_id: "TASK-0001".to_string(),
             main_title: "review-request-2026-08-20-1".to_string(),
+            main_description: String::new(),
             scheme: &SKILL_REVIEW,
             subtasks: vec![PlannedSubtask {
                 index: 1,
