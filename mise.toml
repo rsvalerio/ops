@@ -12,7 +12,7 @@ cargo-edit = "cargo:cargo-edit"
 
 [tools]
 rust = { version = "1.100.0", components = "rustfmt,clippy" }
-ops = "0.92.0"
+ops = "0.94.7"
 cargo-nextest = { version = "0.9.152", version_prefix = "cargo-nextest-" }
 cargo-deny = "0.22.0"
 cargo-machete = "0.10.1"
