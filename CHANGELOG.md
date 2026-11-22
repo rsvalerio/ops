@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.95.0](https://github.com/rsvalerio/ops/compare/29576485c22d020e5090bd805fca9b6de375113c..v0.95.0) - 2026-11-22
+#### 🚀 Features
+- (**create-review-tasks**) describe how to run a review request - ([1f8549e](https://github.com/rsvalerio/ops/commit/1f8549e4ec77955f96c11536cc9b18e55616420d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**tools**) pin ops 0.94.7 in mise.toml - ([2957648](https://github.com/rsvalerio/ops/commit/29576485c22d020e5090bd805fca9b6de375113c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.7](https://github.com/rsvalerio/ops/compare/ba85c76e8814c41ab775ac4b976256372ee98fa9..v0.94.7) - 2026-11-22
 #### 🐛 Bug Fixes
 - (**deps**) parse cargo-machete 0.10 stdout progress lines - ([11860c3](https://github.com/rsvalerio/ops/commit/11860c34002eef49279ece57689494b389c207b7)) - [@rsvalerio](https://github.com/rsvalerio)
