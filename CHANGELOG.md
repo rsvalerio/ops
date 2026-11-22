@@ -2,6 +2,26 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.94.7](https://github.com/rsvalerio/ops/compare/ba85c76e8814c41ab775ac4b976256372ee98fa9..v0.94.7) - 2026-11-22
+#### 🐛 Bug Fixes
+- (**deps**) parse cargo-machete 0.10 stdout progress lines - ([11860c3](https://github.com/rsvalerio/ops/commit/11860c34002eef49279ece57689494b389c207b7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**lints**) satisfy rust 1.100 clippy in production code - ([59eb217](https://github.com/rsvalerio/ops/commit/59eb217bd1c8b29b6a4be21bdc7bcda4f9527254)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cli**) drain the pty master while the locked command exits - ([7009eaf](https://github.com/rsvalerio/ops/commit/7009eaf623a6b2f4dbfcd974e77c49f8602c642e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add a canonical_tempdir fixture helper - ([3007784](https://github.com/rsvalerio/ops/commit/3007784545959c31aa102818bdfe66c53664bb66)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**lints**) assert with messages under the 1.100 pedantic lints - ([0b95d98](https://github.com/rsvalerio/ops/commit/0b95d98214f33886f54191b0486c7a7ce5118105)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) drain the pty while raw steps are reaped - ([ba85c76](https://github.com/rsvalerio/ops/commit/ba85c76e8814c41ab775ac4b976256372ee98fa9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) root macOS fixtures in canonical tempdirs - ([23e032b](https://github.com/rsvalerio/ops/commit/23e032bf70e2b63adb50b76ea6391721cb1c9e13)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- (**nextest**) kill hung tests after two minutes - ([2cfa62c](https://github.com/rsvalerio/ops/commit/2cfa62ce89e0c1617b7fa1115821699e677152cb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close review request 2026-11-18 - ([e1e5b1a](https://github.com/rsvalerio/ops/commit/e1e5b1a2a5e9b2a2c494cc1e7c66f83f270ab9b5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 28 - ([80ae9b5](https://github.com/rsvalerio/ops/commit/80ae9b52a3a3b1d81b782486f840f34701051ccd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**foundation**) sync mise template pins with the 1.100 toolchain - ([5d0129b](https://github.com/rsvalerio/ops/commit/5d0129b8a859ed5eb1e862c91a027a7c4103c0f0)) - [@rsvalerio](https://github.com/rsvalerio)
+- update rust version - ([ea50cb3](https://github.com/rsvalerio/ops/commit/ea50cb3137eefca6ddfac9a80225e80bcc010e78)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.94.6](https://github.com/rsvalerio/ops/compare/e16da18ac6d14cbf2ba14ad0d1e955a1e1b5eacc..v0.94.6) - 2026-11-21
 #### 🐛 Bug Fixes
 - (**cli**) build the lock test's pty helpers on macOS - ([6eed649](https://github.com/rsvalerio/ops/commit/6eed64983c1661b802943f928d0e9d449eb2ebbf)) - [@rsvalerio](https://github.com/rsvalerio)
