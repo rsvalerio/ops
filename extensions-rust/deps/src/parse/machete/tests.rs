@@ -1,7 +1,9 @@
 //! Tests for `interpret_machete_output`: which `(exit code, stdout, stderr)`
 //! triples may be parsed as authoritative, and which must fail closed.
 //!
-//! The fixtures are cargo-machete 0.9.2 output captured verbatim.
+//! The fixtures are cargo-machete 0.9.2 and 0.10.1 output captured verbatim:
+//! 0.10 moved the `Analyzing…`/`Done!` progress lines from stderr to stdout,
+//! otherwise the shapes agree.
 
 use super::*;
 
@@ -31,6 +33,10 @@ though this may modify your Cargo.lock files.
 
 const PROGRESS_STDERR: &str = "Analyzing dependencies of crates in this directory...\nDone!\n";
 
+/// The 0.10 shape: the same progress lines, but on stdout around the payload.
+const ANALYZING_STDOUT: &str = "Analyzing dependencies of crates in this directory...\n";
+const DONE_STDOUT: &str = "Done!\n";
+
 fn interpret(code: Option<i32>, stdout: &str, stderr: &str) -> anyhow::Result<Vec<UnusedDepEntry>> {
     interpret_machete_output(code, stdout.as_bytes(), stderr.as_bytes())
 }
@@ -38,7 +44,40 @@ fn interpret(code: Option<i32>, stdout: &str, stderr: &str) -> anyhow::Result<Ve
 #[test]
 fn clean_exit_zero_yields_no_entries() {
     let entries = interpret(Some(0), CLEAN_STDOUT, PROGRESS_STDERR).expect("clean run parses");
-    assert!(entries.is_empty());
+    assert!(entries.is_empty(), "expected empty: {entries:?}");
+}
+
+/// cargo-machete 0.10 prints its progress and completion lines on stdout.
+#[test]
+fn clean_010_stdout_progress_lines_yield_no_entries() {
+    let stdout = format!("{ANALYZING_STDOUT}{CLEAN_STDOUT}{DONE_STDOUT}");
+    let entries = interpret(Some(0), &stdout, "").expect("0.10 clean run parses");
+    assert!(entries.is_empty(), "expected empty: {entries:?}");
+}
+
+/// Exit 1 in the 0.10 stdout shape: the `Done!` line rides at the end of the
+/// advice trailer, after the listing itself.
+#[test]
+fn exit_one_010_stdout_shape_lists_entries() {
+    let stdout = format!("{ANALYZING_STDOUT}{FOUND_STDOUT}{DONE_STDOUT}");
+    let entries = interpret(Some(1), &stdout, "").expect("0.10 exit 1 parses");
+    assert_eq!(entries.len(), 3, "{entries:?}");
+}
+
+/// A reworded progress line must still fail closed rather than be skipped.
+#[test]
+fn reworded_010_progress_line_fails_closed() {
+    let stdout = format!("Analyzing dependencies in this directory...\n{CLEAN_STDOUT}");
+    let err = interpret(Some(0), &stdout, "").expect_err("reworded progress line");
+    assert!(err.to_string().contains("does not recognise"), "{err}");
+}
+
+/// Nothing but the completion marker itself may follow the clean summary.
+#[test]
+fn text_after_done_fails_closed() {
+    let stdout = format!("{CLEAN_STDOUT}{DONE_STDOUT}extra\n");
+    let err = interpret(Some(0), &stdout, "").expect_err("text after Done!");
+    assert!(err.to_string().contains("does not recognise"), "{err}");
 }
 
 /// Exit 1 is cargo-machete's "found something" answer, not a tool failure.
