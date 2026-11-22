@@ -625,7 +625,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let names =
             command_names(&crate::test_utils::canonical_root(&dir).join(".ops.toml")).unwrap();
-        assert!(names.is_empty());
+        assert!(names.is_empty(), "expected empty: {names:?}");
     }
 
     #[test]

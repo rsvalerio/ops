@@ -1121,7 +1121,7 @@ mod tests {
     #[test]
     fn committed_previews_are_up_to_date() {
         let files = render_all(&default_out_dir()).unwrap();
-        assert!(!files.is_empty());
+        assert!(!files.is_empty(), "expected non-empty: {files:?}");
         for (path, expected) in files {
             let committed = fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("{} is missing ({e}); {RUN_HINT}", path.display()));

@@ -524,7 +524,7 @@ mod tests {
         let config = Arc::new(ops_core::config::load_config_or_default("test-explain"));
         let names: Vec<String> = names.iter().map(ToString::to_string).collect();
         let mut out = Vec::new();
-        super::super::run_explain_to(config, &names, output, &mut out).expect("explain");
+        let _ = super::super::run_explain_to(config, &names, output, &mut out).expect("explain");
         String::from_utf8(out).expect("utf8")
     }
 

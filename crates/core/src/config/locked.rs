@@ -116,7 +116,11 @@ mod tests {
         let mut config = Config::empty();
         apply(&mut config, dir.path());
         assert!(config.commands.is_empty());
-        assert!(config.provenance.extended_stack_defaults.is_empty());
+        assert!(
+            config.provenance.extended_stack_defaults.is_empty(),
+            "expected empty: {:?}",
+            config.provenance.extended_stack_defaults,
+        );
     }
 
     #[test]

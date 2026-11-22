@@ -1744,9 +1744,9 @@ mod tests {
         };
 
         let mut buf_a: Vec<u8> = Vec::new();
-        run_plan_pipeline_to(&make_opts(), &mut buf_a).expect("pipeline ok");
+        let _code = run_plan_pipeline_to(&make_opts(), &mut buf_a).expect("pipeline ok");
         let mut buf_b: Vec<u8> = Vec::new();
-        run_plan_pipeline_to(&make_opts(), &mut buf_b).expect("pipeline ok");
+        let _code = run_plan_pipeline_to(&make_opts(), &mut buf_b).expect("pipeline ok");
 
         assert_eq!(
             buf_a, buf_b,
@@ -1757,7 +1757,7 @@ mod tests {
         // `_with_tty` form must match the default `_to` behaviour, so
         // there is one canonical "buffered sink" rendering.
         let mut buf_c: Vec<u8> = Vec::new();
-        run_plan_pipeline_to_with_tty(&make_opts(), &mut buf_c, TableWidth::Fixed)
+        let _code = run_plan_pipeline_to_with_tty(&make_opts(), &mut buf_c, TableWidth::Fixed)
             .expect("pipeline ok");
         assert_eq!(buf_a, buf_c, "run_plan_pipeline_to must default to TableWidth::Fixed");
     }

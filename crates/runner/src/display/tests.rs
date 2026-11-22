@@ -422,7 +422,7 @@ mod edge_case_tests {
     fn extract_stderr_tail_handles_empty() {
         let lines: Vec<Box<str>> = vec![];
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
-        assert!(tail.is_empty());
+        assert!(tail.is_empty(), "expected empty: {tail:?}");
     }
 
     #[test]

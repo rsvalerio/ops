@@ -410,7 +410,7 @@ fn undecodable_tracked_paths_are_announced_and_counted_as_skipped() {
         .into_reported_files(&mut report, &mut out, "check-json", Path::new("/r"))
         .unwrap();
 
-    assert!(files.is_empty());
+    assert!(files.is_empty(), "expected empty: {files:?}");
     assert_eq!(report.files_skipped, 2);
     let out = String::from_utf8(out).unwrap();
     assert!(

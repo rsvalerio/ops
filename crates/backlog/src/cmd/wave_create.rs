@@ -335,7 +335,7 @@ mod tests {
             run_wave_create(&store, &BacklogConfig::default(), &opts(&[" ", ""]), &mut Vec::new())
                 .expect_err("must refuse");
         assert!(format!("{err:#}").contains("at least one member"));
-        assert!(file_names(&dir).is_empty());
+        assert!(file_names(&dir).is_empty(), "expected empty: {:?}", file_names(&dir));
     }
 
     /// The shared predicates: a marker label in another case is still a

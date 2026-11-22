@@ -281,7 +281,7 @@ mod tests {
         let inner = stats_line
             .get(3..stats_line.len() - 3)
             .expect("stats line is wider than its two box borders");
-        assert!(inner.trim().is_empty());
+        assert!(inner.trim().is_empty(), "expected empty: {:?}", inner.trim());
     }
 
     #[test]
@@ -333,7 +333,11 @@ mod tests {
 
     #[test]
     fn layout_cards_empty() {
-        assert!(layout_cards_in_grid(&[]).is_empty());
+        assert!(
+            layout_cards_in_grid(&[]).is_empty(),
+            "expected empty: {:?}",
+            layout_cards_in_grid(&[])
+        );
     }
 
     #[test]

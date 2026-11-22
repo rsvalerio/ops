@@ -210,7 +210,11 @@ mod tests {
     #[test]
     fn address_keys_handle_quoted_punctuation() {
         assert_eq!(address_keys(r#"module.a["x.]\"y"].t.n[3]"#), vec!["x.]\"y", "3"]);
-        assert!(address_keys("aws_instance.web").is_empty());
+        assert!(
+            address_keys("aws_instance.web").is_empty(),
+            "expected empty: {:?}",
+            address_keys("aws_instance.web")
+        );
     }
 
     #[test]
@@ -258,6 +262,10 @@ mod tests {
         }));
         assert_eq!(changed(&tainted, Action::Replace), vec!["tainted"]);
         let create = rc(serde_json::json!({ "address": "a", "change": { "actions": ["create"] } }));
-        assert!(changed(&create, Action::Create).is_empty());
+        assert!(
+            changed(&create, Action::Create).is_empty(),
+            "expected empty: {:?}",
+            changed(&create, Action::Create)
+        );
     }
 }

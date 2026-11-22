@@ -154,7 +154,7 @@ fn parse_skips_unchanged_line_without_warning() {
 fn downgrade_line_with_drifted_shape_warns() {
     let logged = capture_warn(|| {
         let result = parse_update_output(b" Downgrading serde v1.0.220 to v1.0.219\n");
-        assert!(result.entries.is_empty());
+        assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
     });
     assert!(
         logged.contains("possible format drift"),
@@ -191,7 +191,7 @@ fn parse_mixed_output() {
 fn parse_empty_output() {
     let stderr = b"";
     let result = parse_update_output(stderr);
-    assert!(result.entries.is_empty());
+    assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
     assert_eq!(result.update_count, 0);
     assert_eq!(result.add_count, 0);
     assert_eq!(result.remove_count, 0);
@@ -205,7 +205,7 @@ fn parse_no_updates_available() {
     Locking 0 packages to latest compatible versions
 ";
     let result = parse_update_output(stderr);
-    assert!(result.entries.is_empty());
+    assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
 }
 
 #[test]
@@ -240,7 +240,7 @@ note: some note
 fn parse_skips_index_update_line() {
     let stderr = b"    Updating crates.io index\n";
     let result = parse_update_output(stderr);
-    assert!(result.entries.is_empty());
+    assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
 }
 
 /// Pins BOTH invariants of the arrow-drift / extra-trailing path in
@@ -355,7 +355,7 @@ fn match_verb_is_the_single_boundary_definition() {
 fn parse_skips_locking_line() {
     let stderr = b"      Locking 5 packages to latest compatible versions\n";
     let result = parse_update_output(stderr);
-    assert!(result.entries.is_empty());
+    assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
 }
 
 #[test]
@@ -579,7 +579,7 @@ fn non_version_shaped_token_reaches_a_warn() {
     ] {
         let logged = capture_warn(|| {
             let result = parse_update_output(stderr.as_bytes());
-            assert!(result.entries.is_empty());
+            assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
         });
         assert!(
             logged.contains("WARN"),
@@ -599,7 +599,7 @@ fn non_action_updating_lines_stay_silent() {
     Updating git repository `https://github.com/owner/repo`
 ";
         let result = parse_update_output(stderr);
-        assert!(result.entries.is_empty());
+        assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
     });
     assert!(logged.trim().is_empty(), "non-action Updating lines must not warn; got {logged:?}");
 }
@@ -668,7 +668,7 @@ fn parse_updating_line_with_various_index_names() {
     // "Updating github.com index" should also be skipped
     let stderr = b"    Updating github.com index\n";
     let result = parse_update_output(stderr);
-    assert!(result.entries.is_empty());
+    assert!(result.entries.is_empty(), "expected empty: {:?}", result.entries);
 }
 
 /// A crate whose name contains the substring `index` (e.g. `indexer`,

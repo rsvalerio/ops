@@ -31,7 +31,7 @@ ops_extension::test_datasource_extension!(
 #[test]
 fn rust_loc_provider_schema_has_fields() {
     let schema = RustLocProvider.schema();
-    assert!(!schema.description.is_empty());
+    assert!(!schema.description.is_empty(), "expected non-empty: {:?}", schema.description);
     let names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
     for expected in ["file", "region", "code", "docs", "comments", "blanks", "lines"] {
         assert!(names.contains(&expected), "missing field {expected}");
@@ -330,7 +330,7 @@ fn collect_rust_loc_splits_regions_across_a_canned_tree() {
 
     let value = crate::collect_rust_loc(dir.path(), None).expect("collect should succeed");
     let records = value.as_array().expect("array");
-    assert!(!records.is_empty());
+    assert!(!records.is_empty(), "expected non-empty: {records:?}");
 
     let regions_for = |file: &str| -> Vec<String> {
         records
@@ -676,7 +676,11 @@ fn rust_loc_provider_returns_json_without_a_database() {
     let mut ctx = Context::test_context(dir.path().to_path_buf());
     let value = RustLocProvider.provide(&mut ctx).expect("provide");
     assert!(value.is_array());
-    assert!(!value.as_array().unwrap().is_empty());
+    assert!(
+        !value.as_array().unwrap().is_empty(),
+        "expected non-empty: {:?}",
+        value.as_array().unwrap()
+    );
 }
 
 #[test]

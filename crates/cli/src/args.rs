@@ -1569,7 +1569,7 @@ mod tests {
             })) => {
                 assert_eq!(lint_flags, ["-W", "clippy::pedantic"]);
                 assert!(!no_locked && !no_all_features && !no_default_features);
-                assert!(features.is_empty());
+                assert!(features.is_empty(), "expected empty: {features:?}");
                 assert_eq!(schema_version, 2);
             }
             other => panic!("expected ClippyFindings, got {other:?}"),
@@ -1600,7 +1600,7 @@ mod tests {
                 features,
                 schema_version,
             })) => {
-                assert!(lint_flags.is_empty());
+                assert!(lint_flags.is_empty(), "expected empty: {lint_flags:?}");
                 assert!(no_locked && no_all_features && no_default_features);
                 assert_eq!(features, ["a", "b", "c"]);
                 assert_eq!(schema_version, 1);

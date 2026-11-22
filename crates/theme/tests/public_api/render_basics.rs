@@ -243,9 +243,9 @@ fn compact_plan_header_plain() {
     let ids = vec!["build".into(), "test".into()];
     let lines = theme.render_plan_header(&ids, 0);
     assert_eq!(lines.len(), 3);
-    assert!(lines[0].is_empty());
+    assert!(lines[0].is_empty(), "expected empty: {:?}", lines[0]);
     assert_eq!(lines[1], " Running: build, test");
-    assert!(lines[2].is_empty());
+    assert!(lines[2].is_empty(), "expected empty: {:?}", lines[2]);
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn classic_summary_separator_is_rail() {
 fn compact_summary_separator_is_empty() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let sep = theme.render_summary_separator(80);
-    assert!(sep.is_empty());
+    assert!(sep.is_empty(), "expected empty: {sep:?}");
 }
 
 /// The column budget the signature promises is real —
@@ -308,7 +308,7 @@ fn error_detail_empty_returns_nothing() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let detail = ErrorDetail::new(String::new(), vec![]);
     let lines = theme.render_error_detail(&detail, 80);
-    assert!(lines.is_empty());
+    assert!(lines.is_empty(), "expected empty: {lines:?}");
 }
 
 /// At these widths the label does not fit — the chrome, the
@@ -321,7 +321,7 @@ fn classic_theme_very_small_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let step = StepLine::new(StepStatus::Succeeded, "cmd".to_string(), Some(0.5));
     let line = theme.render(&step, 10);
-    assert!(!line.is_empty());
+    assert!(!line.is_empty(), "expected non-empty: {line:?}");
     assert!(visible_width(&line) <= 10, "{line:?}");
     // Widen the terminal and the label comes back in full.
     let wide = theme.render(&step, 40);
@@ -335,7 +335,7 @@ fn compact_theme_very_small_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let step = StepLine::new(StepStatus::Succeeded, "x".to_string(), Some(0.5));
     let line = theme.render(&step, 5);
-    assert!(!line.is_empty());
+    assert!(!line.is_empty(), "expected non-empty: {line:?}");
     assert!(visible_width(&line) <= 5, "{line:?}");
     let wide = theme.render(&step, 40);
     assert!(wide.contains('x'), "{wide:?}");

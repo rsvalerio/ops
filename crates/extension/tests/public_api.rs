@@ -298,7 +298,11 @@ fn provider_names_returns_sorted() {
 #[test]
 fn provider_names_empty_registry() {
     let registry = DataRegistry::new();
-    assert!(registry.provider_names().is_empty());
+    assert!(
+        registry.provider_names().is_empty(),
+        "expected empty: {:?}",
+        registry.provider_names()
+    );
 }
 
 #[test]
@@ -328,7 +332,7 @@ fn shared_error_from_serde_json() {
     let bad_json: Result<serde_json::Value, _> = serde_json::from_str("{invalid");
     let json_err = bad_json.unwrap_err();
     let shared = SharedError::from(json_err);
-    assert!(!shared.to_string().is_empty());
+    assert!(!shared.to_string().is_empty(), "expected non-empty: {:?}", shared.to_string());
 }
 
 // --- SharedError / DataProviderError alternate-format chain rendering ---
@@ -531,7 +535,7 @@ fn extension_defaults_and_info_aggregation() {
     assert_eq!(ext.description(), "");
     assert_eq!(ext.shortname(), ext.name());
     assert_eq!(ext.types(), ExtensionType::empty());
-    assert!(ext.command_names().is_empty());
+    assert!(ext.command_names().is_empty(), "expected empty: {:?}", ext.command_names());
     assert!(ext.data_provider_name().is_none());
     assert!(ext.stack().is_none());
 
@@ -541,13 +545,17 @@ fn extension_defaults_and_info_aggregation() {
     assert_eq!(info.shortname, "test_ext");
     assert_eq!(info.description, "");
     assert_eq!(info.types, ExtensionType::empty());
-    assert!(info.command_names.is_empty());
+    assert!(info.command_names.is_empty(), "expected empty: {:?}", info.command_names);
     assert!(info.data_provider_name.is_none());
 
     // register_data_providers is a no-op
     let mut registry = DataRegistry::new();
     ext.register_data_providers(&mut registry);
-    assert!(registry.provider_names().is_empty());
+    assert!(
+        registry.provider_names().is_empty(),
+        "expected empty: {:?}",
+        registry.provider_names()
+    );
 }
 
 // --- impl_extension! macro ---
@@ -703,7 +711,11 @@ fn data_provider_default_about_fields_is_empty() {
 #[test]
 fn data_registry_default() {
     let registry = DataRegistry::default();
-    assert!(registry.provider_names().is_empty());
+    assert!(
+        registry.provider_names().is_empty(),
+        "expected empty: {:?}",
+        registry.provider_names()
+    );
 }
 
 /// Building a `CommandRegistry` via `collect()` /
@@ -1325,7 +1337,7 @@ fn extension_info_new_defaults_every_optional_field() {
     assert_eq!(info.shortname, "solo", "shortname defaults to name");
     assert_eq!(info.description, "");
     assert_eq!(info.types, ExtensionType::empty());
-    assert!(info.command_names.is_empty());
+    assert!(info.command_names.is_empty(), "expected empty: {:?}", info.command_names);
     assert!(info.data_provider_name.is_none());
     assert!(info.stack.is_none());
 }

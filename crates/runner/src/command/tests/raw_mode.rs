@@ -18,8 +18,8 @@ async fn exec_command_raw_returns_failure_for_false() {
     let spec = Arc::new(false_cmd());
     let result = exec_command_raw("false_cmd", &spec, &test_exec_env()).await;
     assert!(!result.success);
-    assert!(result.stdout.is_empty());
-    assert!(result.stderr.is_empty());
+    assert!(result.stdout.is_empty(), "expected empty: {:?}", result.stdout);
+    assert!(result.stderr.is_empty(), "expected empty: {:?}", result.stderr);
     assert!(result.message.is_some());
 }
 

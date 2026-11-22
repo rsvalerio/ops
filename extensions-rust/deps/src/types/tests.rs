@@ -65,5 +65,9 @@ fn deny_result_without_unused_license_allowances_decodes() {
         "sources": [],
     });
     let deny: DenyResult = serde_json::from_value(json).unwrap();
-    assert!(deny.unused_license_allowances.is_empty());
+    assert!(
+        deny.unused_license_allowances.is_empty(),
+        "expected empty: {:?}",
+        deny.unused_license_allowances
+    );
 }

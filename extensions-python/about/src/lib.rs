@@ -577,7 +577,7 @@ authors = [{ name = "  ", email = "  " }]
         );
 
         assert!(id.license.is_none());
-        assert!(id.authors.is_empty());
+        assert!(id.authors.is_empty(), "expected empty: {:?}", id.authors);
     }
 
     #[test]

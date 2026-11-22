@@ -410,8 +410,16 @@ build = "cargo build"
         let config = parse_default_config().unwrap();
         let classic = config.themes.get("classic").expect("classic theme");
         let compact = config.themes.get("compact").expect("compact theme");
-        assert!(!classic.icon_succeeded.is_empty());
-        assert!(!compact.icon_succeeded.is_empty());
+        assert!(
+            !classic.icon_succeeded.is_empty(),
+            "expected non-empty: {:?}",
+            classic.icon_succeeded
+        );
+        assert!(
+            !compact.icon_succeeded.is_empty(),
+            "expected non-empty: {:?}",
+            compact.icon_succeeded
+        );
     }
 
     #[test]

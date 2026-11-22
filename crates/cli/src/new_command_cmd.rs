@@ -163,7 +163,7 @@ mod tests {
     fn parse_command_single_word() {
         let (prog, args) = parse_command("make").unwrap();
         assert_eq!(prog, "make");
-        assert!(args.is_empty());
+        assert!(args.is_empty(), "expected empty: {args:?}");
     }
 
     #[test]

@@ -62,7 +62,7 @@ serde  1.0.100 1.0.228    1.0.228 1.0.228
 fn parse_upgrade_table_empty() {
     let stdout = "";
     let entries = parse_upgrade_table(stdout);
-    assert!(entries.is_empty());
+    assert!(entries.is_empty(), "expected empty: {entries:?}");
 }
 
 #[test]
@@ -72,7 +72,7 @@ name   old req compatible latest  new req
 ====   ======= ========== ======  =======
 ";
     let entries = parse_upgrade_table(stdout);
-    assert!(entries.is_empty());
+    assert!(entries.is_empty(), "expected empty: {entries:?}");
 }
 
 /// cargo-edit's table format is not a stable API; if a

@@ -100,7 +100,11 @@ fn tokei_provider_returns_valid_json_on_real_project() {
     let mut ctx = Context::test_context(manifest_dir);
     let value = TokeiProvider.provide(&mut ctx).expect("tokei should succeed on this project");
     assert!(value.is_array(), "should return a JSON array");
-    assert!(!value.as_array().unwrap().is_empty());
+    assert!(
+        !value.as_array().unwrap().is_empty(),
+        "expected non-empty: {:?}",
+        value.as_array().unwrap()
+    );
 }
 
 #[test]
@@ -115,7 +119,7 @@ fn tokei_provider_empty_dir() {
 #[test]
 fn tokei_provider_schema_has_fields() {
     let schema = TokeiProvider.schema();
-    assert!(!schema.description.is_empty());
+    assert!(!schema.description.is_empty(), "expected non-empty: {:?}", schema.description);
     assert_eq!(schema.fields.len(), 6);
     let names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
     assert!(names.contains(&"language"));
@@ -469,7 +473,7 @@ fn scan_tokei_counts_unreadable_files() {
     }
 
     let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT, None).expect("scan");
-    assert!(scan.records.is_empty());
+    assert!(scan.records.is_empty(), "expected empty: {:?}", scan.records);
     assert_eq!(
         scan.skipped_unreadable, 1,
         "an unreadable file must be counted, not silently dropped"
@@ -514,7 +518,11 @@ fn flatten_tokei_empty_languages() {
     let result =
         serde_json::Value::Array(flatten_tokei_records(&languages, Path::new("/workspace")));
     assert!(result.is_array());
-    assert!(result.as_array().unwrap().is_empty());
+    assert!(
+        result.as_array().unwrap().is_empty(),
+        "expected empty: {:?}",
+        result.as_array().unwrap()
+    );
 }
 
 #[test]
@@ -580,7 +588,11 @@ fn collect_tokei_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let result = collect_tokei(&manifest_dir, None).expect("collect_tokei should succeed");
     assert!(result.is_array());
-    assert!(!result.as_array().unwrap().is_empty());
+    assert!(
+        !result.as_array().unwrap().is_empty(),
+        "expected non-empty: {:?}",
+        result.as_array().unwrap()
+    );
 }
 
 // The counterpart to `collect_tokei_errors_on_missing_directory`: a readable
@@ -592,7 +604,11 @@ fn collect_tokei_on_empty_dir() {
     let result =
         collect_tokei(dir.path(), None).expect("collect_tokei should succeed on empty dir");
     assert!(result.is_array());
-    assert!(result.as_array().unwrap().is_empty());
+    assert!(
+        result.as_array().unwrap().is_empty(),
+        "expected empty: {:?}",
+        result.as_array().unwrap()
+    );
 }
 
 // -- SQLite integration tests --
@@ -741,7 +757,11 @@ fn tokei_ingestor_collect_empty_dir() {
     let content = std::fs::read_to_string(&json_path).expect("read json");
     let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
     assert!(parsed.is_array());
-    assert!(parsed.as_array().unwrap().is_empty());
+    assert!(
+        parsed.as_array().unwrap().is_empty(),
+        "expected empty: {:?}",
+        parsed.as_array().unwrap()
+    );
 }
 
 // -- flatten_tokei_to_json edge cases --

@@ -563,7 +563,7 @@ mod tests {
         restore.set_mode(0o755);
         std::fs::set_permissions(&parent, restore).unwrap();
 
-        assert!(resolved.is_empty());
+        assert!(resolved.is_empty(), "expected empty: {resolved:?}");
     }
 
     /// An unreadable manifest (permission denied) must drop the unit out of

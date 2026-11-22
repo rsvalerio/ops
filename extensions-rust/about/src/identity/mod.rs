@@ -470,7 +470,7 @@ version = "0.1.0"
 
         assert_eq!(id.name, "minimal");
         assert_eq!(id.version.as_deref(), Some("0.1.0"));
-        assert!(id.authors.is_empty());
+        assert!(id.authors.is_empty(), "expected empty: {:?}", id.authors);
         assert!(id.module_count.is_none());
     }
 

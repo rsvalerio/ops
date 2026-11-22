@@ -452,7 +452,7 @@ mod run_command_dry_run_tests {
             .build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
-        run_command_dry_run_to(&runner, "next", &mut buf).unwrap();
+        let _ = run_command_dry_run_to(&runner, "next", &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("wrap:    ./svc.sh --pg --\n"), "got: {output}");
         assert!(output.contains("program: cargo\n"), "got: {output}");
@@ -478,7 +478,7 @@ mod run_command_dry_run_tests {
             .build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
-        run_command_dry_run_to(&runner, "doc-default", &mut buf).unwrap();
+        let _ = run_command_dry_run_to(&runner, "doc-default", &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("matrix:  2 cell(s), max_parallel = 1, fail_fast = true"),
@@ -610,7 +610,7 @@ mod run_command_dry_run_tests {
         let config = TestConfigBuilder::new().exec("simple", "echo", &[]).build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
-        run_command_dry_run_to(&runner, "simple", &mut buf).unwrap();
+        let _ = run_command_dry_run_to(&runner, "simple", &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("program: echo"), "got: {output}");
         assert!(!output.contains("args:"), "should omit args line: {output}");
@@ -660,7 +660,7 @@ mod run_command_dry_run_tests {
             .build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
-        run_command_dry_run_to(&runner, "non_utf8_cwd", &mut buf).unwrap();
+        let _ = run_command_dry_run_to(&runner, "non_utf8_cwd", &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("(non-UTF-8 path; lossy preview)"), "annotation missing: {output}");
     }
@@ -709,7 +709,7 @@ mod run_command_dry_run_tests {
             .build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
-        run_command_dry_run_to(&runner, name, &mut buf).expect("dry-run");
+        let _ = run_command_dry_run_to(&runner, name, &mut buf).expect("dry-run");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             !output.contains('\u{1b}'),
@@ -895,7 +895,7 @@ raw = true
 "#,
             );
             capture_warnings(|| {
-                run_commands(
+                let _ = run_commands(
                     std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
                     &["echo_test"],
                     RunOptions { dry_run: true, ..RunOptions::default() },
@@ -922,7 +922,7 @@ raw = true
 "#,
         );
         let logs = capture_warnings(|| {
-            run_commands(
+            let _ = run_commands(
                 std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
                 &["echo_test"],
                 RunOptions { dry_run: true, raw: true, ..RunOptions::default() },

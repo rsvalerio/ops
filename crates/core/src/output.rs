@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn tail_lines_empty_returns_empty() {
         let lines: Vec<&str> = vec![];
-        assert!(tail_lines(&lines, 3).is_empty());
+        assert!(tail_lines(&lines, 3).is_empty(), "expected empty: {:?}", tail_lines(&lines, 3));
     }
 
     #[test]
@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn format_error_tail_handles_empty() {
         let result = format_error_tail(b"", 5);
-        assert!(result.is_empty());
+        assert!(result.is_empty(), "expected empty: {result:?}");
     }
 
     #[test]
@@ -578,7 +578,11 @@ mod tests {
     #[test]
     fn format_error_tail_n_zero_returns_empty() {
         let stderr = b"line1\nline2";
-        assert!(format_error_tail(stderr, 0).is_empty());
+        assert!(
+            format_error_tail(stderr, 0).is_empty(),
+            "expected empty: {:?}",
+            format_error_tail(stderr, 0)
+        );
     }
 
     // -- PATTERN-1 / TASK-1094: bare CR must not survive into the rendered tail --
@@ -617,6 +621,6 @@ mod tests {
         let stderr = b"\r";
         let result = format_error_tail(stderr, 5);
         assert!(!result.contains('\r'), "rendered tail must not contain a raw CR; got {result:?}");
-        assert!(result.is_empty());
+        assert!(result.is_empty(), "expected empty: {result:?}");
     }
 }

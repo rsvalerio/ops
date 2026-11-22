@@ -482,7 +482,11 @@ mod tests {
 
     #[test]
     fn format_dependencies_section_empty() {
-        assert!(format_dependencies_section(&ProjectDependencies::default(), false).is_empty());
+        assert!(
+            format_dependencies_section(&ProjectDependencies::default(), false).is_empty(),
+            "expected empty: {:?}",
+            format_dependencies_section(&ProjectDependencies::default(), false)
+        );
     }
 
     #[test]

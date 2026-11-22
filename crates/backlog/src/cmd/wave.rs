@@ -785,7 +785,11 @@ mod tests {
         assert!(text.contains("Migrated 1 waves and 2 members."));
 
         let wave = doc_of(&dir, "task-0119 - wave.md");
-        assert!(wave.frontmatter.assignees.is_empty());
+        assert!(
+            wave.frontmatter.assignees.is_empty(),
+            "expected empty: {:?}",
+            wave.frontmatter.assignees
+        );
         assert_eq!(wave.frontmatter.labels, vec!["code-review-wave".to_string()]);
         assert_eq!(
             wave.frontmatter.dependencies,
@@ -795,7 +799,11 @@ mod tests {
 
         for name in ["task-0120 - member.md", "task-0121 - stray.md"] {
             let member = doc_of(&dir, name);
-            assert!(member.frontmatter.assignees.is_empty());
+            assert!(
+                member.frontmatter.assignees.is_empty(),
+                "expected empty: {:?}",
+                member.frontmatter.assignees
+            );
             assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
             assert_eq!(member.frontmatter.updated_date.as_deref(), Some("2026-03-04 05:06"));
         }
@@ -875,7 +883,11 @@ mod tests {
         // The named file landed whole; the blocked and later ones did not.
         let member = doc_of(&dir, "task-0120 - member.md");
         assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
-        assert!(member.frontmatter.assignees.is_empty());
+        assert!(
+            member.frontmatter.assignees.is_empty(),
+            "expected empty: {:?}",
+            member.frontmatter.assignees
+        );
         let stray = doc_of(&dir, "task-0121 - stray.md");
         assert_eq!(
             stray.frontmatter.assignees,
@@ -1258,7 +1270,11 @@ mod tests {
     fn assert_member_migrated_with_note(dir: &tempfile::TempDir, note: &str) {
         let member = doc_of(dir, "task-0120 - member.md");
         assert_eq!(member.frontmatter.extra_scalar("parent_task_id"), Some("TASK-0119"));
-        assert!(member.frontmatter.assignees.is_empty());
+        assert!(
+            member.frontmatter.assignees.is_empty(),
+            "expected empty: {:?}",
+            member.frontmatter.assignees
+        );
         let notes = member.body.notes().unwrap_or_default();
         assert!(notes.contains(note), "the edit was lost: {notes}");
     }

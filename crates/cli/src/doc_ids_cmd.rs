@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn plain_comments_and_code_are_not_doc_comments() {
         let source = concat!("// TASK-12\n", "//// TASK-13\n", "let s = \"/// TASK-14\";\n");
-        assert!(ids(source).is_empty());
+        assert!(ids(source).is_empty(), "expected empty: {:?}", ids(source));
     }
 
     #[test]
@@ -130,7 +130,7 @@ mod tests {
             "/// UTF-8, SHA-256, RFC-3339, TASK-, TASK-12a, MY-TASK-12, task-12\n",
             "/// non-TASK-12\n",
         );
-        assert!(ids(source).is_empty());
+        assert!(ids(source).is_empty(), "expected empty: {:?}", ids(source));
     }
 
     #[test]

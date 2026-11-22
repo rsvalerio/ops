@@ -490,7 +490,7 @@ mod tests {
         let (captured, ()) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
             let _ = Stack::resolve(Some("rust"), dir.path());
         });
-        assert!(captured.is_empty());
+        assert!(captured.is_empty(), "expected empty: {captured:?}");
     }
 
     #[test]
@@ -1254,7 +1254,11 @@ mod tests {
         assert_eq!(Stack::Terraform.build_dirs(), [".terraform"]);
         // Ansible's collection/role caches default to $HOME/.ansible, not
         // the repo, so it declares nothing in-tree.
-        assert!(Stack::Ansible.build_dirs().is_empty());
+        assert!(
+            Stack::Ansible.build_dirs().is_empty(),
+            "expected empty: {:?}",
+            Stack::Ansible.build_dirs()
+        );
     }
 
     /// The shared scan-skip list is every stack's build dirs

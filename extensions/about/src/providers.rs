@@ -280,6 +280,6 @@ mod tests {
         let registry = DataRegistry::new();
         let mut ctx = test_ctx();
         let result: Vec<u8> = load_or_default(&mut ctx, &registry, "absent").expect("ok");
-        assert!(result.is_empty());
+        assert!(result.is_empty(), "expected empty: {result:?}");
     }
 }

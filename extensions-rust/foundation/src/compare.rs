@@ -210,7 +210,11 @@ mod tests {
 
     #[test]
     fn identical_tables_do_not_drift() {
-        assert!(drift("a = 1\n[t]\nb = \"x\"\n", "a = 1\n[t]\nb = \"x\"\n", Rule::Exact).is_empty());
+        assert!(
+            drift("a = 1\n[t]\nb = \"x\"\n", "a = 1\n[t]\nb = \"x\"\n", Rule::Exact).is_empty(),
+            "expected empty: {:?}",
+            drift("a = 1\n[t]\nb = \"x\"\n", "a = 1\n[t]\nb = \"x\"\n", Rule::Exact)
+        );
     }
 
     #[test]
@@ -235,7 +239,11 @@ mod tests {
 
     #[test]
     fn arrays_compare_as_sets() {
-        assert!(drift("l = [\"a\", \"b\"]\n", "l = [\"b\", \"a\"]\n", Rule::Exact).is_empty());
+        assert!(
+            drift("l = [\"a\", \"b\"]\n", "l = [\"b\", \"a\"]\n", Rule::Exact).is_empty(),
+            "expected empty: {:?}",
+            drift("l = [\"a\", \"b\"]\n", "l = [\"b\", \"a\"]\n", Rule::Exact)
+        );
         let out = drift("l = [\"a\", \"b\"]\n", "l = [\"a\", \"GPL-3.0\"]\n", Rule::Exact);
         assert_eq!(
             out,
@@ -258,7 +266,11 @@ mod tests {
         let base = "[clippy]\nall = { level = \"warn\", priority = -1 }\nunwrap_used = \"warn\"\n";
         let repo =
             "[clippy]\nall = { level = \"deny\", priority = -1 }\nunwrap_used = \"forbid\"\n";
-        assert!(drift(base, repo, Rule::LintLevel).is_empty());
+        assert!(
+            drift(base, repo, Rule::LintLevel).is_empty(),
+            "expected empty: {:?}",
+            drift(base, repo, Rule::LintLevel)
+        );
     }
 
     #[test]

@@ -236,8 +236,16 @@ mod tests {
 
     #[test]
     fn path_programs_are_not_tools() {
-        assert!(tools("./gradlew", &["build"]).is_empty());
-        assert!(tools("/usr/bin/env", &["true"]).is_empty());
+        assert!(
+            tools("./gradlew", &["build"]).is_empty(),
+            "expected empty: {:?}",
+            tools("./gradlew", &["build"])
+        );
+        assert!(
+            tools("/usr/bin/env", &["true"]).is_empty(),
+            "expected empty: {:?}",
+            tools("/usr/bin/env", &["true"])
+        );
         assert_eq!(tools("npm", &["test"]), ["npm"]);
     }
 
@@ -248,14 +256,30 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].name, "trivy");
         assert!(got[0].install.as_deref().is_some_and(|i| i.contains("trivy")));
-        assert!(tools("ops", &["end-of-file-fixer"]).is_empty());
-        assert!(tools("ops", &["lint-actions"]).is_empty());
+        assert!(
+            tools("ops", &["end-of-file-fixer"]).is_empty(),
+            "expected empty: {:?}",
+            tools("ops", &["end-of-file-fixer"])
+        );
+        assert!(
+            tools("ops", &["lint-actions"]).is_empty(),
+            "expected empty: {:?}",
+            tools("ops", &["lint-actions"])
+        );
         assert_eq!(tools("ops", &["msrv"]), ["rustup"]);
         assert_eq!(tools("ops", &["semver"]), ["cargo", "cargo-semver-checks"]);
         assert_eq!(tools("ops", &["feature-matrix"]), ["cargo", "cargo-hack"]);
-        assert!(tools("ops", &["foundation"]).is_empty());
-        assert!(tools("ops", &["doc-ids"]).is_empty());
-        assert!(tools("ops", &[]).is_empty());
+        assert!(
+            tools("ops", &["foundation"]).is_empty(),
+            "expected empty: {:?}",
+            tools("ops", &["foundation"])
+        );
+        assert!(
+            tools("ops", &["doc-ids"]).is_empty(),
+            "expected empty: {:?}",
+            tools("ops", &["doc-ids"])
+        );
+        assert!(tools("ops", &[]).is_empty(), "expected empty: {:?}", tools("ops", &[]));
     }
 
     /// The opt-in probe reports the first line `--version`

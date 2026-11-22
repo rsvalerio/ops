@@ -360,7 +360,11 @@ mod tests {
         let err = replace(&path, b"new\n", &md).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
         assert_eq!(Refusal::of(&err), None, "a vanished target is an I/O error, not a refusal");
-        assert!(entry_names(&canon(&dir)).is_empty());
+        assert!(
+            entry_names(&canon(&dir)).is_empty(),
+            "expected empty: {:?}",
+            entry_names(&canon(&dir))
+        );
     }
 
     /// The parent directory is swapped for a symlink to a directory holding
