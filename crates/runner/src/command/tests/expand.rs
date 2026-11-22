@@ -48,8 +48,8 @@ fn register_commands_incremental_alias_merge_preserves_resolution() {
         let id = format!("cmd_{n}");
         let alias = format!("c{n}");
         let mut spec = exec_spec("echo", &[id.as_str()]);
-        spec.aliases = vec![alias.clone()];
-        runner.register_commands(vec![(id.clone().into(), CommandSpec::Exec(spec))]);
+        spec.aliases = vec![alias];
+        runner.register_commands(vec![(id.into(), CommandSpec::Exec(spec))]);
     }
     for n in 0..5 {
         let alias = format!("c{n}");

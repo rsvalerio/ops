@@ -9,8 +9,8 @@ fn step_result_failure_creates_correct_result() {
     assert_eq!(result.id, "test_cmd");
     assert!(!result.success);
     assert_eq!(result.duration, duration);
-    assert!(result.stdout.is_empty());
-    assert!(result.stderr.is_empty());
+    assert!(result.stdout.is_empty(), "expected empty: {:?}", result.stdout);
+    assert!(result.stderr.is_empty(), "expected empty: {:?}", result.stderr);
     assert_eq!(result.message, Some("test error".to_string()));
 }
 

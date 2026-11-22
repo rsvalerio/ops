@@ -717,7 +717,7 @@ mod tests {
         let manifest: CargoToml =
             toml::from_str("[package]\nname=\"x\"\nversion=\"0.1.0\"\n").expect("parse");
         let resolved = resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent"));
-        assert!(resolved.is_empty());
+        assert!(resolved.is_empty(), "expected empty: {resolved:?}");
     }
 
     #[test]
@@ -725,7 +725,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let manifest = manifest_with_members(&["crates/*"]);
         let resolved = resolved_workspace_members(&manifest, dir.path());
-        assert!(resolved.is_empty());
+        assert!(resolved.is_empty(), "expected empty: {resolved:?}");
     }
 
     #[test]

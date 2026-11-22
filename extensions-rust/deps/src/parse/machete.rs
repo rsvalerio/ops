@@ -1,15 +1,19 @@
 //! Parser for `cargo machete` text output.
 //!
-//! cargo-machete (0.9) has no machine-readable output mode, so this parses
-//! its human-readable stdout. The contract, from its source:
+//! cargo-machete (0.9, 0.10) has no machine-readable output mode this parser
+//! can rely on, so it parses the human-readable stdout. The contract, from its
+//! source:
 //!
 //! * stdout carries either one `didn't find any unused dependencies` summary
 //!   line, or a `found the following unused dependencies` header followed by
 //!   `<package> -- <manifest>:` lines, each with one tab-indented dependency
-//!   per line, ended by a blank line and an advice trailer.
-//! * stderr carries progress lines, `error when handling <manifest>: …` for a
-//!   manifest it could not analyse, and `⚠️ … marked as ignored, but is
-//!   actually used!` notes.
+//!   per line, ended by a blank line and an advice trailer. 0.10 also prints
+//!   an `Analyzing dependencies of crates in this directory...` progress line
+//!   before the summary and a `Done!` completion line after the output; 0.9
+//!   printed both on stderr, where they are ignored.
+//! * stderr carries `error when handling <manifest>: …` for a manifest it
+//!   could not analyse, and `⚠️ … marked as ignored, but is actually used!`
+//!   notes.
 //! * exit `0` means nothing unused, `1` means at least one unused dependency,
 //!   `2` means an error.
 //!
@@ -31,6 +35,13 @@ const CARGO_MACHETE_TIMEOUT: Duration = Duration::from_mins(2);
 
 const CLEAN_MARKER: &str = "cargo-machete didn't find any unused dependencies in ";
 const FOUND_MARKER: &str = "cargo-machete found the following unused dependencies in ";
+/// cargo-machete 0.10 prints this progress line on stdout before any summary
+/// or listing; matched exactly, so a reworded line still fails closed.
+const ANALYZING_MARKER: &str = "Analyzing dependencies of crates in this directory...";
+/// cargo-machete 0.10's completion line, printed on stdout after the summary
+/// (clean runs) at the end of the advice trailer (found runs, where the
+/// free-form trailer state already absorbs it).
+const DONE_MARKER: &str = "Done!";
 const MANIFEST_ERROR_MARKER: &str = "error when handling ";
 
 /// Run `cargo machete` and parse its output.
@@ -163,12 +174,16 @@ fn parse_machete_stdout(stdout: &str) -> anyhow::Result<MacheteStdout> {
                     state = State::Clean;
                 } else if line.starts_with(FOUND_MARKER) {
                     state = State::Listing;
+                } else if line == ANALYZING_MARKER {
+                    // 0.10's progress line; the state stays Preamble.
                 } else {
                     return Err(unrecognised(line));
                 }
             }
             State::Clean => {
-                if !line.trim().is_empty() {
+                if line == DONE_MARKER {
+                    // 0.10's completion line; nothing may follow it.
+                } else if !line.trim().is_empty() {
                     return Err(unrecognised(line));
                 }
             }

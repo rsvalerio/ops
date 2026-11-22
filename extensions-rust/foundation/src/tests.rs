@@ -82,7 +82,11 @@ fn clippy_msrv_follows_rust_version_and_is_not_baseline() {
     assert!(read(&dir, "clippy.toml").contains("\nmsrv = \"1.85\"\n"));
     let edited = read(&dir, "clippy.toml").replace("msrv = \"1.85\"", "msrv = \"1.90\"");
     std::fs::write(dir.path().join("clippy.toml"), edited).expect("write");
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 #[test]
@@ -122,7 +126,11 @@ fn force_replaces_files_and_the_lint_table() {
     let manifest = read(&dir, "Cargo.toml");
     assert_eq!(manifest.matches("[workspace.lints.clippy]").count(), 1);
     assert!(manifest.contains("\npanic = \"warn\""));
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 #[test]
@@ -157,7 +165,11 @@ fn additions_are_not_drift_and_stricter_lints_pass() {
     std::fs::write(dir.path().join("deny.toml"), deny).expect("edit");
     let manifest = read(&dir, "Cargo.toml").replace("= \"warn\"", "= \"deny\"");
     std::fs::write(dir.path().join("Cargo.toml"), manifest).expect("edit");
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 #[test]
@@ -221,8 +233,8 @@ fn a_dotted_workspace_dir_is_one_segment() {
     assert!(!waiver_covers(".ops.toml:cargo.workspaces.tools", location));
     let waivers = IndexMap::from([(location.to_owned(), "held back".to_owned())]);
     let report = check(dir.path(), &waivers, &[]).expect("check");
-    assert!(workspace_drift(&report).is_empty());
-    assert!(report.unused_waivers.is_empty());
+    assert!(workspace_drift(&report).is_empty(), "expected empty: {:?}", workspace_drift(&report));
+    assert!(report.unused_waivers.is_empty(), "expected empty: {:?}", report.unused_waivers);
 }
 
 #[test]
@@ -238,7 +250,11 @@ fn single_package_gets_lints_directly() {
     let manifest = read(&dir, "Cargo.toml");
     assert!(manifest.contains("\n[lints.clippy]\n"));
     assert!(read(&dir, "clippy.toml").contains("msrv = \"1.80\""));
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 #[test]
@@ -249,7 +265,11 @@ fn a_root_that_is_also_a_package_opts_itself_in() {
     scaffold(dir.path(), false).expect("scaffold");
     let manifest = read(&dir, "Cargo.toml");
     assert!(manifest.contains("\n[lints]\nworkspace = true\n"), "{manifest}");
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 #[test]
@@ -375,8 +395,8 @@ fn mise_pin_drift_is_reported_and_tool_additions_are_not() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
     let mise = read(&dir, "mise.toml")
-        .replace("trivy = \"0.70.0\"", "trivy = \"0.69.0\"")
-        .replace("cargo-deny = \"0.20.2\"\n", "")
+        .replace("trivy = \"0.76.2\"", "trivy = \"0.69.0\"")
+        .replace("cargo-deny = \"0.22.0\"\n", "")
         + "cocogitto = \"7.0.0\"\n";
     std::fs::write(dir.path().join("mise.toml"), mise).expect("edit");
 
@@ -385,7 +405,7 @@ fn mise_pin_drift_is_reported_and_tool_additions_are_not() {
         report.drift,
         vec![
             Drift::new("mise.toml:tools.cargo-deny", "missing"),
-            Drift::new("mise.toml:tools.trivy", "expected \"0.70.0\", found \"0.69.0\""),
+            Drift::new("mise.toml:tools.trivy", "expected \"0.76.2\", found \"0.69.0\""),
         ]
     );
 
@@ -399,7 +419,7 @@ fn mise_pin_drift_is_reported_and_tool_additions_are_not() {
     let report = check(dir.path(), &waivers, &[]).expect("check");
     assert!(report.drift.is_empty(), "{:?}", report.drift);
     assert_eq!(report.waived.len(), 2);
-    assert!(report.unused_waivers.is_empty());
+    assert!(report.unused_waivers.is_empty(), "expected empty: {:?}", report.unused_waivers);
 }
 
 #[test]
@@ -413,7 +433,11 @@ fn a_missing_mise_toml_is_drift_and_scaffold_writes_it() {
     let written = scaffold(dir.path(), false).expect("rescaffold");
     let mise = written.iter().find(|w| w.target == "mise.toml").expect("mise.toml target");
     assert_eq!(mise.outcome, Outcome::Created);
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 fn check_with_ops_pin(pin: &str) -> Vec<Drift> {
@@ -599,7 +623,11 @@ fn force_replaces_the_lint_table_of_a_single_package() {
     let manifest = read(&dir, "Cargo.toml");
     assert_eq!(manifest.matches("[lints.clippy]").count(), 1);
     assert!(manifest.starts_with("[package]\nname = \"solo\"\n"), "{manifest}");
-    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
+    assert!(
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty(),
+        "expected empty: {:?}",
+        check(dir.path(), &no_waivers(), &[]).expect("check").drift
+    );
 }
 
 fn nested_fuzz(dir: &tempfile::TempDir) {
@@ -639,7 +667,7 @@ fn a_nested_workspace_missing_from_the_list_is_drift() {
     }
     let listed = [".".to_string(), "./fuzz/".to_string()];
     let report = check(dir.path(), &no_waivers(), &listed).expect("check");
-    assert!(workspace_drift(&report).is_empty());
+    assert!(workspace_drift(&report).is_empty(), "expected empty: {:?}", workspace_drift(&report));
 }
 
 #[test]
@@ -668,7 +696,7 @@ fn leaving_a_nested_workspace_out_is_a_waiver() {
         "fuzz targets build on nightly only".to_string(),
     )]);
     let report = check(dir.path(), &waivers, &[]).expect("check");
-    assert!(workspace_drift(&report).is_empty());
+    assert!(workspace_drift(&report).is_empty(), "expected empty: {:?}", workspace_drift(&report));
     assert_eq!(report.waived.len(), 1);
 }
 

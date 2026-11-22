@@ -35,7 +35,7 @@ fn flatten_coverage_json_empty_files() {
     });
     let result = flatten_coverage_json(&raw).expect("should handle empty files");
     let arr = result.as_array().unwrap();
-    assert!(arr.is_empty());
+    assert!(arr.is_empty(), "expected empty: {arr:?}");
 }
 
 /// When llvm-cov emits multiple data[] entries (per-target merging), every

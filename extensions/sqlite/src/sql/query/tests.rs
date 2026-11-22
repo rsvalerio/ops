@@ -697,5 +697,9 @@ fn query_rust_loc_files_returns_every_row() {
 fn query_rust_loc_files_no_table() {
     let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
-    assert!(query_rust_loc_files(&db).expect("missing table").is_empty());
+    assert!(
+        query_rust_loc_files(&db).expect("missing table").is_empty(),
+        "expected empty: {:?}",
+        query_rust_loc_files(&db).expect("missing table")
+    );
 }

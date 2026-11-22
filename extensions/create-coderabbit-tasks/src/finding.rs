@@ -315,7 +315,11 @@ mod tests {
     #[test]
     fn non_json_lines_are_skipped_and_an_empty_review_is_ok() {
         let stream = "Starting review…\n{\"type\":\"complete\",\"findings\":0}\n";
-        assert!(parse_agent_output(stream).expect("parses").is_empty());
+        assert!(
+            parse_agent_output(stream).expect("parses").is_empty(),
+            "expected empty: {:?}",
+            parse_agent_output(stream).expect("parses")
+        );
     }
 
     #[test]

@@ -676,7 +676,11 @@ mod tests {
     #[test]
     fn no_config_uses_no_fields_and_a_broken_one_is_an_error() {
         let dir = crate::test_utils::canonical_tempdir().expect("tempdir");
-        assert!(fields_used(dir.path()).expect("fields").is_empty());
+        assert!(
+            fields_used(dir.path()).expect("fields").is_empty(),
+            "expected empty: {:?}",
+            fields_used(dir.path()).expect("fields")
+        );
         let broken = project("not = = toml");
         assert!(fields_used(broken.path()).is_err());
     }

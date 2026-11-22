@@ -739,7 +739,7 @@ mod tests {
     fn render_grouped_sections_empty_entries() {
         let entries: Vec<CmdEntry> = vec![];
         let output = render_grouped_sections(&entries);
-        assert!(output.is_empty());
+        assert!(output.is_empty(), "expected empty: {output:?}");
     }
 
     #[test]

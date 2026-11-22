@@ -553,7 +553,7 @@ mod tests {
     fn outputs_table_empty() {
         let outputs = serde_json::Map::new();
         let output = render_outputs_table(&outputs, TableColor::Off);
-        assert!(output.is_empty());
+        assert!(output.is_empty(), "expected empty: {output:?}");
     }
 
     /// Fail closed: every unreadable `actions` shape renders as `unknown`,

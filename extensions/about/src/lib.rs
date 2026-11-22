@@ -448,7 +448,7 @@ mod tests {
         assert!(id.dependency_count.is_none());
         assert!(id.coverage_percent.is_none());
         assert!(id.languages.is_empty());
-        assert!(id.authors.is_empty());
+        assert!(id.authors.is_empty(), "expected empty: {:?}", id.authors);
         assert!(id.stack_detail.is_none());
     }
 

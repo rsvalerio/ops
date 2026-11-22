@@ -796,7 +796,7 @@ mod tests {
                 && NAME.starts_with(|c: char| c.is_ascii_lowercase()),
             "NAME must be kebab-case, got: {NAME}"
         );
-        assert!(!DESCRIPTION.is_empty());
+        assert!(!DESCRIPTION.is_empty(), "expected non-empty: {DESCRIPTION:?}");
     }
 
     /// `HOOK_CONFIG` is the only thing distinguishing this crate from
@@ -812,7 +812,11 @@ mod tests {
         assert_eq!(HOOK_CONFIG.name, NAME);
         assert_eq!(HOOK_CONFIG.hook_script, HOOK_SCRIPT);
 
-        assert!(!HOOK_CONFIG.command_help.is_empty());
+        assert!(
+            !HOOK_CONFIG.command_help.is_empty(),
+            "expected non-empty: {:?}",
+            HOOK_CONFIG.command_help
+        );
         let help = HOOK_CONFIG.command_help.to_ascii_lowercase();
         assert!(
             help.contains("push") && !help.contains("commit"),
@@ -826,7 +830,11 @@ mod tests {
     /// an unrelated one.
     #[test]
     fn hook_config_legacy_markers_only_match_push_hooks() {
-        assert!(!HOOK_CONFIG.legacy_markers.is_empty());
+        assert!(
+            !HOOK_CONFIG.legacy_markers.is_empty(),
+            "expected non-empty: {:?}",
+            HOOK_CONFIG.legacy_markers
+        );
         for marker in HOOK_CONFIG.legacy_markers {
             assert!(
                 marker.contains("push") && !marker.contains("commit"),

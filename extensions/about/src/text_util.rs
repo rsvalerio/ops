@@ -498,18 +498,22 @@ mod tests {
 
     #[test]
     fn wrap_text_empty() {
-        assert!(wrap_text("", 10, 2).is_empty());
+        assert!(wrap_text("", 10, 2).is_empty(), "expected empty: {:?}", wrap_text("", 10, 2));
     }
 
     #[test]
     fn wrap_text_max_lines_zero() {
-        assert!(wrap_text("hello world", 20, 0).is_empty());
+        assert!(
+            wrap_text("hello world", 20, 0).is_empty(),
+            "expected empty: {:?}",
+            wrap_text("hello world", 20, 0)
+        );
     }
 
     #[test]
     fn wrap_text_long_word_exceeds_width() {
         let result = wrap_text("superlongword short", 5, 3);
-        assert!(!result.is_empty());
+        assert!(!result.is_empty(), "expected non-empty: {result:?}");
     }
 
     /// When `max_lines` runs out mid-iteration the word that would have

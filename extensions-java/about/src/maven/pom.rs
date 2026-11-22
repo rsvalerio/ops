@@ -838,7 +838,7 @@ mod tests {
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("simple".to_string()));
         assert!(pom.version.is_none());
-        assert!(pom.modules.is_empty());
+        assert!(pom.modules.is_empty(), "expected empty: {:?}", pom.modules);
     }
 
     #[test]

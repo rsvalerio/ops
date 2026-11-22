@@ -169,7 +169,7 @@ fn interpret_upgrade_output_preamble_does_not_inflate_body_lines() {
                    ====   ======= ========== ======  =======\n";
     let result = interpret_upgrade_output(Some(0), stdout, b"")
         .expect("preamble + header + separator + zero body rows must be Ok");
-    assert!(result.is_empty());
+    assert!(result.is_empty(), "expected empty: {result:?}");
 }
 
 /// `check_header_drift` and `check_row_shape_drift` are both gated on
@@ -211,7 +211,7 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
 fn interpret_upgrade_output_empty_stdout_is_not_separator_drift() {
     let result =
         interpret_upgrade_output(Some(0), b"", b"").expect("empty stdout must stay Ok([])");
-    assert!(result.is_empty());
+    assert!(result.is_empty(), "expected empty: {result:?}");
 }
 
 // -- stderr tail Debug-escapes control bytes --

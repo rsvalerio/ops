@@ -356,7 +356,11 @@ body text
                 .expect("read"),
         )
         .expect("re-parse");
-        assert!(doc.frontmatter.assignees.is_empty());
+        assert!(
+            doc.frontmatter.assignees.is_empty(),
+            "expected empty: {:?}",
+            doc.frontmatter.assignees
+        );
     }
 
     #[test]

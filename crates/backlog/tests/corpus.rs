@@ -93,7 +93,7 @@ fn oldest_files_keep_seconds_dates_and_missing_update() {
 fn frontmatter_only_file_has_empty_body() {
     let src = fixture("tasks", |n| n.starts_with("task-1692"));
     let doc = parse(&src);
-    assert!(doc.body.raw.is_empty());
+    assert!(doc.body.raw.is_empty(), "expected empty: {:?}", doc.body.raw);
 }
 
 /// task-2069: block-list `modified_files`, labels, AC checkboxes.
@@ -101,7 +101,11 @@ fn frontmatter_only_file_has_empty_body() {
 fn modified_files_and_ac_counts_survive() {
     let src = fixture("tasks", |n| n.starts_with("task-2069"));
     let doc = parse(&src);
-    assert!(!doc.frontmatter.modified_files.is_empty());
+    assert!(
+        !doc.frontmatter.modified_files.is_empty(),
+        "expected non-empty: {:?}",
+        doc.frontmatter.modified_files
+    );
     let ac = doc.body.ac_items();
     assert_eq!(ac.len(), 3);
     assert!(ac.iter().all(|item| item.checked));

@@ -255,7 +255,7 @@ esac"#,
     /// `DepsReport` keeps gaining fields, so a cache written by an older
     /// `ops` is a live failure mode. The decode error must name the report
     /// and the `--refresh` remedy rather than surfacing serde's own
-    /// `missing field \`upgrades\``, which reads as a bug in ops.
+    /// missing-field `upgrades` error, which reads as a bug in ops.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -409,7 +409,7 @@ esac"#;
         assert_eq!(report.upgrades.compatible[0].name, "serde");
         assert_eq!(report.upgrades.incompatible.len(), 1);
         assert_eq!(report.upgrades.incompatible[0].name, "clap");
-        assert!(report.deny.advisories.is_empty());
+        assert!(report.deny.advisories.is_empty(), "expected empty: {:?}", report.deny.advisories);
         let UnusedDepsResult::Checked { entries } = &report.unused else {
             panic!("an installed cargo-machete must run: {:?}", report.unused);
         };

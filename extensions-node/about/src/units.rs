@@ -551,12 +551,12 @@ mod tests {
         // distinguishing it from "no packages: key at all".
         let yaml = "packages: |\n  apps/*\n";
         let r = parse_pnpm_workspace_yaml(yaml);
-        assert!(r.items.is_empty());
+        assert!(r.items.is_empty(), "expected empty: {:?}", r.items);
         assert!(r.saw_packages_key);
 
         let no_key = "name: foo\n";
         let r = parse_pnpm_workspace_yaml(no_key);
-        assert!(r.items.is_empty());
+        assert!(r.items.is_empty(), "expected empty: {:?}", r.items);
         assert!(!r.saw_packages_key);
     }
 

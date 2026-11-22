@@ -309,7 +309,7 @@ mod tests {
         let cmd_output = from_output(output);
         assert!(cmd_output.success);
         assert_eq!(cmd_output.stdout, "hello world");
-        assert!(cmd_output.stderr.is_empty());
+        assert!(cmd_output.stderr.is_empty(), "expected empty: {:?}", cmd_output.stderr);
     }
 
     #[test]
@@ -317,7 +317,7 @@ mod tests {
         let output = make_test_output(1, b"", b"error message");
         let cmd_output = from_output(output);
         assert!(!cmd_output.success);
-        assert!(cmd_output.stdout.is_empty());
+        assert!(cmd_output.stdout.is_empty(), "expected empty: {:?}", cmd_output.stdout);
         assert_eq!(cmd_output.stderr, "error message");
     }
 
@@ -334,7 +334,11 @@ mod tests {
     fn command_output_status_message() {
         let output = make_test_output(0, b"", b"");
         let cmd_output = from_output(output);
-        assert!(!cmd_output.status_message.is_empty());
+        assert!(
+            !cmd_output.status_message.is_empty(),
+            "expected non-empty: {:?}",
+            cmd_output.status_message
+        );
     }
 
     /// When the streaming reader sinks bytes past the cap,
@@ -506,8 +510,8 @@ mod tests {
         assert_eq!(result.id, "test_cmd");
         assert!(!result.success);
         assert_eq!(result.duration, duration);
-        assert!(result.stdout.is_empty());
-        assert!(result.stderr.is_empty());
+        assert!(result.stdout.is_empty(), "expected empty: {:?}", result.stdout);
+        assert!(result.stderr.is_empty(), "expected empty: {:?}", result.stderr);
         assert_eq!(result.message, Some("error occurred".to_string()));
     }
 }

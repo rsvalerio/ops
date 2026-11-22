@@ -286,7 +286,11 @@ mod tests {
         }
         write(root, "broken/Cargo.toml", "[workspace\n");
         write(root, "fixtures/member/Cargo.toml", "[package]\nname = \"m\"\n");
-        assert!(nested_workspaces(root).is_empty());
+        assert!(
+            nested_workspaces(root).is_empty(),
+            "expected empty: {:?}",
+            nested_workspaces(root)
+        );
     }
 
     #[test]

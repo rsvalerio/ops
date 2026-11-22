@@ -833,7 +833,11 @@ mod tests {
         assert_eq!(inherited_holders(Some(&inner), &backlog), [10]);
         let partial = held_key(dir, "code-review");
         assert!(inherited_holders(Some(&inner), &partial).is_empty(), "whole keys only");
-        assert!(inherited_holders(None, &merge).is_empty());
+        assert!(
+            inherited_holders(None, &merge).is_empty(),
+            "expected empty: {:?}",
+            inherited_holders(None, &merge)
+        );
         let bare = held_with(None, &merge);
         assert!(inherited_holders(Some(&bare), &merge).is_empty(), "a line without a pid");
     }
@@ -843,7 +847,11 @@ mod tests {
         let ours = held_key(Path::new("/a/.git/ops/locks"), "code-review-merge");
         let held = held_with(None, &held_entry(10, &ours));
         let other = held_key(Path::new("/b/.git/ops/locks"), "code-review-merge");
-        assert!(inherited_holders(Some(&held), &other).is_empty());
+        assert!(
+            inherited_holders(Some(&held), &other).is_empty(),
+            "expected empty: {:?}",
+            inherited_holders(Some(&held), &other)
+        );
     }
 
     #[test]

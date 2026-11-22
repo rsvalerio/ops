@@ -276,7 +276,7 @@ mod tests {
         let text = format!(
             "steps:\n  - uses: actions/checkout@{SHA} # v6.1.0\n  - uses: \"a/b/c@{SHA}\" # v1\n"
         );
-        assert!(lines(&text, &[]).is_empty());
+        assert!(lines(&text, &[]).is_empty(), "expected empty: {:?}", lines(&text, &[]));
     }
 
     #[test]
@@ -307,7 +307,11 @@ mod tests {
     fn local_and_allow_listed_refs_are_exempt() {
         let text =
             "    uses: ./.github/workflows/x.yml\n    uses: me/forge/.github/workflows/b.yml@v1\n";
-        assert!(lines(text, &["me/forge/"]).is_empty());
+        assert!(
+            lines(text, &["me/forge/"]).is_empty(),
+            "expected empty: {:?}",
+            lines(text, &["me/forge/"])
+        );
         assert_eq!(lines(text, &[]), [2]);
     }
 
@@ -345,13 +349,17 @@ mod tests {
     #[test]
     fn comments_and_other_keys_are_ignored() {
         let text = "# uses: a/b@v1\n  name: uses: a/b@v1\n  # secrets: inherit\n";
-        assert!(lines(text, &[]).is_empty());
+        assert!(lines(text, &[]).is_empty(), "expected empty: {:?}", lines(text, &[]));
     }
 
     #[test]
     fn scans_only_regular_yaml_files_in_the_workflows_dir() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(workflow_files(&dir.path().join(WORKFLOWS_DIR)).unwrap().is_empty());
+        assert!(
+            workflow_files(&dir.path().join(WORKFLOWS_DIR)).unwrap().is_empty(),
+            "expected empty: {:?}",
+            workflow_files(&dir.path().join(WORKFLOWS_DIR)).unwrap()
+        );
         let wf = dir.path().join(WORKFLOWS_DIR);
         std::fs::create_dir_all(&wf).unwrap();
         std::fs::write(wf.join("b.yaml"), "").unwrap();
@@ -371,7 +379,11 @@ mod tests {
     fn finds_composite_action_manifests_without_following_links() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        assert!(action_files(root).unwrap().is_empty());
+        assert!(
+            action_files(root).unwrap().is_empty(),
+            "expected empty: {:?}",
+            action_files(root).unwrap()
+        );
         std::fs::write(root.join("action.yml"), "").unwrap();
         for sub in [".github/actions/local", "actions/published", "actions/empty"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();

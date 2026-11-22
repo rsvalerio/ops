@@ -74,7 +74,7 @@ fn empty_section_is_ok_none() {
     );
     assert_eq!(row.status, ReportStatus::Ok);
     assert_eq!(row.result, "None");
-    assert!(row.details.is_empty());
+    assert!(row.details.is_empty(), "expected empty: {:?}", row.details);
 }
 
 #[test]

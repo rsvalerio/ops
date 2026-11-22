@@ -310,7 +310,7 @@ mod tests {
             "the concurrent edit must survive the run"
         );
         assert!(report.failed());
-        assert!(report.files_changed.is_empty());
+        assert!(report.files_changed.is_empty(), "expected empty: {:?}", report.files_changed);
         let [failure] = report.files_failed.as_slice() else {
             panic!("expected one failure, got {:?}", report.files_failed);
         };

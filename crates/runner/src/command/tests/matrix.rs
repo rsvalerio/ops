@@ -112,7 +112,11 @@ async fn fail_fast_matrix_skips_the_remaining_cells() {
     let results = runner.run_plan(&["m".into()], true, &mut |e| events.push(e)).await;
     assert_eq!(results[0].message.as_deref(), Some("1 of 3 cells failed: [n=1]; 2 skipped"));
     assert_eq!(ids_where(&events, skipped), ["m [n=2]", "m [n=3]"]);
-    assert!(ids_where(&events, finished).is_empty());
+    assert!(
+        ids_where(&events, finished).is_empty(),
+        "expected empty: {:?}",
+        ids_where(&events, finished)
+    );
 }
 
 /// AC #5: `max_parallel = 1` never overlaps two cells.

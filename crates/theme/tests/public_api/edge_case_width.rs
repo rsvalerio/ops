@@ -68,7 +68,7 @@ fn render_pending_with_zero_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let step = StepLine::new(StepStatus::Pending, "pending".to_string(), None);
     let line = theme.render(&step, 0);
-    assert!(!line.is_empty());
+    assert!(!line.is_empty(), "expected non-empty: {line:?}");
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn render_failed_with_minimal_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let step = StepLine::new(StepStatus::Failed, "f".to_string(), Some(0.01));
     let line = render_within_budget(&theme, &step, 3);
-    assert!(!line.is_empty());
+    assert!(!line.is_empty(), "expected non-empty: {line:?}");
 }
 
 /// A label longer than the column width is

@@ -38,7 +38,7 @@ fn chars() -> ErrorBlockChars {
 #[test]
 fn error_block_neutralises_control_bytes_from_subprocess_stderr() {
     let lines = render_error_block_gated(&hostile_detail(), 2, &chars(), 0, false);
-    assert!(!lines.is_empty());
+    assert!(!lines.is_empty(), "expected non-empty: {lines:?}");
     for line in &lines {
         assert!(!line.contains('\x1b'), "ESC survived: {line:?}");
         assert!(!line.contains('\r'), "CR survived: {line:?}");
@@ -65,7 +65,7 @@ fn boxed_error_block_keeps_frame_width_with_hostile_stderr() {
     });
     let columns = 60u16;
     let lines = theme.render_error_detail(&hostile_detail(), columns);
-    assert!(!lines.is_empty());
+    assert!(!lines.is_empty(), "expected non-empty: {lines:?}");
     for line in &lines {
         assert_eq!(
             visible_width(line),
@@ -124,7 +124,7 @@ fn boxed_error_block_keeps_frame_width_with_tabbed_stderr() {
         vec!["note:\tunsatisfied trait bound".to_string(), "\t\tleft: 1\tright: 2".to_string()],
     );
     let lines = theme.render_error_detail(&detail, columns);
-    assert!(!lines.is_empty());
+    assert!(!lines.is_empty(), "expected non-empty: {lines:?}");
     assert!(
         lines.iter().any(|l| l.contains("unsatisfied trait bound")),
         "the tabbed detail must be rendered: {lines:?}"

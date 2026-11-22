@@ -188,7 +188,11 @@ mod tests {
             let mut config = with_workspaces(list);
             apply(&mut config, dir.path()).unwrap();
             assert!(config.commands.is_empty(), "{list:?}");
-            assert!(config.provenance.extended_stack_defaults.is_empty());
+            assert!(
+                config.provenance.extended_stack_defaults.is_empty(),
+                "expected empty: {:?}",
+                config.provenance.extended_stack_defaults
+            );
         }
     }
 

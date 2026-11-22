@@ -157,7 +157,7 @@ mod tests {
     fn invalid_yaml_fails() {
         let err = check_yaml(b"a: : :\n").unwrap_err();
         assert!(matches!(err, CheckError::Parse(_)), "expected Parse, got {err:?}");
-        assert!(!err.to_string().is_empty());
+        assert!(!err.to_string().is_empty(), "expected non-empty: {:?}", err.to_string());
     }
 
     #[test]

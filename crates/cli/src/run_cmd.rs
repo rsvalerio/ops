@@ -242,7 +242,10 @@ fn run_commands(
             );
         }
         for name in names {
-            run_command_dry_run(&runner, name)?;
+            // Each preview prints its own rendering; the per-command
+            // `ExitCode` is uniformly `SUCCESS` here and deliberately
+            // dropped in favour of the loop's single success return below.
+            let _ = run_command_dry_run(&runner, name)?;
         }
         return Ok(ExitCode::SUCCESS);
     }

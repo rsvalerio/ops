@@ -720,7 +720,7 @@ program = "true"
         // `true` exits 0, but propagate any spawn error so a CI environment
         // without `/usr/bin/true` surfaces a clear failure instead of a
         // confusing load-count mismatch.
-        res.expect("run_hook_dispatch over configured `true` command must succeed");
+        let _ = res.expect("run_hook_dispatch over configured `true` command must succeed");
 
         assert_eq!(
             ops_core::config::load_config_call_count(),
@@ -853,9 +853,9 @@ commands = ["touch-marker"]
         std::fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/main\n").expect("HEAD");
         let config = std::sync::Arc::new(Config::default());
 
-        run_before_commit(&config, Some(RunBeforeCommitAction::Install), false, true)
+        let _ = run_before_commit(&config, Some(RunBeforeCommitAction::Install), false, true)
             .expect("dry-run install must not error");
-        run_before_push(&config, Some(RunBeforePushAction::Install), true)
+        let _ = run_before_push(&config, Some(RunBeforePushAction::Install), true)
             .expect("dry-run install must not error");
 
         assert!(!dir.path().join(".git/hooks").exists(), "no hook may be written");

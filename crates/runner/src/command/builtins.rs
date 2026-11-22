@@ -150,7 +150,7 @@ mod tests {
             panic!("expected exec spec");
         };
         assert_eq!(exec.args, vec!["end-of-file-fixer".to_string()]);
-        assert!(!exec.program.is_empty());
+        assert!(!exec.program.is_empty(), "expected non-empty: {:?}", exec.program);
     }
 
     /// Builtins spawn via `current_exe()` (often an absolute path) but must

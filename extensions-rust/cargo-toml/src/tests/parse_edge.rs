@@ -208,7 +208,7 @@ fn dep_spec_simple_accessors() {
     assert!(simple.detail().is_none());
     assert!(simple.path().is_none());
     assert!(simple.git().is_none());
-    assert!(simple.features().is_empty());
+    assert!(simple.features().is_empty(), "expected empty: {:?}", simple.features());
     assert!(!simple.is_optional());
     assert!(simple.uses_default_features());
     assert!(simple.package().is_none());

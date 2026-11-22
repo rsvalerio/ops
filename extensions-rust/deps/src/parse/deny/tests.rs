@@ -74,7 +74,7 @@ fn interpret_deny_output_decodes_bans_only_exit_code() {
     let result = interpret_stderr(Some(2), stderr).expect("bans-only failure decodes");
     assert_eq!(result.bans.len(), 1);
     assert_eq!(result.bans[0].0.package, "denyexp");
-    assert!(result.licenses.is_empty());
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
 }
 
 /// A licenses-only failure exits 4. Stream captured from cargo-deny 0.20.2.
@@ -87,7 +87,7 @@ fn interpret_deny_output_decodes_licenses_only_exit_code() {
     assert_eq!(result.licenses.len(), 1);
     assert_eq!(result.licenses[0].0.package, "denyexp");
     assert_eq!(result.unused_license_allowances.len(), 1);
-    assert!(result.bans.is_empty());
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
 }
 
 /// Every non-empty combination of the four check bits is a check failure;
@@ -170,10 +170,10 @@ fn interpret_deny_output_errs_on_signal_kill_even_with_partial_stderr() {
 fn interpret_deny_output_passes_exit_code_0_through() {
     // Clean run: empty stderr, no diagnostics.
     let result = interpret_stderr(Some(0), "").expect("clean run is Ok");
-    assert!(result.advisories.is_empty());
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 /// Exit 0 with a non-empty stream that decoded **no** JSON envelopes at
@@ -200,7 +200,7 @@ fn interpret_deny_output_accepts_log_envelopes_on_exit_code_0() {
     let stderr = r#"{"type":"log","fields":{"level":"warn","message":"no advisory database found"}}
 {"type":"summary","fields":{"errors":0,"warnings":1}}"#;
     let result = interpret_stderr(Some(0), stderr).expect("envelope-carrying run is Ok");
-    assert!(result.advisories.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
 }
 
 /// Exit 0 with *decodable* warning-level findings —
@@ -417,7 +417,7 @@ fn parse_deny_missing_code_logs_a_breadcrumb() {
 
     let (logged, result) =
         crate::test_support::capture_tracing(tracing::Level::DEBUG, || parse_deny_output(stderr));
-    assert!(result.advisories.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
     assert!(
         logged.contains("no `code` field"),
         "expected a missing-code breadcrumb; got: {logged}"
@@ -435,9 +435,9 @@ fn parse_deny_advisory() {
     assert_eq!(result.advisories[0].package, "atty");
     assert_eq!(result.advisories[0].severity, "error");
     assert_eq!(result.advisories[0].title, "`atty` is unmaintained");
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 #[test]
@@ -470,26 +470,26 @@ fn parse_deny_skips_log_and_summary() {
     let stderr = r#"{"type":"log","fields":{"timestamp":"2024-01-01","level":"INFO","message":"checking"}}
 {"type":"summary","fields":{"advisories":{"errors":0},"bans":{"errors":0},"licenses":{"errors":0},"sources":{"errors":0}}}"#;
     let result = parse_deny_output(stderr);
-    assert!(result.advisories.is_empty());
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 #[test]
 fn parse_deny_empty() {
     let result = parse_deny_output("");
-    assert!(result.advisories.is_empty());
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 #[test]
 fn parse_deny_skips_invalid_json() {
     let stderr = "not json\n{broken\n";
     let result = parse_deny_output(stderr);
-    assert!(result.advisories.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
 }
 
 #[test]
@@ -511,10 +511,10 @@ fn parse_deny_mixed_diagnostics() {
 fn parse_deny_unknown_code_does_not_appear_in_result() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"future schema","code":"hypothetical-new-category","labels":[],"graphs":[{"Krate":{"name":"some","version":"1.0.0"}}],"notes":[]}}"#;
     let result = parse_deny_output(stderr);
-    assert!(result.advisories.is_empty());
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 /// A diagnostic that lacks a `severity` field keeps that fact visible: the
@@ -544,10 +544,10 @@ fn parse_deny_missing_severity_uses_distinct_sentinel() {
 fn parse_deny_no_code_field_skipped() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"something","labels":[],"graphs":[{"Krate":{"name":"pkg","version":"1.0.0"}}],"notes":[]}}"#;
     let result = parse_deny_output(stderr);
-    assert!(result.advisories.is_empty());
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 /// A diagnostic with no severity must NOT be rebadged as `"error"` — that
@@ -693,10 +693,10 @@ fn parse_deny_git_source_underspecified() {
 fn parse_deny_unknown_code_ignored() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"something new","code":"future-check-type","labels":[],"graphs":[{"Krate":{"name":"pkg","version":"1.0.0"}}],"notes":[]}}"#;
     let result = parse_deny_output(stderr);
-    assert!(result.advisories.is_empty());
-    assert!(result.licenses.is_empty());
-    assert!(result.bans.is_empty());
-    assert!(result.sources.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
+    assert!(result.licenses.is_empty(), "expected empty: {:?}", result.licenses);
+    assert!(result.bans.is_empty(), "expected empty: {:?}", result.bans);
+    assert!(result.sources.is_empty(), "expected empty: {:?}", result.sources);
 }
 
 #[test]
@@ -704,7 +704,7 @@ fn parse_deny_fields_deserialization_failure_skipped() {
     // Valid JSON line but fields can't deserialize to DiagnosticFields
     let stderr = r#"{"type":"diagnostic","fields":"not an object"}"#;
     let result = parse_deny_output(stderr);
-    assert!(result.advisories.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
 }
 
 #[test]
@@ -716,7 +716,7 @@ fn parse_deny_output_skips_malformed_json_with_tracing() {
 
     let (logged, result) =
         crate::test_support::capture_tracing(tracing::Level::DEBUG, || parse_deny_output(stderr));
-    assert!(result.advisories.is_empty());
+    assert!(result.advisories.is_empty(), "expected empty: {:?}", result.advisories);
     assert!(
         logged.contains("malformed cargo-deny JSON line"),
         "missing malformed-line message: {logged}"

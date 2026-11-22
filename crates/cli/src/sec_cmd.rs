@@ -1491,7 +1491,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         touch(dir.path(), "Cargo.lock");
         let mut buf: Vec<u8> = Vec::new();
-        run_sec_to(dir.path(), true, &SecOverrides::default(), &mut buf)
+        let _ = run_sec_to(dir.path(), true, &SecOverrides::default(), &mut buf)
             .expect("dry-run must not error");
         let out = String::from_utf8(buf).unwrap();
         assert!(out.contains("skipping dirs:"), "preview must name the skip list: {out}");
@@ -1507,7 +1507,7 @@ mod tests {
     fn dry_run_with_no_default_skips_says_so() {
         let dir = tempfile::tempdir().unwrap();
         let mut buf: Vec<u8> = Vec::new();
-        run_sec_to(
+        let _ = run_sec_to(
             dir.path(),
             true,
             &SecOverrides { no_default_skips: true, ..Default::default() },
@@ -1614,7 +1614,7 @@ mod tests {
 
     fn dry_run_output(root: &Path, overrides: &SecOverrides) -> String {
         let mut buf: Vec<u8> = Vec::new();
-        run_sec_to(root, true, overrides, &mut buf).expect("dry-run must not error");
+        let _ = run_sec_to(root, true, overrides, &mut buf).expect("dry-run must not error");
         String::from_utf8(buf).unwrap()
     }
 

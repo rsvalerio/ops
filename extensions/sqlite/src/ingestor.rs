@@ -841,11 +841,11 @@ mod tests {
         /// validator (e.g. to allow `;`) trips a build failure.
         #[test]
         fn count_table_const_validation_accepts_simple_identifier() {
-            const _CFG: SidecarIngestorConfig =
+            const CFG: SidecarIngestorConfig =
                 SidecarIngestorConfig::new("ok", "ok.json", "data_sources");
             // (compile-time check: the const eval would fail if validation
             // rejected the literal.)
-            assert_eq!(_CFG.count_table.as_str(), "data_sources");
+            assert_eq!(CFG.count_table.as_str(), "data_sources");
         }
     }
 }

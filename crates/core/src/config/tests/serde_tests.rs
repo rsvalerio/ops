@@ -163,7 +163,7 @@ args = ["build"]
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
     let spec = config.commands.get("build").unwrap();
-    assert!(spec.aliases().is_empty());
+    assert!(spec.aliases().is_empty(), "expected empty: {:?}", spec.aliases());
 }
 
 // --- [backlog] -----------------------------------------------------------------

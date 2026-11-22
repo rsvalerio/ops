@@ -111,8 +111,16 @@ mod tests {
 
     #[test]
     fn format_language_stats_section_empty() {
-        assert!(format_language_stats_section(None).is_empty());
-        assert!(format_language_stats_section(Some(&[])).is_empty());
+        assert!(
+            format_language_stats_section(None).is_empty(),
+            "expected empty: {:?}",
+            format_language_stats_section(None)
+        );
+        assert!(
+            format_language_stats_section(Some(&[])).is_empty(),
+            "expected empty: {:?}",
+            format_language_stats_section(Some(&[]))
+        );
     }
 
     #[test]

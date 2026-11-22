@@ -1052,7 +1052,11 @@ priority: low
              TASK-2058 enumeration"
         );
         assert_eq!(doc.frontmatter.status, "Done");
-        assert!(doc.frontmatter.assignees.is_empty());
+        assert!(
+            doc.frontmatter.assignees.is_empty(),
+            "expected empty: {:?}",
+            doc.frontmatter.assignees
+        );
         assert_eq!(doc.frontmatter.created_date, "2026-08-29 18:21");
         assert_eq!(
             doc.frontmatter.modified_files,
@@ -1117,7 +1121,7 @@ priority: low
         assert_eq!(doc.frontmatter.created_date, "2026-04-10 07:15:00");
         assert_eq!(doc.frontmatter.updated_date, None);
         assert_eq!(doc.frontmatter.priority, None);
-        assert!(doc.body.raw.is_empty());
+        assert!(doc.body.raw.is_empty(), "expected empty: {:?}", doc.body.raw);
     }
 
     #[test]

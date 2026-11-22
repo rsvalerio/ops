@@ -44,7 +44,7 @@ fn coverage_provider_schema_fields_match_covered_row_serialization() {
     let row_keys: std::collections::BTreeSet<&str> = object.keys().map(String::as_str).collect();
 
     let schema = CoverageProvider.schema();
-    assert!(!schema.description.is_empty());
+    assert!(!schema.description.is_empty(), "expected non-empty: {:?}", schema.description);
     let schema_names: std::collections::BTreeSet<&str> =
         schema.fields.iter().map(|f| f.name).collect();
 

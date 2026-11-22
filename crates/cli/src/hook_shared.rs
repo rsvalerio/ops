@@ -85,12 +85,8 @@ fn load_hook_extensions(
     hook_name: &str,
 ) -> anyhow::Result<ops_extension::CommandRegistry> {
     let mut cmd_registry = ops_extension::CommandRegistry::new();
-    match crate::registry::builtin_extensions(config, cwd) {
-        Ok(exts) => {
-            let ext_refs = crate::registry::as_ext_refs(&exts);
-            crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
-            Ok(cmd_registry)
-        }
+    let exts = match crate::registry::builtin_extensions(config, cwd) {
+        Ok(exts) => exts,
         Err(e) => {
             // Surface the load failure through exactly one operator-facing
             // channel (UI) — earlier this path double-emitted via
@@ -101,9 +97,12 @@ fn load_hook_extensions(
             ops_core::ui::warn(format!(
                 "could not load extensions for {hook_name} install: {e:#}\n  extension-provided commands will not appear in the selection list",
             ));
-            Ok(cmd_registry)
+            Vec::new()
         }
-    }
+    };
+    let ext_refs = crate::registry::as_ext_refs(&exts);
+    crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
+    Ok(cmd_registry)
 }
 
 /// Shared install orchestration for all hook types.
