@@ -56,7 +56,8 @@ pub const CODERABBIT_REQUEST: RequestScheme = RequestScheme {
     subtask_title: |_skill, target| {
         format!("REVIEW: Run CodeRabbit full review against {}", target.name)
     },
-    subtask_description: request_steps,
+    main_description: |_skill, _main_id| String::new(),
+    subtask_description: |subtask| request_steps(subtask.target),
 };
 
 /// The subtask body: the worktree / orphan-branch steps for one target.

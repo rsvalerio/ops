@@ -168,7 +168,8 @@ pub fn conflicting_claim(
     })
 }
 
-/// Render one task markdown file (frontmatter only, no body sections).
+/// Render one task markdown file: frontmatter plus, when `content` carries
+/// one, a Description section.
 /// `subtask_of` is the parent's zero-padded id plus the
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
@@ -213,9 +214,9 @@ pub fn render_task_file(
                 }
             },
         },
-        // Skill-review tasks carry their content as subtasks and pass an
-        // empty description, so the file ends at the closing `---` with no
-        // body sections; a non-empty one becomes the Description section.
+        // An empty description (e.g. a CodeRabbit main task) ends the file
+        // at the closing `---` with no body sections; a non-empty one
+        // becomes the Description section.
         body: if content.description.is_empty() {
             Body::default()
         } else {
