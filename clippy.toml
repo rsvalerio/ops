@@ -13,7 +13,7 @@ avoid-breaking-exported-api = true
 # Note MSRV-aware lints also gate their *suggestions* on this value: at a floor
 # below 1.92 clippy suppresses `duration_suboptimal_units` because
 # `Duration::from_mins` would not be available.
-msrv = "1.97"
+msrv = "1.100.0"
 
 # Panic-adjacent lints are denied in production code but fine in tests.
 allow-unwrap-in-tests = true

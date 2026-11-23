@@ -351,7 +351,7 @@ impl ConfigurableTheme {
     /// mapping mechanical so the runner output stays byte-identical.
     #[must_use]
     pub fn render(&self, step: &StepLine, columns: u16) -> String {
-        let trailing = step.elapsed.map(|d| self.format_elapsed(d)).unwrap_or_default();
+        let trailing = step.elapsed.map_or_default(|d| self.format_elapsed(d));
         self.render_slot(
             &SlotLine {
                 icon: self.status_icon(step.status),

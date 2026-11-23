@@ -125,8 +125,7 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
     #[cfg(unix)]
     exclude.push(std::os::unix::process::parent_id());
     let build_processes = probe(Command::new("ps").args(["-axo", "pid=,comm="]), "ps")
-        .map(|t| parse_ps(&t, &exclude))
-        .unwrap_or_default();
+        .map_or_default(|t| parse_ps(&t, &exclude));
 
     let mounts = mount_table();
     let tmpdir = fs_report(&std::env::temp_dir(), &mounts);

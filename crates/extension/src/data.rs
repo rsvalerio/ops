@@ -348,7 +348,7 @@ impl DataRegistry {
 
     /// Returns about-card field declarations from the named provider.
     pub fn about_fields(&self, provider_name: &str) -> Vec<AboutFieldDef> {
-        self.get(provider_name).map(DataProvider::about_fields).unwrap_or_default()
+        self.get(provider_name).map_or_default(DataProvider::about_fields)
     }
 
     /// Dispatch to the provider registered under `name`.

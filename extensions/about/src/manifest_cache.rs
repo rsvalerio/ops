@@ -617,7 +617,7 @@ mod tests {
             ("invalidate", std::panic::catch_unwind(|| cache.invalidate(dir.path()))),
         ] {
             let err = outcome.expect_err("a poisoned lock must not be recovered");
-            let msg = err.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
+            let msg = err.downcast_ref::<String>().map_or_default(String::as_str);
             assert!(msg.contains("manifest.txt"), "{op}: panic must name the manifest, got: {msg}");
         }
         assert!(mutex.is_poisoned(), "poison must not be cleared");

@@ -89,8 +89,7 @@ pub fn command_names(path: &Path) -> anyhow::Result<Vec<String>> {
     Ok(doc
         .get("commands")
         .and_then(toml_edit::Item::as_table)
-        .map(|t| t.iter().map(|(k, _)| k.to_string()).collect())
-        .unwrap_or_default())
+        .map_or_default(|t| t.iter().map(|(k, _)| k.to_string()).collect()))
 }
 
 /// Insert one `[commands.<name>]` entry (program / args / optional help)

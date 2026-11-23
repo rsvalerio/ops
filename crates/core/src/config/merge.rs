@@ -481,12 +481,12 @@ mod tests {
         };
         merge_config(&mut base, overlay);
         assert_eq!(
-            base.extend.get("verify").map(|e| e.commands.clone()).unwrap_or_default(),
+            base.extend.get("verify").map_or_default(|e| e.commands.clone()),
             vec!["from-base".to_string(), "from-overlay".to_string()],
             "same-target entries must concatenate in layer order"
         );
         assert_eq!(
-            base.extend.get("qa").map(|e| e.commands.clone()).unwrap_or_default(),
+            base.extend.get("qa").map_or_default(|e| e.commands.clone()),
             vec!["new-target".to_string()],
             "new targets must be inserted"
         );
@@ -554,7 +554,7 @@ mod tests {
         };
         merge_config(&mut base, overlay);
         assert_eq!(
-            base.extend.get("clippy").map(|e| e.args.clone()).unwrap_or_default(),
+            base.extend.get("clippy").map_or_default(|e| e.args.clone()),
             vec!["--locked".to_string(), "--verbose".to_string()],
             "same-target args must concatenate in layer order"
         );

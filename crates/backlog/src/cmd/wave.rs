@@ -280,8 +280,7 @@ fn overlap_rows(
             let own = scopes
                 .iter()
                 .find(|(w, _)| std::ptr::eq(*w, *wave))
-                .map(|(_, scope)| scope.clone())
-                .unwrap_or_default();
+                .map_or_default(|(_, scope)| scope.clone());
             let mut overlaps: Vec<(String, Vec<String>)> = scopes
                 .iter()
                 .filter(|(other, _)| !std::ptr::eq(*other, *wave))

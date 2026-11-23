@@ -62,8 +62,7 @@ impl DataProvider for RustUnitsProvider {
         let dep_counts = crate_dep_counts(ctx);
         let targets = ctx
             .cached(ops_metadata::DATA_PROVIDER_NAME)
-            .map(|metadata| crate_targets(metadata))
-            .unwrap_or_default();
+            .map_or_default(|metadata| crate_targets(metadata));
 
         // The canonical-manifest-path map is built once per workspace
         // (`LoadedManifest` is itself cached per workspace root), so sibling

@@ -681,17 +681,12 @@ impl ProgressDisplay {
             return;
         }
 
-        let stderr_tail = self
-            .state
-            .step_stderr
-            .get_mut(id)
-            .map(|buf| {
-                ErrorDetailRenderer::extract_stderr_tail(
-                    buf.make_contiguous(),
-                    self.render.stderr_tail.max_lines(),
-                )
-            })
-            .unwrap_or_default();
+        let stderr_tail = self.state.step_stderr.get_mut(id).map_or_default(|buf| {
+            ErrorDetailRenderer::extract_stderr_tail(
+                buf.make_contiguous(),
+                self.render.stderr_tail.max_lines(),
+            )
+        });
         let renderer = ErrorDetailRenderer::new(&self.render.theme, self.render.columns);
         let detail_lines = renderer.render(message, &stderr_tail);
 

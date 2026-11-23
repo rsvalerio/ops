@@ -285,48 +285,43 @@ fn with_artifact_cleanup<T>(
 /// `--detailed-exitcode` gate could report "no changes" for a plan this
 /// build could not read.
 fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
-    plan.resource_changes
-        .as_ref()
-        .map(|rcs| {
-            rcs.iter()
-                .map(|rc| {
-                    let action = Action::classify(&rc.change.actions).unwrap_or_else(|| {
-                        // The address is untrusted plan text and this event
-                        // may land on a terminal, so it is sanitized first.
-                        tracing::warn!(
-                            address = %sanitize_terminal_text(&rc.address),
-                            "terraform resource change reports an empty `actions` list; \
-                             surfacing as Unknown"
-                        );
-                        Action::Unknown
-                    });
-                    // Sanitize at ingress as well as at
-                    // the render sink, so the control characters never enter
-                    // the public `ClassifiedChange` a library caller may print
-                    // itself. `mode` is carried but not rendered by this crate.
-                    ClassifiedChange {
-                        action,
-                        address: sanitize_terminal_text(&rc.address),
-                        resource_type: sanitize_terminal_text(
-                            rc.r#type.as_deref().unwrap_or_default(),
-                        ),
-                        name: sanitize_terminal_text(rc.name.as_deref().unwrap_or_default()),
-                        module: rc.module.as_deref().map(sanitize_terminal_text),
-                        target: sanitize_terminal_text(&describe::target(rc)),
-                        kind: sanitize_terminal_text(&describe::kind(rc)),
-                        changed: describe::changed(rc, action)
-                            .iter()
-                            .map(|c| sanitize_terminal_text(c))
-                            .collect(),
-                        mode: rc
-                            .mode
-                            .as_deref()
-                            .map_or_else(|| "managed".to_string(), sanitize_terminal_text),
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    plan.resource_changes.as_ref().map_or_default(|rcs| {
+        rcs.iter()
+            .map(|rc| {
+                let action = Action::classify(&rc.change.actions).unwrap_or_else(|| {
+                    // The address is untrusted plan text and this event
+                    // may land on a terminal, so it is sanitized first.
+                    tracing::warn!(
+                        address = %sanitize_terminal_text(&rc.address),
+                        "terraform resource change reports an empty `actions` list; \
+                         surfacing as Unknown"
+                    );
+                    Action::Unknown
+                });
+                // Sanitize at ingress as well as at
+                // the render sink, so the control characters never enter
+                // the public `ClassifiedChange` a library caller may print
+                // itself. `mode` is carried but not rendered by this crate.
+                ClassifiedChange {
+                    action,
+                    address: sanitize_terminal_text(&rc.address),
+                    resource_type: sanitize_terminal_text(rc.r#type.as_deref().unwrap_or_default()),
+                    name: sanitize_terminal_text(rc.name.as_deref().unwrap_or_default()),
+                    module: rc.module.as_deref().map(sanitize_terminal_text),
+                    target: sanitize_terminal_text(&describe::target(rc)),
+                    kind: sanitize_terminal_text(&describe::kind(rc)),
+                    changed: describe::changed(rc, action)
+                        .iter()
+                        .map(|c| sanitize_terminal_text(c))
+                        .collect(),
+                    mode: rc
+                        .mode
+                        .as_deref()
+                        .map_or_else(|| "managed".to_string(), sanitize_terminal_text),
+                }
+            })
+            .collect()
+    })
 }
 
 fn read_stdin(cap: u64) -> anyhow::Result<String> {
