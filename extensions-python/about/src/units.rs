@@ -114,18 +114,14 @@ pub fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
         }
     };
     let manifest_path = root.join("pyproject.toml");
-    raw.tool
-        .and_then(|t| t.uv)
-        .and_then(|u| u.workspace)
-        .map(|w| {
-            ops_about::workspace::resolve_member_globs(
-                &string_globs(w.members, "members", &manifest_path),
-                &string_globs(w.exclude, "exclude", &manifest_path),
-                root,
-                "pyproject.toml",
-            )
-        })
-        .unwrap_or_default()
+    raw.tool.and_then(|t| t.uv).and_then(|u| u.workspace).map_or_default(|w| {
+        ops_about::workspace::resolve_member_globs(
+            &string_globs(w.members, "members", &manifest_path),
+            &string_globs(w.exclude, "exclude", &manifest_path),
+            root,
+            "pyproject.toml",
+        )
+    })
 }
 
 fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
@@ -140,13 +136,11 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             let meta =
                 ops_about::workspace::parse_package_metadata(&manifest_path, &manifest, |c| {
                     toml::from_str::<PackageProbe>(c).map(|p| {
-                        p.project
-                            .map(|p| ops_about::workspace::PackageMetadata {
-                                name: p.name,
-                                version: p.version,
-                                description: p.description,
-                            })
-                            .unwrap_or_default()
+                        p.project.map_or_default(|p| ops_about::workspace::PackageMetadata {
+                            name: p.name,
+                            version: p.version,
+                            description: p.description,
+                        })
                     })
                 });
             // Trim and drop whitespace-only fields before constructing the

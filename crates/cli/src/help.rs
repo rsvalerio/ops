@@ -159,7 +159,7 @@ pub fn collect_command_entries(
             continue;
         }
         let name = sub.get_name().to_string();
-        let about = sub.get_about().map(std::string::ToString::to_string).unwrap_or_default();
+        let about = sub.get_about().map_or_default(std::string::ToString::to_string);
         let category = Some(builtin_category(&name).to_string());
         let aliases = sub.get_visible_aliases().map(String::from).collect();
         seen.insert(name.clone());

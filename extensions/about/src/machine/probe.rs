@@ -170,11 +170,9 @@ pub(super) fn load_average() -> Option<[f64; 3]> {
 
 pub(super) fn mount_table() -> Vec<(PathBuf, String)> {
     if cfg!(target_os = "macos") {
-        probe(&mut Command::new("mount"), "mount").map(|t| parse_bsd_mount(&t)).unwrap_or_default()
+        probe(&mut Command::new("mount"), "mount").map_or_default(|t| parse_bsd_mount(&t))
     } else {
-        std::fs::read_to_string("/proc/self/mounts")
-            .map(|t| parse_proc_mounts(&t))
-            .unwrap_or_default()
+        std::fs::read_to_string("/proc/self/mounts").map_or_default(|t| parse_proc_mounts(&t))
     }
 }
 
@@ -231,8 +229,7 @@ pub(super) fn probe_host_target(rustc: &std::ffi::OsStr) -> HostTarget {
         triple: probe(Command::new(rustc).arg("-vV"), "rustc -vV")
             .and_then(|t| parse_rustc_host(&t)),
         cfg: probe(Command::new(rustc).args(["--print", "cfg"]), "rustc --print cfg")
-            .map(|t| parse_rustc_cfg(&t))
-            .unwrap_or_default(),
+            .map_or_default(|t| parse_rustc_cfg(&t)),
     }
 }
 

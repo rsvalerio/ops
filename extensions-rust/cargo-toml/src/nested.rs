@@ -111,8 +111,7 @@ fn table_of(path: &Path) -> Option<toml::Table> {
 /// unparseable nested manifests are skipped.
 #[must_use]
 pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
-    let root_exclude =
-        table_of(&root.join("Cargo.toml")).map(|t| exclude_of(&t)).unwrap_or_default();
+    let root_exclude = table_of(&root.join("Cargo.toml")).map_or_default(|t| exclude_of(&t));
 
     let walker = WalkBuilder::new(root)
         .require_git(false)
@@ -183,8 +182,9 @@ fn exclude_of(table: &toml::Table) -> Vec<String> {
         .get("workspace")
         .and_then(|w| w.get("exclude"))
         .and_then(toml::Value::as_array)
-        .map(|entries| entries.iter().filter_map(|e| e.as_str().map(str::to_string)).collect())
-        .unwrap_or_default()
+        .map_or_default(|entries| {
+            entries.iter().filter_map(|e| e.as_str().map(str::to_string)).collect()
+        })
 }
 
 /// Whether `dir` lies strictly below `ancestor` (both `/`-separated).

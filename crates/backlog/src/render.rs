@@ -807,11 +807,7 @@ pub fn search_plain<W: Write>(
     writeln!(w, "Tasks:")?;
     for hit in hits {
         let fm = &hit.entry.doc.frontmatter;
-        let tag = fm
-            .priority
-            .as_ref()
-            .map(|p| format!(" [{}]", p.to_ascii_uppercase()))
-            .unwrap_or_default();
+        let tag = fm.priority.as_ref().map_or_default(|p| format!(" [{}]", p.to_ascii_uppercase()));
         let score = if with_score { format!(" [score {:.3}]", hit.score) } else { String::new() };
         writeln!(w, "  {} - {} ({}){tag}{score}", fm.id, fm.title, fm.status)?;
     }

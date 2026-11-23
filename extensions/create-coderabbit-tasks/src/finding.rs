@@ -227,8 +227,8 @@ fn render_suggestions(suggestions: &serde_json::Value, out: &mut String) {
 /// The task description: File / What / Why it matters / Suggested fix, the
 /// layout of the code-review-rust finding tasks.
 fn description(finding: &Finding, file: &str, severity: &str) -> String {
-    let comment = finding.comment.as_deref().map(body_text).unwrap_or_default();
-    let instructions = finding.codegen_instructions.as_deref().map(body_text).unwrap_or_default();
+    let comment = finding.comment.as_deref().map_or_default(body_text);
+    let instructions = finding.codegen_instructions.as_deref().map_or_default(body_text);
     let what = if comment.is_empty() { instructions.clone() } else { comment };
     let mut out = format!(
         "**File**: `{file}`\n\n**What**: {what}\n\n**Why it matters**: CodeRabbit rated this \

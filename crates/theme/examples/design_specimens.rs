@@ -208,17 +208,15 @@ fn escape(s: &str) -> String {
 /// CSS classes for a colour spec: one `sgr-<code>` per SGR code the theme's
 /// own parser produces (`"bold green"` → `"sgr-1 sgr-32"`).
 fn classes(spec: &str) -> String {
-    precompute_sgr_prefix(spec)
-        .map(|prefix| {
-            prefix
-                .trim_start_matches("\u{1b}[")
-                .trim_end_matches('m')
-                .split(';')
-                .map(|code| format!("sgr-{code}"))
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .unwrap_or_default()
+    precompute_sgr_prefix(spec).map_or_default(|prefix| {
+        prefix
+            .trim_start_matches("\u{1b}[")
+            .trim_end_matches('m')
+            .split(';')
+            .map(|code| format!("sgr-{code}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    })
 }
 
 fn chars(s: &str) -> usize {
@@ -359,7 +357,7 @@ impl Specimens {
         let budget = COLUMNS.saturating_sub(self.theme.step_column_reserve());
         let step = StepLine::new(status, label, elapsed);
         let inner = strip_ansi(&self.theme.render(&step, budget));
-        let trailing = elapsed.map(|s| self.theme.format_elapsed(s)).unwrap_or_default();
+        let trailing = elapsed.map_or_default(|s| self.theme.format_elapsed(s));
         let icon = self.theme.status_icon(status).to_string();
         let duration = classes(&self.config.duration_color);
         if self.boxed() {
@@ -864,7 +862,7 @@ impl Specimens {
 impl Card {
     fn html(&self) -> String {
         let mut out = String::new();
-        let subtitle = self.subtitle.map(|s| format!(r#" subtitle="{s}""#)).unwrap_or_default();
+        let subtitle = self.subtitle.map_or_default(|s| format!(r#" subtitle="{s}""#));
         let _ = writeln!(
             out,
             r#"<!-- @dsCard group="{}" height={}{subtitle} -->"#,

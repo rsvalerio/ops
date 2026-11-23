@@ -272,7 +272,7 @@ mod tests {
 
         let err = std::panic::catch_unwind(|| cached_global_config_path(&cache, || None))
             .expect_err("a poisoned lock must not be recovered");
-        let msg = err.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
+        let msg = err.downcast_ref::<String>().map_or_default(String::as_str);
         assert!(msg.contains("GLOBAL_CONFIG_PATH"), "panic must name the lock, got: {msg}");
         assert!(cache.is_poisoned(), "poison must not be cleared");
     }

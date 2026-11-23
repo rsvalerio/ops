@@ -213,8 +213,7 @@ fn build_extension_row(
     let info = ext.info();
     let (types, commands) = summary;
 
-    let data_provider =
-        info.data_provider_name.map(std::string::ToString::to_string).unwrap_or_default();
+    let data_provider = info.data_provider_name.map_or_default(std::string::ToString::to_string);
 
     // Extension metadata is registry-supplied text, so
     // every cell here is built through `OpsTable`'s sanitising constructors.

@@ -128,17 +128,13 @@ fn parse_lock(text: &str, path: &Path) -> anyhow::Result<Vec<LockPkg>> {
         ) else {
             anyhow::bail!("{}: a package record without a name or version", path.display());
         };
-        let deps = pkg
-            .get("dependencies")
-            .and_then(toml::Value::as_array)
-            .map(|deps| {
-                deps.iter()
-                    .filter_map(toml::Value::as_str)
-                    .filter_map(|d| d.split_whitespace().next())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let deps = pkg.get("dependencies").and_then(toml::Value::as_array).map_or_default(|deps| {
+            deps.iter()
+                .filter_map(toml::Value::as_str)
+                .filter_map(|d| d.split_whitespace().next())
+                .map(str::to_owned)
+                .collect()
+        });
         out.push(LockPkg {
             name: name.to_owned(),
             version: version.to_owned(),
@@ -547,8 +543,7 @@ pub fn run_workspace_check(
             .lint_exemptions
             .as_ref()
             .and_then(|map| map.get(entry))
-            .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            .unwrap_or_default();
+            .map_or_default(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
         check_lints(&root_lints, root, entry, &exemptions, &mut findings)?;
     }
     if findings.is_empty() {
