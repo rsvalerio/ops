@@ -121,7 +121,9 @@ search is scored and fuzzy, the key match is exact.
 |------|---------|
 | `-s, --status <status>` | New status (free-form string) |
 | `-a, --assignee <names>` | **Replaces** the assignee list; `-a ""` clears it. Assignees are people again — wave membership moved to `--parent` (see [`wave`](#wave)) |
+| `--set-label <labels>` | **Replaces** the label list; `--set-label ""` clears it (conflicts with `--add-label` and `--remove-label`) |
 | `--add-label <labels>` | Add labels without replacing existing ones |
+| `--remove-label <labels>` | Remove individual labels without restating the list — matched case-insensitively, like the wave marker; a label not carried is a no-op |
 | `--append-notes <text>` | Append implementation notes, repeatable — inserted inside the existing SECTION:NOTES markers (blank-line separated) or as a new section |
 | `--priority <p>` | New priority |
 | `-t, --title <title>` | New title — **renames the file** to the new slug |
