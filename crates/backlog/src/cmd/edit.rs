@@ -16,7 +16,12 @@ pub struct EditOptions {
     pub task_id: String,
     pub status: Option<String>,
     pub assignees: Option<Vec<String>>,
+    /// Replace the label list, like `assignees` above; `Some(vec![""])`
+    /// (from `--set-label ""`) clears it.
+    pub set_labels: Option<Vec<String>>,
     pub add_labels: Vec<String>,
+    /// Remove individual labels without restating the list.
+    pub remove_labels: Vec<String>,
     pub append_notes: Vec<String>,
     pub priority: Option<String>,
     pub title: Option<String>,
@@ -121,6 +126,9 @@ fn validate_frontmatter_inputs(opts: &EditOptions) -> anyhow::Result<()> {
     for assignee in opts.assignees.iter().flatten().filter(|a| !a.trim().is_empty()) {
         validate_list_item("assignee", assignee)?;
     }
+    for label in opts.set_labels.iter().flatten().filter(|l| !l.trim().is_empty()) {
+        validate_list_item("labels", label)?;
+    }
     for label in &opts.add_labels {
         validate_list_item("labels", label)?;
     }
@@ -150,12 +158,22 @@ fn apply_frontmatter_edits(
             assignees.iter().filter(|a| !a.trim().is_empty()).cloned().collect();
         fm.assignees = cleared;
     }
+    if let Some(labels) = &opts.set_labels {
+        let cleared: Vec<String> =
+            labels.iter().filter(|l| !l.trim().is_empty()).cloned().collect();
+        fm.labels = cleared;
+    }
     if !opts.add_labels.is_empty() {
         for label in &opts.add_labels {
             if !fm.labels.contains(label) {
                 fm.labels.push(label.clone());
             }
         }
+    }
+    for label in &opts.remove_labels {
+        // Same case rule as the wave marker match (`wave::has_label`): a
+        // label differing only by case is the same label.
+        fm.labels.retain(|existing| !existing.eq_ignore_ascii_case(label));
     }
     if let Some(parent) = parent_id {
         fm.set_extra_scalar("parent_task_id", parent);
@@ -381,6 +399,62 @@ body text
         )
         .expect("re-parse");
         assert_eq!(doc.frontmatter.labels, vec!["code-review-wave"]);
+    }
+
+    /// `--set-label` replaces the whole list; `--set-label ""` clears it —
+    /// the same replace contract as `-a ""`.
+    #[test]
+    fn set_label_replaces_then_clears() {
+        let (dir, store) =
+            scratch_with(&TASK.replacen("labels: []", "labels:\n  - old-one\n  - old-two", 1));
+        let mut out = Vec::new();
+        run_edit(
+            &store,
+            &EditOptions {
+                set_labels: Some(vec!["alpha".to_string(), "beta".to_string()]),
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("edit");
+        let path = dir.path().join(".backlog/tasks/task-0001 - original.md");
+        let doc = TaskDoc::parse(&std::fs::read_to_string(&path).expect("read")).expect("re-parse");
+        assert_eq!(doc.frontmatter.labels, vec!["alpha", "beta"]);
+
+        run_edit(
+            &store,
+            &EditOptions { set_labels: Some(vec![String::new()]), ..opts() },
+            &mut out,
+        )
+        .expect("edit");
+        let doc = TaskDoc::parse(&std::fs::read_to_string(&path).expect("read")).expect("re-parse");
+        assert!(doc.frontmatter.labels.is_empty(), "expected empty: {:?}", doc.frontmatter.labels);
+    }
+
+    /// `--remove-label` unlinks individual labels without restating the
+    /// list — the surgical mirror of `--remove-dep` — matching
+    /// case-insensitively like the wave marker, and a label not carried is
+    /// a no-op, not an error.
+    #[test]
+    fn remove_label_unlinks_individually() {
+        let (dir, store) =
+            scratch_with(&TASK.replacen("labels: []", "labels:\n  - alpha\n  - beta", 1));
+        let mut out = Vec::new();
+        run_edit(
+            &store,
+            &EditOptions {
+                remove_labels: vec!["ALPHA".to_string(), "not-there".to_string()],
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("edit");
+        let doc = TaskDoc::parse(
+            &std::fs::read_to_string(dir.path().join(".backlog/tasks/task-0001 - original.md"))
+                .expect("read"),
+        )
+        .expect("re-parse");
+        assert_eq!(doc.frontmatter.labels, vec!["beta"]);
     }
 
     #[test]
@@ -676,6 +750,7 @@ body text
         let mut out = Vec::new();
         for edit in [
             EditOptions { add_labels: vec!["a\nstatus: Done".to_string()], ..opts() },
+            EditOptions { set_labels: Some(vec!["a\nstatus: Done".to_string()]), ..opts() },
             EditOptions { priority: Some(String::new()), ..opts() },
         ] {
             run_edit(&store, &edit, &mut out).expect_err("must refuse");
