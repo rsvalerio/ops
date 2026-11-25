@@ -313,7 +313,6 @@ fn extension_registers_commands() {
     assert!(registry.contains_key("ext_cmd"));
 }
 
-// --- SharedError tests ---
 // (`shared_error_display_shows_inner_message`,
 // `shared_error_source_chain_preserved`, and
 // `shared_error_alternate_display_matches_plain_when_no_sources` construct
@@ -334,8 +333,6 @@ fn shared_error_from_serde_json() {
     let shared = SharedError::from(json_err);
     assert!(!shared.to_string().is_empty(), "expected non-empty: {:?}", shared.to_string());
 }
-
-// --- SharedError / DataProviderError alternate-format chain rendering ---
 
 /// Regression guard for the diagnosability bug where
 /// `tracing::warn!("…: {e:#}")` on a `DataProviderError` showed only the
@@ -384,8 +381,6 @@ fn shared_error_alternate_display_walks_source_chain() {
     assert_eq!(format!("{shared:#}"), "top: middle: root");
 }
 
-// --- ExtensionType tests ---
-
 #[test]
 fn extension_type_is_datasource() {
     let t = ExtensionType::DATASOURCE;
@@ -413,8 +408,6 @@ fn extension_type_empty() {
     assert!(!t.is_datasource());
     assert!(!t.is_command());
 }
-
-// --- DataProviderError constructors ---
 
 #[test]
 fn data_provider_error_not_found() {
@@ -452,8 +445,6 @@ fn data_provider_error_source_chain() {
     let err = DataProviderError::computation_error(std::io::Error::other("root"));
     assert!(err.source().is_some());
 }
-
-// --- DataRegistry::schemas ---
 
 struct SchemaProvider;
 impl DataProvider for SchemaProvider {
@@ -493,8 +484,6 @@ fn data_registry_schemas_empty() {
     assert!(registry.schemas().is_empty());
 }
 
-// --- data_field! macro ---
-
 #[test]
 fn data_field_macro_constructs_correctly() {
     let field = data_field!("name", "str", "The name");
@@ -502,8 +491,6 @@ fn data_field_macro_constructs_correctly() {
     assert_eq!(field.type_name, "str");
     assert_eq!(field.description, "The name");
 }
-
-// --- Context tests ---
 
 #[test]
 fn context_with_refresh_sets_flag() {
@@ -522,10 +509,6 @@ fn context_working_directory() {
     let ctx = Context::new(Arc::new(Config::empty()), PathBuf::from("/tmp/test"));
     assert_eq!(ctx.working_directory(), PathBuf::from("/tmp/test"));
 }
-
-// --- Extension trait defaults ---
-// Verifies all default implementations return expected values and that
-// info() correctly aggregates them. Consolidated from per-method tests.
 
 #[test]
 fn extension_defaults_and_info_aggregation() {
@@ -557,8 +540,6 @@ fn extension_defaults_and_info_aggregation() {
         registry.provider_names()
     );
 }
-
-// --- impl_extension! macro ---
 
 struct MacroTestExtFull;
 impl_extension! {
@@ -657,8 +638,6 @@ fn extension_info_is_debug_clone_copy_and_eq() {
     assert!(rendered.contains("\"macro-full\""), "{rendered}");
 }
 
-// --- DataRegistry::about_fields ---
-
 struct AboutFieldProvider;
 impl DataProvider for AboutFieldProvider {
     fn name(&self) -> &'static str {
@@ -705,8 +684,6 @@ fn data_provider_default_about_fields_is_empty() {
     let provider = StubProvider;
     assert!(provider.about_fields().is_empty());
 }
-
-// --- DataRegistry::default ---
 
 #[test]
 fn data_registry_default() {
@@ -798,9 +775,7 @@ fn provider_name_field_debug_escapes_control_characters() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // The cycle guard sits at the dispatch point
-// ---------------------------------------------------------------------------
 
 /// A provider that composes a peer through `registry.provide(...)` — the
 /// *unguarded* entry point — and surfaces the error verbatim.
@@ -919,9 +894,7 @@ fn failed_provider_clears_its_in_flight_marker() {
     assert_eq!(v.as_ref(), &serde_json::json!({ "ok": true }));
 }
 
-// ---------------------------------------------------------------------------
 // Register communicates rejection through its return type
-// ---------------------------------------------------------------------------
 
 /// A provider whose `name()` identifies which instance came back, so the test
 /// can assert the *rejected* value is returned rather than the stored one.
@@ -959,9 +932,7 @@ fn register_returns_none_on_fresh_insert_and_the_rejected_provider_on_duplicate(
     assert_eq!(registry.take_duplicate_inserts(), vec!["thing".to_string()]);
 }
 
-// ---------------------------------------------------------------------------
 // A provider cannot re-point its siblings' context
-// ---------------------------------------------------------------------------
 
 /// `refresh` and `working_directory` are private, so a
 /// provider has no way to change what a sibling observes. This pins the
@@ -1053,9 +1024,7 @@ fn context_accessors_report_the_constructed_values() {
     assert!(ctx.with_refresh().is_refreshing());
 }
 
-// ---------------------------------------------------------------------------
 // Debug impls
-// ---------------------------------------------------------------------------
 
 #[test]
 fn data_registry_debug_names_its_providers_and_pending_audit_entries() {
@@ -1113,9 +1082,7 @@ fn context_with_arg_is_readable_and_invalidates_the_cache() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Deterministic config_name collision resolution
-// ---------------------------------------------------------------------------
 
 struct NamedExtension(&'static str);
 impl Extension for NamedExtension {
@@ -1168,9 +1135,7 @@ fn sort_compiled_extensions_orders_distinct_config_names() {
     assert_eq!(names, vec!["alpha", "zeta"]);
 }
 
-// ---------------------------------------------------------------------------
 // The factory arms and the rest of the untested surface
-// ---------------------------------------------------------------------------
 
 /// A real factory declines (returns `None`) when its prerequisites are not
 /// met — wrong stack, a tool missing from `PATH`. These two model that with a
@@ -1361,9 +1326,7 @@ fn clear_provider_results_drops_cached_values() {
     ctx.get_or_provide("stub", &registry).expect("the key must be requestable after a clear");
 }
 
-// ---------------------------------------------------------------------------
 // The sqlite-feature surface
-// ---------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
 mod sqlite_feature {
@@ -1445,9 +1408,7 @@ mod sqlite_feature {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Error identity and rendering
-// ---------------------------------------------------------------------------
 
 /// `computation_failed` must not fabricate a
 /// `std::io::Error` as a container for its message: a caller recovering an
@@ -1518,9 +1479,7 @@ fn serialization_rendering_flattens_its_chain() {
     assert_eq!(format!("{e:#}"), rendered);
 }
 
-// ---------------------------------------------------------------------------
 // Provider dispatch is bounded in wall-clock time
-// ---------------------------------------------------------------------------
 
 /// A provider that spends time in `steps` chunks — advancing the shared
 /// manual clock rather than sleeping — optionally polling the context
@@ -1812,9 +1771,7 @@ fn an_unbounded_context_does_not_time_a_provider_out() {
     assert!(ctx.deadline().is_none());
 }
 
-// ---------------------------------------------------------------------------
 // Typed errors survive the DataProviderError chain
-// ---------------------------------------------------------------------------
 
 /// Stands in for `FindWorkspaceRootError`: a typed marker a consumer wants to
 /// recover from a `DataProviderError` in order to classify the failure.
@@ -1865,9 +1822,7 @@ fn typed_error_from_computation_error_is_reachable_too() {
     assert_eq!(find_typed_marker(&err), Some(&TypedMarker::NotFound));
 }
 
-// ---------------------------------------------------------------------------
 // The dispatch budget is operator-configurable
-// ---------------------------------------------------------------------------
 
 fn context_with_budget_secs(secs: Option<u64>) -> Context {
     let mut config = Config::empty();
@@ -1917,9 +1872,7 @@ fn with_provider_budget_overrides_the_configured_value() {
     assert_eq!(ctx.provider_budget(), Some(std::time::Duration::from_secs(5)));
 }
 
-// ---------------------------------------------------------------------------
 // A detached deadline, and a typed timeout through anyhow
-// ---------------------------------------------------------------------------
 
 /// The walkers poll through a detached [`Deadline`] because their work happens
 /// where a `&Context` cannot go. It must build the same error the context

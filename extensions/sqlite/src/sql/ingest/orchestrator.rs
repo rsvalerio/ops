@@ -253,8 +253,6 @@ mod tests {
         Ok(crate::LoadResult::success(source, rows))
     }
 
-    // --- drop_table_if_exists validation ---
-
     #[test]
     fn drop_table_rejects_whitespace() {
         let db = Sqlite::open_in_memory().expect("open in-memory db");

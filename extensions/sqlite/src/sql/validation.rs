@@ -250,8 +250,6 @@ mod tests {
         assert!(matches!(err, Err(SqlError::PathTraversalNotAllowed(_))));
     }
 
-    // --- validate_identifier tests ---
-
     #[test]
     fn validate_identifier_accepts_simple_name() {
         assert!(validate_identifier("tokei_files").is_ok());
@@ -306,8 +304,6 @@ mod tests {
         // Cyrillic 'а' (U+0430) looks like Latin 'a' but is not ASCII
         assert!(validate_identifier("\u{0430}table").is_err());
     }
-
-    // --- validate_path_chars edge cases ---
 
     #[test]
     fn validate_path_chars_rejects_null_byte() {

@@ -166,8 +166,6 @@ args = ["build"]
     assert!(spec.aliases().is_empty(), "expected empty: {:?}", spec.aliases());
 }
 
-// --- [backlog] -----------------------------------------------------------------
-
 /// The `[backlog]` section parses as an overlay (the shape `.ops.toml`
 /// itself is read as) with each set key landing in its field.
 #[test]

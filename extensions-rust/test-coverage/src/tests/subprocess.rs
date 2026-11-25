@@ -195,9 +195,7 @@ fn llvm_cov_argv_appends_output_path_after_static_args() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // The subprocess wait is sized from the dispatch deadline
-// ---------------------------------------------------------------------------
 
 /// The ceiling these tests measure against.
 ///
