@@ -801,9 +801,20 @@ pub struct BacklogEditArgs {
     /// Replace assignees (`""` clears; comma-separated or repeatable).
     #[arg(short, long, value_delimiter = ',')]
     pub assignee: Option<Vec<String>>,
+    /// Replace the label list (`""` clears; comma-separated or repeatable).
+    #[arg(
+        long = "set-label",
+        value_delimiter = ',',
+        conflicts_with_all = ["add_label", "remove_label"]
+    )]
+    pub set_label: Option<Vec<String>>,
     /// Add labels without replacing existing ones.
     #[arg(long = "add-label", value_delimiter = ',')]
     pub add_label: Vec<String>,
+    /// Remove individual labels without restating the list (matched
+    /// case-insensitively; comma-separated or repeatable).
+    #[arg(long = "remove-label", value_delimiter = ',')]
+    pub remove_label: Vec<String>,
     /// Append implementation notes (repeatable).
     #[arg(long = "append-notes")]
     pub append_notes: Vec<String>,
