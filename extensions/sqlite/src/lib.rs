@@ -243,7 +243,7 @@ mod tests {
         assert!(db_path.exists(), "database file should be created");
     }
 
-    // --- try_provide_from_db / get_db (TEST-5 / TASK-1870) ---
+    // try_provide_from_db / get_db (TEST-5 / TASK-1870):
     //
     // Both sit on the boundary between this crate and every consumer of it,
     // and both fail *softly* — a regression shows up as a slower path or a

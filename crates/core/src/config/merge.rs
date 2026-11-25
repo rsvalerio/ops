@@ -194,8 +194,6 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
-    // --- merge_field ---
-
     #[test]
     fn merge_field_some_overwrites_base() {
         let mut base = "original".to_string();
@@ -219,8 +217,6 @@ mod tests {
         merge_field(&mut base, None);
         assert!(!base);
     }
-
-    // --- merge_indexmap ---
 
     #[test]
     fn merge_indexmap_inserts_new_keys() {
@@ -293,8 +289,6 @@ mod tests {
         assert_eq!(base["a"], 1);
     }
 
-    // --- merge_output ---
-
     #[test]
     fn merge_output_partial_overlay() {
         let mut base = OutputConfig::default();
@@ -330,8 +324,6 @@ mod tests {
         assert_eq!(base.stderr_tail_lines, 10);
         assert_eq!(base.category_order, vec!["dev"]);
     }
-
-    // --- merge_config ---
 
     #[test]
     fn merge_config_stack_override() {

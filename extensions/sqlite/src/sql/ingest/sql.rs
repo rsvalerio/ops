@@ -622,8 +622,8 @@ mod tests {
         assert!(rendered.contains("\\u{1b}"), "ESC escaped: {rendered}");
     }
 
-    // --- JsonTableLoad builder tests (SEC-12 successors of the
-    // create_table_from_json_sql tests) ---
+    // JsonTableLoad builder tests (SEC-12 successors of the
+    // create_table_from_json_sql tests).
 
     /// The tokei column spec, in the shape `extensions/tokei` will declare
     /// it in Phase 2 — kept here so the builder is tested against the real
@@ -809,7 +809,7 @@ mod tests {
         let _ = JsonTableLoad::single_object_blob("metadata_raw");
     }
 
-    // --- query_rows_to_json (TEST-5 / TASK-1870) ---
+    // query_rows_to_json (TEST-5 / TASK-1870):
     //
     // Three downstream crates (`extensions/tokei`, `extensions-rust/loc`,
     // `extensions-rust/test-coverage`) turn query results into JSON through

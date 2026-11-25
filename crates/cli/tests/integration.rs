@@ -1674,8 +1674,6 @@ fn cli_deps_accepts_refresh_and_still_renders_the_report() {
         .stdout(predicate::str::contains("Dependency Health Report"));
 }
 
-// --- backlog -----------------------------------------------------------------
-
 fn backlog_dir() -> TempDir {
     let dir = temp_dir();
     std::fs::write(
@@ -2164,8 +2162,6 @@ fn cli_backlog_structural_unlink_primitives() {
         .success()
         .stdout(predicate::str::is_empty());
 }
-
-// --- about backlog -----------------------------------------------------------
 
 /// Seed one task file into a backlog subdirectory.
 fn seed_backlog_task(dir: &TempDir, sub: &str, id: &str, status: &str) {
