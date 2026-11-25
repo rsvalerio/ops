@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.96.0](https://github.com/rsvalerio/ops/compare/91ed2197f0a0d44f2efb5c4034405665691b1e84..v0.96.0) - 2026-11-25
+#### 🚀 Features
+- (**backlog**) add --remove-label and --set-label to task edit - ([8f4bb93](https://github.com/rsvalerio/ops/commit/8f4bb934ea7bcad44773f3f8f4fb05fbb1d84188)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**backlog**) document the task edit label flags - ([bc369e0](https://github.com/rsvalerio/ops/commit/bc369e0a4561badc080128087b587b26a47b5d07)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**deps**) bump encoding_rs_io from 0.1.7 to 0.1.8 - ([53be791](https://github.com/rsvalerio/ops/commit/53be791823e8f79ca18bd2c15a28632becc247f1)) - dependabot[bot]
+- (**deps**) bump inquire from 0.9.4 to 0.9.5 - ([14598b9](https://github.com/rsvalerio/ops/commit/14598b9270a26eb238f954957d2d50690a31fd1f)) - dependabot[bot]
+- (**deps**) bump serial_test from 3.5.0 to 4.0.1 - ([54d1917](https://github.com/rsvalerio/ops/commit/54d1917f1eeb2b3ecb75588d27d9662b85e90dbd)) - dependabot[bot]
+- (**deps**) bump json5 from 1.3.7 to 1.3.8 - ([e0624d5](https://github.com/rsvalerio/ops/commit/e0624d506a8a6bb02fa1ae99006d17167d223329)) - dependabot[bot]
+- (**deps**) bump clap from 4.6.7 to 4.6.9 - ([4dbd5a3](https://github.com/rsvalerio/ops/commit/4dbd5a37af8f54468ccc201000b2a5f3c76f7f38)) - dependabot[bot]
+- (**deps**) bump actions/create-github-app-token from 3.3.0 to 3.4.0 - ([5391094](https://github.com/rsvalerio/ops/commit/539109444ed44e929571d81b3778216e346481d4)) - dependabot[bot]
+- (**deps**) bump jdx/mise-action from 5.2.8 to 5.3.0 - ([661a209](https://github.com/rsvalerio/ops/commit/661a209e4eb90c7683dba9214597deb7570b2beb)) - dependabot[bot]
+- raise MSRV to 1.100.0 - ([91ed219](https://github.com/rsvalerio/ops/commit/91ed2197f0a0d44f2efb5c4034405665691b1e84)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.95.0](https://github.com/rsvalerio/ops/compare/29576485c22d020e5090bd805fca9b6de375113c..v0.95.0) - 2026-11-22
 #### 🚀 Features
 - (**create-review-tasks**) describe how to run a review request - ([1f8549e](https://github.com/rsvalerio/ops/commit/1f8549e4ec77955f96c11536cc9b18e55616420d)) - [@rsvalerio](https://github.com/rsvalerio)
